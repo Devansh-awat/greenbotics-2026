@@ -74,3 +74,12 @@ SERVO_PWM_PERIOD_S = 1.0 / SERVO_PWM_FREQ
 BOX_COLOR_RED = (0, 0, 255)
 BOX_COLOR_GREEN = (0, 255, 0)
 BOX_COLOR_ROI = (255, 0, 255)
+
+LOWER_RED_1 = np.array([0, 100, 55])
+UPPER_RED_1 = np.array([5, 255, 255])
+LOWER_RED_2 = np.array([174, 100, 55])
+UPPER_RED_2 = np.array([180, 255, 255])
+
+LOWER_GREEN = np.array([40, 60, 40])
+UPPER_GREEN = np.array([80, 255, 180])
+
