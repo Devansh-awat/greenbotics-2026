@@ -32,9 +32,8 @@ def initialize():
             lores={"size": (640, 360), "format": "RGB888"},
 
             controls={
-                        #"AeEnable": False,
                         "ExposureTime": 8000,
-                        #"AnalogueGain": 8.0,
+                        #"AnalogueGain": 10000.0,
                         "FrameRate": 56,
                     }
         )
