@@ -8,7 +8,7 @@ from src.obstacle_challenge.main_v3 import HSV_RANGES, LAB_RANGES
 
 # --- Configuration ---
 # Change these variables to switch modes
-TARGET_COLOR = 'MAGENTA'   # Options: RED, GREEN, BLUE, MAGENTA, ORANGE, BLACK
+TARGET_COLOR = 'RED'   # Options: RED, GREEN, BLUE, MAGENTA, ORANGE, BLACK
 TARGET_SPACE = 'HSV'   # Options: HSV, LAB
 # ---------------------
 
@@ -61,21 +61,16 @@ def main():
     
     if TARGET_COLOR == 'RED' and TARGET_SPACE == 'HSV':
         l1, u1, l2, u2 = defaults
-        # Set 1
-        cv2.createTrackbar('L1_1', window_name, l1[0], 180, nothing)
-        cv2.createTrackbar('L1_2', window_name, l1[1], 255, nothing)
-        cv2.createTrackbar('L1_3', window_name, l1[2], 255, nothing)
-        cv2.createTrackbar('U1_1', window_name, u1[0], 180, nothing)
-        cv2.createTrackbar('U1_2', window_name, u1[1], 255, nothing)
-        cv2.createTrackbar('U1_3', window_name, u1[2], 255, nothing)
-        
-        # Set 2
-        cv2.createTrackbar('L2_1', window_name, l2[0], 180, nothing)
-        cv2.createTrackbar('L2_2', window_name, l2[1], 255, nothing)
-        cv2.createTrackbar('L2_3', window_name, l2[2], 255, nothing)
-        cv2.createTrackbar('U2_1', window_name, u2[0], 180, nothing)
-        cv2.createTrackbar('U2_2', window_name, u2[1], 255, nothing)
-        cv2.createTrackbar('U2_3', window_name, u2[2], 255, nothing)
+        # Two hue bands (red wraps around 0/180) sharing one S and one V range.
+        cv2.createTrackbar('H1_min', window_name, l1[0], 180, nothing)
+        cv2.createTrackbar('H1_max', window_name, u1[0], 180, nothing)
+        cv2.createTrackbar('H2_min', window_name, l2[0], 180, nothing)
+        cv2.createTrackbar('H2_max', window_name, u2[0], 180, nothing)
+        # Shared saturation / value (defaults taken from the first band).
+        cv2.createTrackbar('S_min', window_name, l1[1], 255, nothing)
+        cv2.createTrackbar('S_max', window_name, u1[1], 255, nothing)
+        cv2.createTrackbar('V_min', window_name, l1[2], 255, nothing)
+        cv2.createTrackbar('V_max', window_name, u1[2], 255, nothing)
     else:
         l, u = defaults
         max_val_1 = 180 if TARGET_SPACE == 'HSV' else 255
@@ -105,25 +100,21 @@ def main():
             mask = None
             
             if TARGET_COLOR == 'RED' and TARGET_SPACE == 'HSV':
-                l1_1 = cv2.getTrackbarPos('L1_1', window_name)
-                l1_2 = cv2.getTrackbarPos('L1_2', window_name)
-                l1_3 = cv2.getTrackbarPos('L1_3', window_name)
-                u1_1 = cv2.getTrackbarPos('U1_1', window_name)
-                u1_2 = cv2.getTrackbarPos('U1_2', window_name)
-                u1_3 = cv2.getTrackbarPos('U1_3', window_name)
-                
-                l2_1 = cv2.getTrackbarPos('L2_1', window_name)
-                l2_2 = cv2.getTrackbarPos('L2_2', window_name)
-                l2_3 = cv2.getTrackbarPos('L2_3', window_name)
-                u2_1 = cv2.getTrackbarPos('U2_1', window_name)
-                u2_2 = cv2.getTrackbarPos('U2_2', window_name)
-                u2_3 = cv2.getTrackbarPos('U2_3', window_name)
-                
-                lower1 = np.array([l1_1, l1_2, l1_3])
-                upper1 = np.array([u1_1, u1_2, u1_3])
-                lower2 = np.array([l2_1, l2_2, l2_3])
-                upper2 = np.array([u2_1, u2_2, u2_3])
-                
+                h1_min = cv2.getTrackbarPos('H1_min', window_name)
+                h1_max = cv2.getTrackbarPos('H1_max', window_name)
+                h2_min = cv2.getTrackbarPos('H2_min', window_name)
+                h2_max = cv2.getTrackbarPos('H2_max', window_name)
+                s_min = cv2.getTrackbarPos('S_min', window_name)
+                s_max = cv2.getTrackbarPos('S_max', window_name)
+                v_min = cv2.getTrackbarPos('V_min', window_name)
+                v_max = cv2.getTrackbarPos('V_max', window_name)
+
+                # Shared S/V across both hue bands.
+                lower1 = np.array([h1_min, s_min, v_min])
+                upper1 = np.array([h1_max, s_max, v_max])
+                lower2 = np.array([h2_min, s_min, v_min])
+                upper2 = np.array([h2_max, s_max, v_max])
+
                 mask1 = cv2.inRange(converted, lower1, upper1)
                 mask2 = cv2.inRange(converted, lower2, upper2)
                 mask = cv2.bitwise_or(mask1, mask2)
@@ -165,10 +156,10 @@ def main():
             elif key == ord('s'):
                 print(f"--- Saved Values for {TARGET_COLOR} ({TARGET_SPACE}) ---")
                 if TARGET_COLOR == 'RED' and TARGET_SPACE == 'HSV':
-                    print(f"LOWER_RED_1 = np.array([{l1_1}, {l1_2}, {l1_3}])")
-                    print(f"UPPER_RED_1 = np.array([{u1_1}, {u1_2}, {u1_3}])")
-                    print(f"LOWER_RED_2 = np.array([{l2_1}, {l2_2}, {l2_3}])")
-                    print(f"UPPER_RED_2 = np.array([{u2_1}, {u2_2}, {u2_3}])")
+                    print(f"LOWER_RED_1 = np.array([{h1_min}, {s_min}, {v_min}])")
+                    print(f"UPPER_RED_1 = np.array([{h1_max}, {s_max}, {v_max}])")
+                    print(f"LOWER_RED_2 = np.array([{h2_min}, {s_min}, {v_min}])")
+                    print(f"UPPER_RED_2 = np.array([{h2_max}, {s_max}, {v_max}])")
                 else:
                     print(f"LOWER_{TARGET_COLOR} = np.array([{l_1}, {l_2}, {l_3}])")
                     print(f"UPPER_{TARGET_COLOR} = np.array([{u_1}, {u_2}, {u_3}])")

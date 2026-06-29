@@ -32,7 +32,7 @@ def initialize():
             lores={"size": (640, 360), "format": "RGB888"},
 
             controls={
-                        "ExposureTime": 8000,
+                        "ExposureTime": 3000,
                         #"AnalogueGain": 10000.0,
                         "FrameRate": 56,
                     }
@@ -107,10 +107,11 @@ def find_objects_in_rois(frame, detection_jobs):
                 mask = cv2.inRange(hsv_roi, color_def['lower'], color_def['upper'])
                 combined_mask = cv2.bitwise_or(combined_mask, mask)
             if color_name == 'black':
-                red_1 = cv2.inRange(hsv_roi, config.LOWER_RED_1, config.UPPER_RED_1)
-                red_2 = cv2.inRange(hsv_roi, config.LOWER_RED_2, config.UPPER_RED_2)
+                from src.obstacle_challenge import main_v3
+                red_1 = cv2.inRange(hsv_roi, main_v3.LOWER_RED_1, main_v3.UPPER_RED_1)
+                red_2 = cv2.inRange(hsv_roi, main_v3.LOWER_RED_2, main_v3.UPPER_RED_2)
                 red = cv2.bitwise_or(red_1, red_2)
-                green = cv2.inRange(hsv_roi, config.LOWER_GREEN, config.UPPER_GREEN)
+                green = cv2.inRange(hsv_roi, main_v3.LOWER_GREEN, main_v3.UPPER_GREEN)
                 combined_mask = cv2.subtract(combined_mask, red)
                 combined_mask = cv2.subtract(combined_mask, green)
             cleaned_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, morph_kernel)
@@ -188,10 +189,11 @@ def find_biggest_block(frame):
 
     hsv = cv2.cvtColor(cropped_frame, cv2.COLOR_BGR2HSV)
 
-    mask_r1 = cv2.inRange(hsv, config.LOWER_RED_1, config.UPPER_RED_1)
-    mask_r2 = cv2.inRange(hsv, config.LOWER_RED_2, config.UPPER_RED_2)
+    from src.obstacle_challenge import main_v3
+    mask_r1 = cv2.inRange(hsv, main_v3.LOWER_RED_1, main_v3.UPPER_RED_1)
+    mask_r2 = cv2.inRange(hsv, main_v3.LOWER_RED_2, main_v3.UPPER_RED_2)
     red_mask = cv2.bitwise_or(mask_r1, mask_r2)
-    green_mask = cv2.inRange(hsv, config.LOWER_GREEN, config.UPPER_GREEN)
+    green_mask = cv2.inRange(hsv, main_v3.LOWER_GREEN, main_v3.UPPER_GREEN)
 
     kernel = np.ones((5, 5), np.uint8)
     red_mask_cleaned = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, kernel)
@@ -209,7 +211,7 @@ def find_biggest_block(frame):
         for cnt in contours:
             area = cv2.contourArea(cnt)
 
-            if not (config.MIN_CONTOUR_AREA < area < max_allowed_area):
+            if not (main_v3.BLOCK_MIN_AREA < area < max_allowed_area):
                 continue
 
             x, y, cw, ch = cv2.boundingRect(cnt)
