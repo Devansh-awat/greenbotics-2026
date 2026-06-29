@@ -47,10 +47,10 @@ def set_angle(input_angle: float):
     if servo_pwm is None:
         return
 
+    adjusted_angle = input_angle + config.SERVO_CENTER_OFFSET
     clamped_input = max(
-        config.INPUT_ANGLE_MIN_SERVO, min(config.INPUT_ANGLE_MAX_SERVO, input_angle)
+        config.INPUT_ANGLE_MIN_SERVO, min(config.INPUT_ANGLE_MAX_SERVO, adjusted_angle)
     )
-    clamped_input += 5
     input_range = config.INPUT_ANGLE_MAX_SERVO - config.INPUT_ANGLE_MIN_SERVO
     output_range = config.CALIBRATED_ANGLE_MAX - config.CALIBRATED_ANGLE_MIN
     target_output_angle = (
@@ -82,7 +82,7 @@ def set_angle_unlimited(input_angle: float):
     if servo_pwm is None:
         return
 
-    unclamped_input = input_angle
+    unclamped_input = input_angle + config.SERVO_CENTER_OFFSET
 
     input_range = config.INPUT_ANGLE_MAX_SERVO - config.INPUT_ANGLE_MIN_SERVO
     output_range = config.CALIBRATED_ANGLE_MAX - config.CALIBRATED_ANGLE_MIN
@@ -119,23 +119,57 @@ def cleanup():
 
 
 if __name__ == "__main__":
-    print("--- Testing Servo Module ---")
+    print("--- Servo Center-Finding Tool ---")
     if not initialize():
         print("Servo test failed during initialization.")
     else:
+        # Smallest step the servo can meaningfully resolve. Toggle between
+        # 0.5 and 1.0 with 's' to home in on the true mechanical center.
+        STEP_OPTIONS = [0.5, 1.0]
+        step_idx = 0
+        step = STEP_OPTIONS[step_idx]
+        angle = 0.0
+
+        # Use set_angle_unlimited so the printed angle maps directly to the
+        # commanded position (set_angle adds a +5 trim offset, hiding center).
+        set_angle_unlimited(angle)
+
+        print(
+            "Controls:\n"
+            "  a / <- : nudge LEFT by current step\n"
+            "  d / -> : nudge RIGHT by current step\n"
+            "  s      : toggle step size (0.5 <-> 1.0)\n"
+            "  0      : jump to 0\n"
+            "  <num>  : jump to an absolute angle (e.g. -2.5)\n"
+            "  q      : quit\n"
+        )
+        print(f"angle = {angle:+.1f}   step = {step}")
+
         try:
             while True:
-                set_angle(45)
-                # for angle in range(-90, 91, 1):
-                #     set_angle_unlimited(angle)
-                #     time.sleep(0.01)
-                # for angle in range(90, -91, -1):
-                #     set_angle_unlimited(angle)
-                #     time.sleep(0.01)
-                time.sleep(5)
-        except KeyboardInterrupt:
-            print("\nTest interrupted by user.")
-            set_angle(0)
-            time.sleep(2)
+                cmd = input("> ").strip().lower()
+                if cmd in ("q", "quit", "exit"):
+                    break
+                elif cmd in ("a", "left"):
+                    angle -= step
+                elif cmd in ("d", "right"):
+                    angle += step
+                elif cmd == "s":
+                    step_idx = (step_idx + 1) % len(STEP_OPTIONS)
+                    step = STEP_OPTIONS[step_idx]
+                elif cmd == "":
+                    pass  # repeat / refresh
+                else:
+                    try:
+                        angle = float(cmd)
+                    except ValueError:
+                        print("  ? unrecognized input")
+                        continue
+                set_angle_unlimited(angle)
+                print(f"angle = {angle:+.1f}   step = {step}")
+        except (KeyboardInterrupt, EOFError):
+            print("\nInterrupted.")
         finally:
+            set_angle_unlimited(0)
+            time.sleep(0.5)
             cleanup()

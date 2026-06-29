@@ -103,10 +103,18 @@ increment_cont:
 _zero_y = adafruit_pioasm.assemble("set y 0")
 
 class IncrementalEncoder:
-    def __init__(self, pin_a, pin_b=None, divisor=1, counts_per_rev=720, gear_ratio=20/28, wheel_diameter_mm=62.4):
+    def __init__(self, pin_a, pin_b=None, divisor=1, counts_per_rev=44 * 4.2 * 38 / 13, gear_ratio=1.0, wheel_diameter_mm=62.4):
         """Create an incremental encoder on pin_a and the next higher pin
 
-        Always operates in "x4" mode (one count per quadrature edge)
+        Always operates in "x4" mode (one count per quadrature edge).
+
+        counts_per_rev is the full x4 resolution per WHEEL revolution:
+            44 counts/motor-rev (x4)
+            * 4.2  internal gearbox reduction
+            * 38/13 external gear reduction (13T motor -> 38T wheel)
+            = 540.18 counts per wheel revolution.
+        gear_ratio is therefore folded in and defaults to 1.0, so position /
+        counts_per_rev gives wheel revolutions directly.
 
         Assumes but does not check that pin_b is one above pin_a."""
         self._sm = StateMachine(
