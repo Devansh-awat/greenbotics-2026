@@ -208,9 +208,13 @@ __marimo__/
 
 # Mac OS
 .DS_Store
+
+# Custom
 *.mp4
 *.pstats
 obstacle/
 open/
 *.png
 *.pyi
+dataset/
+*.npy
