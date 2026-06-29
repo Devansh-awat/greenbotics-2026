@@ -1,348 +1,331 @@
 # -*- coding: utf-8 -*-
 """
-Unified library for reading distance from DFRobot_URM09, VL53L1X, and VL53L8CX sensors
-via a TCA9548A I2C multiplexer or direct connection.
+Distance sensing with two VL53L4CD sensors on I2C bus 3:
+
+- Front: one VL53L4CD on GPIO 17 (Address 0x2A).
+- Back:  one VL53L4CD on GPIO 27 (Address 0x2B).
+
+Callers address sensors by a logical "channel" number, kept consistent with the
+old mux-only layout so the rest of the codebase is unchanged:
+
+    channel 0 -> Front (VL53L4CD, address 0x2A, XSHUT GPIO17)
+    channel 3 -> Back  (VL53L4CD, address 0x2B, XSHUT GPIO27)
 """
 
 import time
-import board
-import busio
-import adafruit_tca9548a
-import adafruit_vl53l1x
 import traceback
-from adafruit_bus_device.i2c_device import I2CDevice
+import threading
+import busio
+from adafruit_blinka.microcontroller.generic_linux.i2c import I2C as _LinuxI2C
+from gpiozero import DigitalOutputDevice
+import adafruit_vl53l4cd
 
-# --- ADD VL53L8CX SUPPORT ---
-# Assumes vl53l8cx_python.py and libvl53l8cx_uld.so are in the same directory
-try:
-    from src.sensors.vl53l8cx_python import VL53L8CX, VL53L8CX_RESOLUTION_4X4, VL53L8CX_RESOLUTION_8X8
-    VL53L8CX_AVAILABLE = True
-except (ImportError, OSError) as e:
-    print(f"Warning: Could not import VL53L8CX library. Support is disabled. Error: {e}")
-    VL53L8CX_AVAILABLE = False
-# --- END ADD ---
+# Patch adafruit_vl53l4cd.VL53L4CD._write_register to disable 1MHz Fast Plus mode
+# (writing 0x00 instead of 0x12 to register 0x002D). This keeps standard I2C filters
+# active on the sensor, avoiding clock stretching/timeout issues on the Pi 5.
+_original_write_register = adafruit_vl53l4cd.VL53L4CD._write_register
 
+def _custom_write_register(self, address, data, length=None):
+    import struct
+    if length is None:
+        length = len(data)
+    if address == 0x002D and length > 0:
+        data_list = list(data[:length])
+        if data_list[0] == 0x12:
+            data_list[0] = 0x00
+        data = bytes(data_list)
+    with self.i2c_device as i2c:
+        i2c.write(struct.pack(">H", address) + data[:length])
+
+adafruit_vl53l4cd.VL53L4CD._write_register = _custom_write_register
 
 # --- Configuration ---
-I2C_BUS_MAIN = 1 # The bus with the multiplexer
-TCA_ADDRESS = 0x70
-URM09_ADDRESS = 0x11
-TOF_CHANNELS_TO_USE = range(8)
+I2C_BUS = 3
+
+# Channels (XSHUT Pin Numbers)
+FRONT_CHANNEL = 17   # Forward VL53L4CD (GPIO17)
+BACK_CHANNEL = 27    # Backward VL53L4CD (GPIO27)
+
+# Keep compatibility variables so callers don't break
+VL53L1X_CHANNELS = [0]
+VL53L8CX_CHANNELS = [3]
+SENSOR_CHANNELS = [0, 3, FRONT_CHANNEL, BACK_CHANNEL]
+
+# Pins and Addresses (matching test_vl53l4cd_dual.py)
+XSHUT_A_PIN = 17
+XSHUT_B_PIN = 27
+ADDR_A = 0x2A
+ADDR_B = 0x2B
+
+# Timing settings
+TIMING_BUDGET_MS = 33
+BOOT_DELAY_S = 0.2
+BRING_UP_RETRIES = 6
+
+# range_status values we accept as a usable distance
+_VALID_STATUSES = (
+    adafruit_vl53l4cd.RANGE_VALID,
+    adafruit_vl53l4cd.RANGE_WARN_SIGMA_ABOVE,
+    adafruit_vl53l4cd.RANGE_WARN_SIGMA_BELOW,
+)
 
 # --- Global Variables ---
-_i2c_main = None
-_mux = None
+_i2c = None
 _sensors = {}
-_sensor_types = {}
+_xshut_devices = {}
+_lock = threading.Lock()
+_diag = {}
 
 
-# ===========================================================================
-# ===== MODIFIED DFRobot_URM09_IIC_CircuitPython Class (NOW NON-BLOCKING) =====
-# ===========================================================================
-class DFRobot_URM09_IIC_CircuitPython:
-    _CMD_DISTANCE_MEASURE = 0x01
-    _DIST_H_INDEX = 3
-    _CMD_INDEX = 8
-    
-    # --- NEW: Define the measurement time required by the sensor ---
-    _MEASUREMENT_WAIT_MS = 30 # It takes ~30ms for a measurement to be ready
+class _ExtendedI2C(busio.I2C):
+    """Minimal busio.I2C that targets an arbitrary /dev/i2c-N by bus number.
 
-    def __init__(self, i2c_bus_channel, addr=URM09_ADDRESS):
-        self.i2c_device = I2CDevice(i2c_bus_channel, addr)
-        self._write_reg(7, [0x20])
+    busio.I2C delegates every transaction to ``self._i2c``; we just point that
+    at Blinka's Linux smbus wrapper for the chosen bus.
+    """
 
-        # --- NEW: State variables for non-blocking operation ---
-        self._last_trigger_time = 0
-        self._last_distance = None
-        self._trigger_measurement() # Start the very first measurement
+    def __init__(self, bus_num):
+        self._bus_num = bus_num
+        self.init(bus_num)
 
-    def _write_reg(self, reg, data):
-        buffer_to_write = bytearray([reg] + data)
-        with self.i2c_device as i2c:
-            i2c.write(buffer_to_write)
+    def init(self, bus_num):
+        self.deinit()
+        self._i2c = _LinuxI2C(bus_num, mode=_LinuxI2C.MASTER)
 
-    def _read_reg(self, reg, length):
-        result = bytearray(length)
-        with self.i2c_device as i2c:
-            i2c.write_then_readinto(bytearray([reg]), result)
-        return list(result)
-
-    # --- NEW: Helper function to trigger a measurement ---
-    def _trigger_measurement(self):
-        """Sends the command to start a distance measurement and records the time."""
+    def deinit(self):
         try:
-            self._write_reg(self._CMD_INDEX, [self._CMD_DISTANCE_MEASURE])
-            self._last_trigger_time = time.monotonic()
-        except OSError:
-            # Ignore I/O errors on trigger, they will be caught on read
+            del self._i2c
+        except AttributeError:
             pass
 
-    # --- REWRITTEN: get_distance is now non-blocking ---
-    def get_distance(self):
-        """
-        Returns the distance in mm without blocking.
-        Checks if a reading is ready, and if so, reads it and starts the next one.
-        Returns None if no new data is ready.
-        """
-        # Check if enough time has passed since the last trigger
-        now = time.monotonic()
-        if (now - self._last_trigger_time) * 1000 < self._MEASUREMENT_WAIT_MS:
-            return None # Not ready yet, return immediately
 
-        # Time is up, try to read the result
+def _bring_up(channel, new_address, label):
+    """Wake one sensor (others must be in reset), move it to new_address.
+
+    Each attempt does a full XSHUT reset (low -> high) so the chip boots fresh:
+    a chip left ranging / killed mid-transaction by a previous run gets wedged
+    (ACKs its address but stalls every data transfer), and only a reset edge
+    clears it — re-probing alone won't. A reset also returns the chip to the
+    default 0x29, so re-probing 0x29 is correct on every attempt.
+    """
+    global _sensors, _xshut_devices, _i2c
+
+    xshut = _xshut_devices.get(channel)
+    if xshut is None:
+        raise RuntimeError(f"XSHUT pin for channel {channel} not initialized.")
+
+    last_err = None
+    for attempt in range(BRING_UP_RETRIES):
+        xshut.off()
+        time.sleep(0.05)
+        xshut.on()              # clean reset edge -> fresh boot at 0x29
+        time.sleep(BOOT_DELAY_S)
         try:
-            rslt = self._read_reg(self._DIST_H_INDEX, 2)
+            with _lock:
+                s = adafruit_vl53l4cd.VL53L4CD(_i2c)  # responds at default 0x29
+                s.set_address(new_address)
+                s.timing_budget = TIMING_BUDGET_MS
+                s.inter_measurement = 0
+                s.start_ranging()
+            print(f"  - {label}: up at 0x{new_address:02X} (attempt {attempt + 1})")
+            _sensors[channel] = s
+            return s
+        except (OSError, ValueError, RuntimeError) as e:
+            last_err = e
+            time.sleep(0.05)
 
-            # --- Important: Trigger the NEXT measurement immediately ---
-            # This ensures it will be ready for a future call.
-            self._trigger_measurement()
+    raise RuntimeError(f"{label}: bring-up failed after retries: {last_err}")
 
-            if not rslt or len(rslt) < 2:
-                self._last_distance = None
-                return None
-            
-            distance_cm = (rslt[0] << 8) + rslt[1]
-            
-            if distance_cm >= 32768: # Value indicates an invalid reading
-                self._last_distance = None
-                return None
 
-            self._last_distance = distance_cm * 10
-            return self._last_distance
-
-        except (IOError, IndexError, TypeError):
-            # If there's an error, trigger a new measurement and return last known value or None
-            self._trigger_measurement()
-            return None
-
-def initialise(i2c_bus_num=I2C_BUS_MAIN, mux_address=TCA_ADDRESS, urm09_address=URM09_ADDRESS):
+def initialise(i2c_bus_num=I2C_BUS, **_ignored):
     """
-    Initializes the I2C bus, multiplexer, probes for sensors on all channels,
-    and checks for a standalone VL53L8CX on I2C bus 2.
+    Initializes the I2C bus and brings up the two VL53L4CD sensors
+    as front (channel 0) and back (channel 3) sensors.
     """
-    global _i2c_main, _mux, _sensors, _sensor_types
+    global _i2c, _sensors, _xshut_devices
+
+    # Clean up any previously opened objects
+    cleanup()
 
     try:
-        _i2c_main = busio.I2C(board.SCL, board.SDA)
+        _i2c = _ExtendedI2C(i2c_bus_num)
     except Exception as e:
         print(f"FATAL: Could not initialize I2C bus {i2c_bus_num}. Error: {e}")
         return False
 
     try:
-        _mux = adafruit_tca9548a.TCA9548A(_i2c_main, address=mux_address)
-        print(f"INFO: TCA9548A Mux found at address 0x{mux_address:02X}.")
-    except ValueError:
-        print(f"WARNING: TCA9548A Mux not found at address 0x{mux_address:02X}. Will not scan mux channels.")
-        _mux = None
-
-    if _mux:
-        print(f"INFO: Enabling VL53L1X on mux channel 2...")
-        channel_bus = _mux[2]
-
-        for attempt in range(3):    
-            try:
-                vl53_sensor = adafruit_vl53l1x.VL53L1X(channel_bus)
-                vl53_sensor.distance_mode = 1
-                vl53_sensor.timing_budget = 50
-                vl53_sensor.start_ranging()
-                _sensors[2] = vl53_sensor
-                _sensor_types[2] = 'VL53L1X'
-                print(f"  - SUCCESS: VL53L1X found and initialized on channel 2.")
-                break
-            except Exception as e:
-                print(f"distance.py: ERROR during VL53L1X initialisation: {e}")
-                traceback.print_exc()
-                time.sleep(0.2)
-
-        for i in [0,3]:
-            channel_bus = _mux[i]
-            for attempt in range(3):
-                try:
-                    urm09_sensor = DFRobot_URM09_IIC_CircuitPython(channel_bus, addr=urm09_address)
-                    # --- MODIFICATION: Give the URM09 time for its first reading during setup ---
-                    # This is a one-time block during initialization only.
-                    time.sleep(0.05) 
-                    if urm09_sensor.get_distance() is not None:
-                        _sensors[i] = urm09_sensor
-                        _sensor_types[i] = 'URM09'
-                        print(f"  - SUCCESS: URM09 found and initialized on channel {i}.")
-                        break
-                    else:
-                        print(f"  - INFO: No sensor found on channel {i}.")
-                        time.sleep(0.2)
-                except Exception as e:
-                    print(f"distance.py: ERROR during URM initialisation on channel {i} (Exception: {e}).")
-                    traceback.print_exc()
-                    time.sleep(0.2)
-
-    # --- NEW: Probe for standalone VL53L8CX on I2C bus 2 ---
-    if VL53L8CX_AVAILABLE:
-        print("INFO: Probing for standalone VL53L8CX on I2C bus 2...")
-        for attempt in range(3):
-            try:
-                # Initialize on bus 2 with channel -1 (no mux)
-                # The C library must be modified to use "/dev/i2c-2"
-                vl53l8cx_bus2_sensor = VL53L8CX()
-                vl53l8cx_bus2_sensor.resolution = VL53L8CX_RESOLUTION_4X4
-                vl53l8cx_bus2_sensor.start_ranging()
-                _sensors[-1] = vl53l8cx_bus2_sensor
-                _sensor_types[-1] = 'VL53L8CX'
-                print("  - SUCCESS: VL53L8CX found on I2C bus 2 (assigned to channel -1).")
-                break
-            except Exception as e:
-                print(f"distance.py: ERROR during VL53L8CX initialisation: {e}")
-                traceback.print_exc()
-                time.sleep(0.2)
-    # --- END NEW ---
-
-    print("INFO: Sensor initialization complete.")
-    return True
-
-def reinit_sensor(channel, urm09_address=URM09_ADDRESS):
-    global _sensors, _sensor_types, _mux
-    print("Reinitializing sensor on channel", channel)
-    try:
-        if channel == -1:
-            if not VL53L8CX_AVAILABLE:
-                return False
-            try:
-                _sensors[-1].stop_ranging()
-            except Exception as e:
-                print("Warning: Could not stop ranging on existing VL53L8CX sensor:", e)
-            
-            try:
-                vl = VL53L8CX()
-                vl.resolution = VL53L8CX_RESOLUTION_4X4
-                vl.start_ranging()
-                _sensors[-1] = vl
-                _sensor_types[-1] = 'VL53L8CX'
-                return True
-            except Exception as e:
-                print("Warning: Error during VL53L8CX reinit:", e)
-                return False
-
-        if _mux is None:
-            return False
-
-        channel_bus = _mux[channel]
-        try:
-            vl53 = adafruit_vl53l1x.VL53L1X(channel_bus)
-            vl53.distance_mode = 1
-            vl53.timing_budget = 50
-            vl53.start_ranging()
-            _sensors[channel] = vl53
-            _sensor_types[channel] = 'VL53L1X'
-            return True
-        except Exception:
-            pass
-
-        try:
-            urm = DFRobot_URM09_IIC_CircuitPython(channel_bus, addr=urm09_address)
-            time.sleep(0.05)
-            if urm.get_distance() is not None:
-                _sensors[channel] = urm
-                _sensor_types[channel] = 'URM09'
-                return True
-            else:
-                return False
-        except Exception:
-            return False
-    except Exception:
+        # Initial value False: hold both low (in reset) from the start
+        _xshut_devices[FRONT_CHANNEL] = DigitalOutputDevice(XSHUT_A_PIN, initial_value=False)
+        _xshut_devices[BACK_CHANNEL] = DigitalOutputDevice(XSHUT_B_PIN, initial_value=False)
+        time.sleep(0.05)
+    except Exception as e:
+        print(f"FATAL: Could not initialize GPIO XSHUT devices. Error: {e}")
+        cleanup()
         return False
 
-# ===============================================================
-# ===== NO CHANGES NEEDED BELOW THIS LINE =======================
-# ===============================================================
+    ok = True
+
+    # Front VL53L4CD (GPIO17 -> 0x2A)
+    try:
+        _bring_up(FRONT_CHANNEL, ADDR_A, "Front VL53L4CD (GPIO17)")
+    except Exception as e:
+        print(f"distance.py: ERROR initializing Front VL53L4CD: {e}")
+        traceback.print_exc()
+        ok = False
+
+    # Back VL53L4CD (GPIO27 -> 0x2B)
+    try:
+        _bring_up(BACK_CHANNEL, ADDR_B, "Back VL53L4CD (GPIO27)")
+    except Exception as e:
+        print(f"distance.py: ERROR initializing Back VL53L4CD: {e}")
+        traceback.print_exc()
+        ok = False
+
+    print(f"INFO: Sensor initialization complete. Status: {ok}")
+    return ok
+
+
+def reinit_sensor(channel, **_ignored):
+    """Reinitialize the sensor on the specified channel."""
+    global _sensors, _xshut_devices
+    print("Reinitializing sensor on channel", channel)
+    
+    # Map backward compatibility channels
+    if channel == 0:
+        channel = FRONT_CHANNEL
+    elif channel == 3:
+        channel = BACK_CHANNEL
+
+    if channel not in SENSOR_CHANNELS:
+        return False
+
+    old = _sensors.pop(channel, None)
+    if old is not None:
+        try:
+            with _lock:
+                old.stop_ranging()
+        except Exception as e:
+            print(f"Warning: Could not stop existing sensor on channel {channel}: {e}")
+
+    try:
+        addr = ADDR_A if channel == FRONT_CHANNEL else ADDR_B
+        label = "Front VL53L4CD (GPIO17)" if channel == FRONT_CHANNEL else "Back VL53L4CD (GPIO27)"
+        _bring_up(channel, addr, label)
+        return True
+    except Exception as e:
+        print(f"Warning: Error during reinit on channel {channel}: {e}")
+        return False
+
+
+def get_diag(reset=True):
+    """Return (and optionally reset) per-channel None-reason counters."""
+    snap = {ch: dict(c) for ch, c in _diag.items()}
+    if reset:
+        for c in _diag.values():
+            for k in c:
+                c[k] = 0
+    return snap
+
+
+def _bump(channel, key):
+    c = _diag.setdefault(channel,
+                         {'ok': 0, 'not_ready': 0, 'no_target': 0,
+                          'absent': 0, 'err': 0})
+    c[key] += 1
+
 
 def get_distance(channel):
     """
-    Reads the distance from a sensor on a specific channel.
-    This function remains unchanged, as the non-blocking logic is now
-    encapsulated within the URM09 sensor's class.
+    Returns distance in mm (float) for a configured channel, or None if the
+    channel is not configured or no new frame is ready (non-blocking).
     """
-    if channel not in _sensors:
+    # Map backward compatibility channels
+    actual_channel = channel
+    if channel == 0:
+        actual_channel = FRONT_CHANNEL
+    elif channel == 3:
+        actual_channel = BACK_CHANNEL
+
+    if actual_channel not in _sensors:
+        _bump(channel, 'absent')
         return None
 
-    sensor = _sensors[channel]
-    sensor_type = _sensor_types[channel]
-
+    sensor = _sensors[actual_channel]
     try:
-        if sensor_type == 'VL53L1X':
-            if sensor.data_ready:
-                distance_cm = sensor.distance
-                sensor.clear_interrupt()
-                return distance_cm * 10.0 if distance_cm is not None else None
-            return None # Already non-blocking
-            
-        elif sensor_type == 'URM09':
-            # This now calls the new non-blocking version
-            return sensor.get_distance()
+        with _lock:
+            if not sensor.data_ready:
+                _bump(channel, 'not_ready')
+                return None
+            distance_cm = sensor.distance
+            status = sensor.range_status
+            sensor.clear_interrupt()
 
-        elif sensor_type == 'VL53L8CX':
-            results = sensor.get_data()
-            if results:
-                middle_column_indices = [14,15,10,11,6,7,2,3]
-                
-                valid_distances = []
-                for i in middle_column_indices:
-                    if results.target_status[i] in [5, 9]:
-                        valid_distances.append(results.distance_mm[i])
-                if valid_distances:
-                    min_distance = min(valid_distances)
-                    return float(min_distance)
+        if status not in _VALID_STATUSES or distance_cm is None:
+            _bump(channel, 'no_target')
             return None
 
-    except (OSError, IOError):
-        print(f"\nI/O Error on channel {channel}. Sensor may be disconnected.")
-        if channel in _sensors:
-            del _sensors[channel]
-            del _sensor_types[channel]
+        _bump(channel, 'ok')
+        return float(distance_cm * 10.0)
+    except (OSError, IOError) as e:
+        _bump(channel, 'err')
+        print(f"\nI/O Error on channel {channel}. Error: {e}")
         return None
-
-    return None
 
 
 def cleanup():
-    """Stops ranging on all initialized ToF sensors."""
+    """Stops ranging on all initialized sensors and releases GPIOs."""
     print("\n--- Cleaning up Sensors ---")
-    for channel, sensor in _sensors.items():
-        if _sensor_types.get(channel) in ['VL53L1X', 'VL53L8CX']:
-            try:
+    for channel, sensor in list(_sensors.items()):
+        try:
+            with _lock:
                 sensor.stop_ranging()
-            except (OSError, AttributeError):
-                print(f"Warning: Error during cleanup of sensor on channel {channel}.")
+        except (OSError, AttributeError):
+            print(f"Warning: Error during cleanup of sensor on channel {channel}.")
+
+    _sensors.clear()
+
+    # Release XSHUT devices
+    global _xshut_devices
+    for channel, dev in list(_xshut_devices.items()):
+        try:
+            dev.close()
+        except Exception:
+            pass
+    _xshut_devices.clear()
+
+    # Close I2C bus
+    global _i2c
+    if _i2c is not None:
+        try:
+            _i2c.deinit()
+        except Exception:
+            pass
+        _i2c = None
+
     print("Cleanup complete.")
 
+
 if __name__ == "__main__":
-    print("--- Testing Distance Sensor Library ---")
+    print("--- Testing Distance Sensor Library (Dual VL53L4CD on I2C3) ---")
     if not initialise():
         print("Test failed during initialization.")
+    elif not _sensors:
+        print("No sensors were detected.")
     else:
-        if not _sensors:
-             print("No sensors were detected on any channel.")
-        else:
-            try:
-                
-                print("\nReading data from all detected sensors. Press Ctrl+C to stop.")
-                print(_sensors.keys())
-                while True:
-                    output_line_parts = []
-                    # sorted() will correctly handle channel -1
-                    for i in sorted(_sensors.keys()):
-                        dist_mm = get_distance(i)
-                        type_str = _sensor_types.get(i, "N/A")
-                        if dist_mm is not None:
-                            # Format for channel -1 specifically if you want
-                            ch_str = f"Ch{i}" if i != -1 else "Bus2"
-                            output_line_parts.append(f"{ch_str} ({type_str}): {dist_mm:6.0f} mm")
-                        else:
-                            ch_str = f"Ch{i}" if i != -1 else "Bus2"
-                            output_line_parts.append(f"{ch_str} ({type_str}):   ----   ")                    
-                    print(f"\r{(' | '.join(output_line_parts))}", end="", flush=True)
-                    # The main loop sleep is no longer blocked by the URM09 sensor,
-                    # so it can run at its intended frequency.
-                    time.sleep(1/60)
-            except KeyboardInterrupt:
-                print("\nTest interrupted by user.")
-            finally:
-                cleanup()
+        try:
+            print("\nReading data from all detected sensors. Press Ctrl+C to stop.")
+            print(list(_sensors.keys()))
+            while True:
+                output_line_parts = []
+                for i in sorted(_sensors.keys()):
+                    dist_mm = get_distance(i)
+                    if dist_mm is not None:
+                        output_line_parts.append(f"Ch{i}: {dist_mm:6.0f} mm")
+                    else:
+                        output_line_parts.append(f"Ch{i}:   ----   ")
+                print(f"\r{(' | '.join(output_line_parts))}", end="", flush=True)
+                time.sleep(1 / 30)  # ~30 Hz
+        except KeyboardInterrupt:
+            print("\nTest interrupted by user.")
+        finally:
+            cleanup()
