@@ -1,0 +1,23 @@
+flowchart TD
+    A([Boot: camera/motor/servo init<br/>open log + MP4]):::startend --> B[Start CameraThread]:::thread
+    B --> C[Start ImuThread → wait for calibration]:::thread
+    C --> D[/LED on; wait for start button GPIO 23/]:::io
+    D --> E[Lock INITIAL_HEADING<br/>motor.forward MOTOR_SPEED=100]:::action
+    E --> L[Main loop ≈60 FPS]:::loop
+    L --> F[get_frame → process_video_frame]:::vision
+    F --> G[Update orange-line turn counter]:::vision
+    G --> H[Steering law:<br/>angle = ΣL_wall − ΣR_wall × 0.0005<br/>side-vanish boost · close-black override<br/>slew clamp ±10 · hard clamp ±40]:::control
+    H --> I[/servo.set_angle, write MP4/]:::io
+    I --> J{"turn_counter == 12<br/>and |heading − INITIAL| &lt; 30°?"}:::decision
+    J -- yes --> K([Arm 0.8 s timer → exit]):::startend
+    J -- no --> L
+    J -- counter ≥ 13 failsafe --> K
+
+    classDef startend fill:#ffd6a5,stroke:#cc6600,stroke-width:2px,color:#000
+    classDef thread fill:#caffbf,stroke:#2d8a2d,stroke-width:2px,color:#000
+    classDef io fill:#ffadad,stroke:#a83232,stroke-width:2px,color:#000
+    classDef action fill:#a0c4ff,stroke:#1d4ed8,stroke-width:2px,color:#000
+    classDef loop fill:#fdffb6,stroke:#9a8500,stroke-width:2px,color:#000
+    classDef vision fill:#bdb2ff,stroke:#5b3df1,stroke-width:2px,color:#000
+    classDef control fill:#9bf6ff,stroke:#0a7c8a,stroke-width:2px,color:#000
+    classDef decision fill:#ffc6ff,stroke:#a23ea2,stroke-width:2px,color:#000

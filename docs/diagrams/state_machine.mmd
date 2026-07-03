@@ -1,0 +1,28 @@
+stateDiagram-v2
+    [*] --> WaitForSensors
+    WaitForSensors --> DetectDirection: sensor + IMU events set
+    DetectDirection --> WallFollow: heading locked
+    WallFollow --> EvadeClose: close_block ROI fires (red/green or late-game magenta)
+    EvadeClose --> WallFollow: 0.5 s reverse + 0.3 s counter-steer done
+    WallFollow --> BlockFollow: main block visible
+    BlockFollow --> WallFollow: block left frame
+    WallFollow --> MagentaFollow: magenta block in line-ROI
+    MagentaFollow --> WallFollow: magenta gone
+    WallFollow --> Parking: turn_counter ≥ 13
+    BlockFollow --> Parking: turn_counter ≥ 13
+    MagentaFollow --> Parking: turn_counter ≥ 13
+    Parking --> [*]
+
+    classDef wait fill:#ffd6a5,stroke:#cc6600,color:#000
+    classDef wall fill:#caffbf,stroke:#2d8a2d,color:#000
+    classDef block fill:#a0c4ff,stroke:#1d4ed8,color:#000
+    classDef magenta fill:#ffc6ff,stroke:#a23ea2,color:#000
+    classDef evade fill:#ffadad,stroke:#a83232,color:#000
+    classDef park fill:#9bf6ff,stroke:#0a7c8a,color:#000
+
+    class WaitForSensors,DetectDirection wait
+    class WallFollow wall
+    class BlockFollow block
+    class MagentaFollow magenta
+    class EvadeClose evade
+    class Parking park
