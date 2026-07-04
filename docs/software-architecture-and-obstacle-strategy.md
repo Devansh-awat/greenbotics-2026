@@ -5,7 +5,7 @@ This document covers the software for two competition modes:
 | Mode | Entry point | Purpose |
 |---|---|---|
 | **Open Challenge** | `src/open_challenge/main.py` | Three full laps on an empty track. |
-| **Obstacle Challenge** | `src/obstacle_challenge/main_v3.py` | Three laps while obeying red/green pillars and parking. |
+| **Obstacle Challenge** | `src/obstacle_challenge/main_v4.py` | Three laps while obeying red/green pillars and parking. |
 
 Both share the same hardware-abstraction modules (`src/sensors/*`, `src/motors/*`) and the same overall architectural template — a multi-threaded sense/think/act loop with a single-writer state machine on the main thread. The obstacle code is a strict superset: same wall-following fallback, with object-aware behaviours layered on top.
 
@@ -21,7 +21,7 @@ The arena, pillar colours, parking-corridor geometry and lap rules are the ones 
 | Never miss a frame at the moment a turn happens (the orange/blue line passes under the camera in only a handful of frames at 100% throttle). | A condition-variable handshake in `CameraThread` guarantees the main loop sees *every new* frame, not just the latest snapshot. |
 | Be deterministic enough to debug after the fact. | Every run writes (a) the annotated MP4, (b) the full stdout/stderr log, and (c) a 1 Hz raw-frame dump for retraining/evaluation. All three are stamped into a fresh `obstacle/<timestamp>/` or `open/<timestamp>/` folder. |
 | Fail soft when a sensor stalls. | Each sensor thread guards its own try/except and an `initialization_complete` `threading.Event` so the main thread can still arm even if one peripheral mis-init's. ToF readings are nullable (`None`) and consumers always test for that. |
-| Be tunable by a non-author. | All tuneable variables — HSV ranges, ROI rectangles, area thresholds, gains, clamps, speeds, distances — live in a dedicated `config.py` per challenge, with a one-line comment next to each constant explaining what it is and what changing it does. Nothing tuneable is buried inside a function. *(The current code still has some constants at the top of `main_v3.py`; the planned cleanup is to migrate every one of them into `obstacle_challenge/config.py` alongside the open-challenge file that already does this.)* |
+| Be tunable by a non-author. | All tuneable variables — HSV ranges, ROI rectangles, area thresholds, gains, clamps, speeds, distances — live in a dedicated `config.py` per challenge, with a one-line comment next to each constant explaining what it is and what changing it does. Nothing tuneable is buried inside a function. *(The current code still has some constants at the top of `main_v4.py`; the planned cleanup is to migrate every one of them into `obstacle_challenge/config.py` alongside the open-challenge file that already does this.)* |
 | Drive like a human, not jerkily. | The control law is **proportional everywhere it can be** rather than a discrete "if block then switch lane" state machine. Steering changes smoothly with the visual error, the slew-rate clamp limits how much the wheels can flick frame-to-frame, and `set_angle` writes are skipped when the angle hasn't changed — so the chassis tracks corners instead of chattering through them. See §1.1. |
 
 ### 1.1 Why proportional control instead of lane-switching
@@ -43,12 +43,15 @@ The current code drives almost everything off camera-derived geometric error (bl
 src/
 ├── motors/
 │   ├── motor.py        # TB6612FNG drive: forward()/reverse()/brake()/cleanup() + encoder-PID move()
-│   └── servo.py        # PCA9685 steering: set_angle() (clamped) and set_angle_unlimited()
+│   │                   # and an RPM-target closed loop (start_rpm_control()/set_rpm_target()/
+│   │                   # get_measured_rpm()/stop_rpm_control()), used by main_v4's parking routines
+│   └── servo.py        # Hardware-PWM steering (rpi_hardware_pwm, GPIO18): set_angle() (clamped)
+│                       # and set_angle_unlimited() — there is no PCA9685 on this vehicle
 ├── sensors/
 │   ├── camera.py       # Picamera2 wrapper: initialize(), capture_frame(), cleanup()
 │   ├── bno055.py       # Adafruit BNO055 IMU: initialize(), get_heading(), cleanup()
 │   ├── distance.py     # 4-channel TCA9548A multiplexed VL53L1X / URM09 / VL53L8CX driver
-│   ├── encoder.py      # PIO quadrature encoder, used by motor.move()
+│   ├── encoder.py      # PIO quadrature encoder, used by motor.move() and the RPM control loop
 │   ├── vl53l1x.py      # Lightweight VL53L1X helper
 │   ├── vl53l8cx_python.py + libvl53l8cx_uld.so  # Python ctypes wrapper around the ST ULD C library
 │   └── color_tuning.py # Live HSV trackbar tool — see §6
@@ -56,19 +59,21 @@ src/
 │   ├── config.py       # HSV + ROI constants for open challenge
 │   └── main.py         # Open Challenge entry point
 └── obstacle_challenge/
-    ├── main_v3.py                    # Obstacle Challenge entry point (constants live at top of file)
-    ├── test_drive_straight_track.py  # The diagonal-line tuning tool — see §6.3
-    ├── test_sensor_threading.py      # ToF multiplexer regression test
-    ├── sensor_test.py                # Standalone all-channel ToF print
-    ├── capture_dataset.py            # Manual button-triggered raw-frame capture (see §3.4)
-    └── stats_reader.py               # cProfile pstats reader for the .pstats files at repo root
+    ├── main_v4.py                        # Obstacle Challenge entry point (constants live at top of file)
+    ├── drive_straight_tune_target.py     # The diagonal-line tuning tool — see §6.3
+    ├── test_sensor_threading.py          # ToF multiplexer regression test
+    ├── sensor_test.py                    # Standalone all-channel ToF print
+    ├── capture_dataset.py                # Manual button-triggered raw-frame capture (see §3.4) —
+    │                                      # standalone tool only; the always-on in-lap dataset thread
+    │                                      # described below was removed, see §2.4
+    └── stats_reader.py                   # cProfile pstats reader for the .pstats files at repo root
 ```
 
 ### 2.1 Public interface of each hardware module
 
 | Module | Symbols used by the mains |
 |---|---|
-| `motors.motor` | `initialize()`, `forward(speed)`, `reverse(speed)`, `brake()`, `cleanup()`, `move(distance_cm,…)`, `encoder` (the live `IncrementalEncoder` instance) |
+| `motors.motor` | `initialize()`, `forward(speed)`, `reverse(speed)`, `brake()`, `cleanup()`, `move(distance_cm,…)`, `start_rpm_control(target_rpm, direction)` / `set_rpm_target(...)` / `get_measured_rpm()` / `stop_rpm_control()` (the closed loop `main_v4.py`'s `parking()`/`parking2()` actually drive with), `encoder` (the live `IncrementalEncoder` instance) |
 | `motors.servo` | `initialize()`, `set_angle(a)` (clamped to ±40°), `set_angle_unlimited(a)` (used for parking maneuvers that need ±65°), `cleanup()` |
 | `sensors.camera` | `initialize() -> bool`, `capture_frame() -> ndarray`, `cleanup()` |
 | `sensors.bno055` | `initialize()`, `get_heading() -> float\|None`, `cleanup()` |
@@ -89,14 +94,14 @@ The encoder is a quadrature pair driven through the **PIO** block on the Raspber
 
 We wrap the PIO state machine in `IncrementalEncoder` and bake in the gear ratio (20/28) and wheel diameter (62.4 mm) so consumers can read either raw counts (`.position`) or millimetres (`.distance`).
 
-`motor.move(distance_cm, …)` is the only consumer in production; it runs a small PID loop that ramps speed up over `accel_dist_cm`, then proportionally decelerates as the encoder approaches the target. We use this for parking maneuvers where a fixed timed-reverse used to drift by a couple of centimetres run-to-run.
+`motor.move(distance_cm, …)` runs a small PID loop that ramps speed up over `accel_dist_cm`, then proportionally decelerates as the encoder approaches the target — this replaced the old fixed timed-reverse, which used to drift by a couple of centimetres run-to-run. `main_v4.py`'s parking routines (`parking()`/`parking2()`, §5.8) go through the encoder a second way: `motor.start_rpm_control(target_rpm, direction)` holds a *target wheel speed* rather than a target distance, with `get_measured_rpm()` exposed for logging and `stop_rpm_control()` to hand control back to `forward()`/`reverse()`. Both paths read the same `IncrementalEncoder`; `move()` closes the loop on distance, the RPM API closes it on speed.
 
 ### 2.3 The VL53L8CX — its own bit-banged I²C bus, and a hand-rolled Python wrapper
 
 The rear-facing wide-FoV ToF is an **ST VL53L8CX** (8×8 zone TMF). It is by far the most sensitive device on the robot and the only one for which we had to step outside the comfortable Adafruit / CircuitPython ecosystem.
 
 **Why it has a dedicated bus.**
-On our first PCB the VL53L8CX shared the main hardware I²C bus with the BNO055, the PCA9685 and the TCA9548A multiplexer. It would not initialise reliably — typical symptom was `vl53l8cx_is_alive` returning 0 about half the time, or initialising successfully and then falling silent after a few seconds. We then tried hanging it off one channel of the TCA9548A; same symptoms. The sensor is fussy about both bus capacitance and timing, and once any of the other I²C devices are on the same physical wires you start losing the start/stop margins it expects.
+On our first PCB the VL53L8CX shared the main hardware I²C bus with the BNO055 and the TCA9548A multiplexer. It would not initialise reliably — typical symptom was `vl53l8cx_is_alive` returning 0 about half the time, or initialising successfully and then falling silent after a few seconds. We then tried hanging it off one channel of the TCA9548A; same symptoms. The sensor is fussy about both bus capacitance and timing, and once any of the other I²C devices are on the same physical wires you start losing the start/stop margins it expects.
 
 The fix: give the VL53L8CX its own I²C bus, exposed to userspace as `/dev/i2c-2`. With the sensor alone on that bus, init became a single-attempt operation, and runtime failures dropped sharply.
 
@@ -127,7 +132,7 @@ We seriously considered training a small YOLO classifier on the captured-frame s
 
 What we did instead: lean *very* heavily on tight HSV ranges, carefully placed ROIs, and the field-aware priority state machine in §4 so that classifier-grade discrimination (e.g. between a green pillar and a green-tinted shadow on the floor) is rarely required.
 
-The 1 Hz dataset capture is still wired up; if we ever decide to revisit YOLO we have a substantial archive to label against without re-running the robot.
+Having decided against YOLO, we then removed the always-on `DatasetCaptureThread` from `main_v4.py` too — the same two reasons that killed the classifier idea (annotation cost, on-Pi inference speed) meant the archive it was building had no near-term use, so it wasn't worth the extra thread, the per-lap disk writes, or the SD-card wear during every competition run. The standalone `obstacle_challenge/capture_dataset.py` tool (button-triggered, off the hot path) is kept around for deliberate one-off captures if we ever want to revisit this.
 
 ---
 
@@ -139,7 +144,7 @@ The 1 Hz dataset capture is still wired up; if we ever decide to revisit YOLO we
 
 *Source: [`diagrams/open_challenge_flow.mmd`](diagrams/open_challenge_flow.mmd)*
 
-### 3.2 Obstacle Challenge — `src/obstacle_challenge/main_v3.py`
+### 3.2 Obstacle Challenge — `src/obstacle_challenge/main_v4.py`
 
 ![Obstacle Challenge flow](diagrams/obstacle_challenge_flow.png)
 
@@ -158,10 +163,10 @@ Before forward motion starts the robot doesn't know whether it's set down to dri
 
 ### 3.4 Frame capture and the dataset stream
 
-Two complementary capture paths exist:
+`main_v4.py` does not run any capture thread during a competition lap — see §2.4 for why the earlier
+always-on `DatasetCaptureThread` was removed. The one remaining capture path is a standalone tool:
 
-* **`DatasetCaptureThread`** (in `main_v3.py`) — runs during a competition lap. Drops one raw, *unannotated* frame to `/dataset/<runtag>_NNNNNN.jpg` roughly every second. Used to build a long-term archive across sessions and venues without anyone having to push a button.
-* **`obstacle_challenge/capture_dataset.py`** — a standalone tool. Initialises the camera, then waits on the start button (GPIO 23): each press writes one raw frame. Used for deliberate "I want a clean shot of *that* lighting condition" capture between practice runs.
+* **`obstacle_challenge/capture_dataset.py`** — initialises the camera, then waits on the start button (GPIO 23): each press writes one raw frame. Used for deliberate "I want a clean shot of *that* lighting condition" capture between practice runs, off the hot path.
 
 ---
 
@@ -292,7 +297,7 @@ Geometrically this is "steer so the robot's would-be path from a fictional rear 
 * When the pillar was *close* to the robot, the straight-line target steered the chassis right alongside it — too close, and the chassis would clip the pillar.
 * When the pillar was *far* from the robot, the same straight-line target steered the chassis several lane-widths away from it — wasting time and distance, and on a tight track running the chassis into the opposite wall before the pillar even came into close range.
 
-So we built a calibration script (`test_drive_straight_track.py`, §6.2) that drives the robot dead straight past a pillar while tracking the pillar's centroid frame by frame. The path the centroid traces across the image is the camera's *empirical* projection of "a fixed point in the world, at varying distances ahead, moving past the chassis." That path is **not a vertical line and not even a straight line in any naïve sense** — because of the camera's mounting angle, it's a diagonal whose horizontal offset from frame-centre depends on how far the pillar is. Concretely: **the closer the pillar, the further from frame-centre we want the centroid to be**, and the script gives us the exact relationship.
+So we built a calibration script (`drive_straight_tune_target.py`, §6.2) that drives the robot dead straight past a pillar while tracking the pillar's centroid frame by frame. The path the centroid traces across the image is the camera's *empirical* projection of "a fixed point in the world, at varying distances ahead, moving past the chassis." That path is **not a vertical line and not even a straight line in any naïve sense** — because of the camera's mounting angle, it's a diagonal whose horizontal offset from frame-centre depends on how far the pillar is. Concretely: **the closer the pillar, the further from frame-centre we want the centroid to be**, and the script gives us the exact relationship.
 
 The angle-based target law in this section is what falls out of that calibration: instead of "drive so the centroid is at a fixed `x`", it's "drive so the angle from the chassis-corner origin to the centroid matches the angle the calibration script measured." That single change made the chassis pass cleanly at every range we tested.
 
@@ -330,7 +335,7 @@ The 3-of-4-frame debouncer in front handles the *opposite* direction of error: a
 
 ### 5.7 Image-processing optimisations
 
-The obstacle perception path runs in well under 16 ms on a Pi 5 — comfortably inside the 60 FPS budget — and the open-challenge path is faster still. None of the individual optimisations below is dramatic on its own, but together they turn what was originally a ~25 FPS pipeline (`main_v1.py`-era) into a 60 FPS one without changing the algorithm. The general principle behind every entry: **do the cheap reject as early as possible, and avoid every byte of work that depends on data you don't actually need.**
+The obstacle perception path runs in well under 16 ms on a Pi 5 — comfortably inside the 60 FPS budget — and the open-challenge path is faster still. None of the individual optimisations below is dramatic on its own, but together they turn what was originally a ~25 FPS pipeline (the season's first working version) into a 60 FPS one without changing the algorithm. The general principle behind every entry: **do the cheap reject as early as possible, and avoid every byte of work that depends on data you don't actually need.**
 
 * **Frame slice before colour-space conversion.** We crop the frame to `y=100..290` *before* the BGR→HSV call. cvtColor is the single most expensive call in the pipeline and cropping first cuts ~30 % of the work it has to do — the top 100 px is sky/ceiling, the bottom 70 px is the chassis nose, both produce only false positives. Cropping after cvtColor would mean we did the conversion on those rows and threw it away.
 * **Pre-computed ROI bitmasks.** All ROI rectangles are turned into `uint8` bitmasks once at module import. Every frame we just `cv2.bitwise_and` against them — no per-frame `np.zeros((360, 640))` allocation, no `cv2.rectangle` draw. Each saved allocation is ~0.4 ms; over a 3-minute run that's ~5 000 saved allocations, or about 2 s of cumulative runtime.
@@ -340,11 +345,11 @@ The obstacle perception path runs in well under 16 ms on a Pi 5 — comfortably 
 * **Operate on `lores` stream, not the full sensor frame.** The Picamera2 configuration declares both a 2304×1296 main stream (for human-readable raw captures) and a 640×360 `lores` stream (for the perception pipeline). Perception runs on the 640×360 stream; the dataset capture pulls from `lores` too. We never decode the 2304×1296 frame in the hot path.
 * **Drop-newest annotation queue.** Drawing the contour overlay onto the MP4 is expensive (`cv2.drawContours` per category, text labels, ROI boxes, target lines). Routing it to its own thread with a `maxsize=2` drop-newest queue means perception never waits on rendering. If the encoder lags, we lose annotation frames, never control frames.
 * **Annotate is split from encode.** `AnnotateAndWriteThread` is the CPU-bound drawing thread; the actual `cv2.VideoWriter.write()` runs in `VideoWriterThread` so disk I/O never blocks the OpenCV draw.
-* **`servo.set_angle` only on change.** The PCA9685 generates a tiny PWM jitter on every write. Skipping the write when the *integer* angle has not changed eliminates audible jitter, saves I²C bus traffic, and stops the steering linkage twitching at angles that would otherwise round-trip-the-same.
+* **`servo.set_angle` only on change.** Re-issuing the same hardware-PWM duty cycle every frame still costs a syscall and generates tiny jitter on the line. Skipping the write when the *integer* angle has not changed eliminates that jitter and stops the steering linkage twitching at angles that would otherwise round-trip-the-same.
 * **Constants resolved at import.** All ROI rectangles, HSV bounds and pre-computed angles (e.g. `RED_IDEAL_ANGLE`) are module-level constants — they're computed exactly once at import time, never re-derived per frame.
 * **No allocation in the inner loop.** Numpy temporaries inside the per-frame path are reused where possible; output arrays are passed in via `dst=` arguments to the OpenCV calls that support it. We do not re-allocate the HSV image or the per-colour masks every frame.
 
-> **Devansh — the `loop_performance.pstats` and `open_challenge.pstats` files at the repo root predate the current code path; the numbers in them aren't representative of what `main_v3.py` runs today.** I'd like a fresh `cProfile` capture from one full obstacle run on the latest code and one full open-challenge run. The simplest way: wrap the `main()` body in `cProfile.Profile()` / `pr.dump_stats('loop_performance.pstats')`, do a normal run, then `python -m src.obstacle_challenge.stats_reader loop_performance.pstats`. Paste the top 10 cumulative-time functions back to me and I'll turn the qualitative bullets above into a real numeric table.
+> **Devansh — the `loop_performance.pstats` and `open_challenge.pstats` files at the repo root predate the current code path; the numbers in them aren't representative of what `main_v4.py` runs today.** I'd like a fresh `cProfile` capture from one full obstacle run on the latest code and one full open-challenge run. The simplest way: wrap the `main()` body in `cProfile.Profile()` / `pr.dump_stats('loop_performance.pstats')`, do a normal run, then `python -m src.obstacle_challenge.stats_reader loop_performance.pstats`. Paste the top 10 cumulative-time functions back to me and I'll turn the qualitative bullets above into a real numeric table.
 
 ### 5.8 Parking (`parking()` and `parking2()`)
 
@@ -376,11 +381,11 @@ Trackbar-based live HSV picker. Workflow:
 2. Run `python -m src.sensors.color_tuning`. A window appears with H/S/V low/high trackbars per colour.
 3. Pan the robot across the mat so each pillar / line / parking block passes through the camera at the angles we'll see in the run.
 4. Sweep the bounds until the mask for each target is **contiguous within the target** and **black everywhere else**. The single most common mistake is making `S_low` too low — that lets the floor reflection through the red mask.
-5. Copy the printed numbers into the `HSV_RANGES` block at the top of `main_v3.py` and the matching block in `open_challenge/config.py`.
+5. Copy the printed numbers into the `HSV_RANGES` block at the top of `main_v4.py` and the matching block in `open_challenge/config.py`.
 
 ### 6.2 Camera-angle / line-shape tuning — the diagonal-line discovery
 
-`src/obstacle_challenge/test_drive_straight_track.py` is more interesting than its name suggests. The script:
+`src/obstacle_challenge/drive_straight_tune_target.py` is more interesting than its name suggests. The script:
 
 * drives the robot forward in a straight line under gyro hold, while
 * tracking the centroid of the largest red/green block frame-by-frame, then
@@ -390,7 +395,7 @@ What this surfaces: **the path a pillar traces across the camera image as the ro
 
 The block-following law in §5.4 originally assumed the target line was vertical (target = `(320, 0)` → directly overhead). With that assumption, when the robot tried to "line up with the block" it would actually curve around the block instead of running parallel to it. Replacing the vertical target with the **diagonal** the script measured — i.e. setting the virtual target at the `(x, 0)` actually predicted by the fitted line — made the chassis run parallel to the pillar, which is what we want.
 
-The `RED_TARGET_X = 320` / `GREEN_TARGET_X = 320` constants in `main_v3.py` are the result of this calibration. If the camera mount changes, re-run `test_drive_straight_track.py`, eyeball `final_extrapolation.png`, and update those constants.
+The `RED_TARGET_X = 320` / `GREEN_TARGET_X = 320` constants in `main_v4.py` are the result of this calibration. If the camera mount changes, re-run `drive_straight_tune_target.py`, eyeball `final_extrapolation.png`, and update those constants.
 
 ### 6.3 Gain tuning
 
@@ -496,23 +501,23 @@ If you do need to rebuild, the canonical reference for what the build has to pro
 ### 9.4 Run
 
 1. Clone this repo to `~/greenbotics`.
-2. Wire as in `schemes/` (camera arm, three multiplexed ToFs on bus 1 at TCA9548A `0x70`, rear VL53L8CX on bus 2, BNO055 on bus 1, motor on TB6612, servo on PCA9685, start button on GPIO 23, status LED on GPIO 12, encoder phases on GPIO 20/21).
+2. Wire as in `schemes/` (camera arm, three multiplexed ToFs on bus 1 at TCA9548A `0x70`, rear VL53L8CX on bus 2, BNO055 on bus 1, motor on TB6612 (hardware PWM, GPIO19), servo on hardware PWM (GPIO18), start button on GPIO 23, status LED on GPIO 12, encoder phases on GPIO 20/21).
 3. Place the robot in the start zone, switched off; toggle power; LED turns on once `bno055` finishes calibrating (~5 s).
 4. Run from the repo root:
    ```bash
    python -m src.open_challenge.main         # for Open Challenge
-   python -m src.obstacle_challenge.main_v3  # for Obstacle Challenge
+   python -m src.obstacle_challenge.main_v4  # for Obstacle Challenge
    ```
 5. Press the start button. The run is fully autonomous from there.
 6. Inspect outputs in `open/<ts>/` or `obstacle/<ts>/`.
 
-**About the `python -m` form.** The codebase is laid out as a Python *package* (`src/` with `__init__.py` files in each subdir), not as a flat folder of scripts. Files inside the package import each other with proper relative imports — `from src.sensors import camera`, `from src.motors import motor`, etc. If you launch a script directly (`python src/obstacle_challenge/main_v3.py`), Python sets the working directory as the search path, the `src.` package prefix isn't on `sys.path`, and the imports fail. The `python -m src.obstacle_challenge.main_v3` form tells Python to run the file *as a module inside the `src` package*: it walks the dotted path, finds `src/obstacle_challenge/main_v3.py`, and runs it with the package context already set up — so every `from src.*` import resolves correctly. This applies to every entry point in this repo (`main.py`, `main_v3.py`, `color_tuning.py`, `capture_dataset.py`, `test_drive_straight_track.py`); always launch them with `-m` and a dotted path, never as a bare file.
+**About the `python -m` form.** The codebase is laid out as a Python *package* (`src/` with `__init__.py` files in each subdir), not as a flat folder of scripts. Files inside the package import each other with proper relative imports — `from src.sensors import camera`, `from src.motors import motor`, etc. If you launch a script directly (`python src/obstacle_challenge/main_v4.py`), Python sets the working directory as the search path, the `src.` package prefix isn't on `sys.path`, and the imports fail. The `python -m src.obstacle_challenge.main_v4` form tells Python to run the file *as a module inside the `src` package*: it walks the dotted path, finds `src/obstacle_challenge/main_v4.py`, and runs it with the package context already set up — so every `from src.*` import resolves correctly. This applies to every entry point in this repo (`main.py`, `main_v4.py`, `color_tuning.py`, `capture_dataset.py`, `drive_straight_tune_target.py`); always launch them with `-m` and a dotted path, never as a bare file.
 
 To re-tune colours on a new mat:
 ```
 python -m src.sensors.color_tuning
 ```
-Adjust the trackbars until each colour is clean, copy the printed numbers into the `HSV_RANGES` dict at the top of `main_v3.py` and the matching block in `open_challenge/config.py`.
+Adjust the trackbars until each colour is clean, copy the printed numbers into the `HSV_RANGES` dict at the top of `main_v4.py` and the matching block in `open_challenge/config.py`.
 
 ---
 
@@ -528,7 +533,7 @@ The doc would land much harder with a handful of camera-FoV reference shots. Non
 6. **Same as 5 but for a green pillar** from origin `(616, 360)`.
 7. **Camera frame at the parking-corridor entry**, showing the magenta parking block and a same-y red/green pillar — the §5.4 magenta-coordinated case.
 8. **Camera frame entering the parking pocket** from inside the corridor, with the rear ToF cone roughly indicated so the reader sees what "back-ToF says wall ~160 mm" means.
-9. **One frame per pillar colour from `final_extrapolation.png`** showing the diagonal traced by the pillar centroid as we drive past it (the actual artefact `test_drive_straight_track.py` writes).
+9. **One frame per pillar colour from `final_extrapolation.png`** showing the diagonal traced by the pillar centroid as we drive past it (the actual artefact `drive_straight_tune_target.py` writes).
 10. **Photo of the rear of the chassis** showing the VL53L8CX board mounted on its dedicated bit-banged bus — useful evidence for §2.3.
 11. **A wide shot of the mat with reflections visible under venue lighting** — motivates §2.4 (why we considered YOLO).
 
