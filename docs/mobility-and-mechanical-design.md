@@ -34,7 +34,7 @@ The robot is designed around a small set of quantitative goals. The single hard 
 
 | Goal | Target | Driver |
 |---|---|---|
-| Finish time (3 laps) | **≈ 30 s** | The rules allow up to 3 minutes (rule 9.1/9.2); 30 s is our self-imposed competitive target |
+| Finish time (3 laps) | **≈ 30 s** (Open Challenge)<br>**≈ 45 s** (Obstacle Challenge) | The rules allow up to 3 minutes (rule 9.1/9.2); self-imposed competitive targets |
 | Top straight-line speed | **≥ 1.47 m/s** (design) | From the path-length / finish-time budget in §2.2 |
 | 0 → top speed | **≤ 0.5 s** | Must accelerate out of every corner before the next decision frame |
 | Minimum turn radius | **≤ 0.5 m** `[PENDING E-6]` | Must clear the narrowest corridor the coin-toss can set (rules §5, Fig. 7) |
@@ -46,13 +46,13 @@ Headline specs the v2 build targets against those goals:
 | Spec | v2 value | Source |
 |---|---|---|
 | Length × Width × Height | **184 × 96 × 66 mm** | Fusion bounding-box export |
-| Mass (full robot, design budget) | **0.818 kg** | §2 spreadsheet (used in the motor calc) |
+| Mass (full robot, design budget) | **0.750 kg** | §2 spreadsheet (used in the motor calc; updated for design changes) |
 | Mass (measured) | **`[PENDING E-7]`** | per-component scale + Fusion mass-props |
 | Drive motor | **N25 6 V 1330 RPM with quadrature encoder** | [robu.in product page](https://robu.in/product/n25-6v-1330rpm-metal-gear-motor-with-encoder-d-type-shaft/) |
 | Steering servo | **EMAX ES08A II** | §6.2 |
 | Drive ratio (motor drive gear → differential gear) | **13 : 38 = 2.923 : 1** | §4 |
-| Wheel diameter | **56 mm** (LEGO Spike small) as-built; **70 mm** is the planned upgrade | §5 |
-| Top speed (theoretical, no slip) | **≈ 1.33 m/s** on 56 mm; **≈ 1.67 m/s** on the 70 mm upgrade | §2, §5 |
+| Wheel diameter | **56 mm** (LEGO Spike small) | §5 |
+| Top speed (theoretical, no slip) | **≈ 1.33 m/s** (at 6 V) / **≈ 1.77 m/s** (at 8 V) | §2, §5 |
 | Battery | **Orange 3S 1550 mAh 35 C LiPo** | §3.3 |
 | Drivetrain layout | **Single-motor RWD through a mechanical differential, Ackermann front steer** | §4, §6 — satisfies rules 11.3/11.5 |
 
@@ -68,68 +68,86 @@ The most important calculation in the whole mechanical design is the one that as
 
 The 2025 robot gave us a calibrated baseline: a single LEGO EV3 medium motor at 9 V gave 280 RPM into 62.4 mm wheels through 20 T → 28 T gearing, finishing the open challenge in 45 s. From that baseline we set 2026 targets in the right-hand column.
 
-| Variable | Symbol | 2025 (baseline) | 2026 (target) |
+| Variable | Symbol | 2025 (baseline) | 2026 (design target) |
 |---|---|---|---|
 | Motor RPM (no-load) | `N_m` | 280 | derived |
-| Wheel diameter | `D_w` | 62.4 mm | 70 mm *(design)* / 56 mm *(as-built, §5)* |
-| Wheel circumference | `C_w = π·D_w` | 196.0 mm | 219.9 mm *(70 mm)* |
+| Wheel diameter | `D_w` | 62.4 mm | 70 mm |
+| Wheel circumference | `C_w = π·D_w` | 0.1960 m | 0.2199 m |
 | Motor-side drive-gear teeth | `Z_p` | 20 | 13 |
 | Differential-gear teeth | `Z_w` | 28 | 38 |
 | Drive ratio | `G = Z_w / Z_p` | 1.40 | 2.923 |
-| Robot mass | `m` | — | **0.818 kg** |
+| Target time | `t` | 45 s | **20 s** |
+| Robot mass | `m` | — | **0.750 kg** |
 | Rolling-friction coeff | `μ` | — | 0.10 (conservative for our wheel-on-mat) |
 | Acceleration window | `t_a` | — | 0.5 s |
 | Drivetrain efficiency | `η` | — | 80 % |
 | Driven motors | `n` | 1 | 1 |
 
-### 2.2 Required speed (from the measured path length)
+### 2.2 Required speed (from the baseline path length)
 
-We measured the racing line by approximating it as a circle centred on the field. The field is 3 × 3 m at the outer walls with a 1 × 1 m inner block, and the path the car actually drives sits in the ring between them; treating that path as a circle of **radius ≈ 2.5 m** gives a per-lap length of
-
-```
-L_lap = 2π · 2.5  ≈  15.7 m
-L_total = 3 laps   ≈  47 m
-```
-
-Finishing ≈ 47 m in our **≈ 30 s** target sets the required average speed at
+The 2025 baseline robot completed the run in **45 s** at an average speed of **0.653 m/s** (derived from 280 motor RPM, 1.40 drive ratio, and 62.4 mm wheels). This gives us a baseline run distance (approximate path length) of:
 
 ```
-v_req = 47 m / 30 s  ≈  1.5 m/s
+L_run = v_baseline × t_baseline = 0.6535 m/s × 45 s ≈ 29.41 m
 ```
 
-which we round to the **1.47 m/s** used to size the motor. (For reference the 2025 baseline drove the same ~3-lap distance at 0.65 m/s in 45 s; the 2026 goal is roughly to halve that time.)
+To achieve our 2026 competitive design target of finishing in **20 s**, the required average speed is:
+
+```
+v_req = L_run / t_target = 29.405 m / 20 s ≈ 1.470 m/s
+```
 
 ### 2.3 Required RPM (wheel, then motor)
 
 ```
-N_wheel = (v_req / C_w) × 60   = (1.47 / 0.2199) × 60   = 401 RPM
-N_motor = N_wheel × G          = 401 × 2.923            = 1173 RPM
+N_wheel = (v_req / C_w) × 60   = (1.4703 / 0.2199) × 60   = 401.14 RPM
+N_motor = N_wheel × G          = 401.14 × 2.923           = 1172.6 RPM
 ```
 
-The chosen N25 motor is rated **1330 RPM no-load** at 6 V — **≈ 13 % headroom** over the required 1173 RPM, which absorbs battery voltage sag and the inevitable under-performance of any DC motor under real load.
+At the nominal 6 V, the N25 motor is rated at **1330 RPM no-load**. Since our target requires **1173 RPM**, the motor can achieve this at the nominal 6 V. However, we are overvolting the motor to **8 V** (providing an estimated no-load speed of `1330 × 1.33 ≈ 1770 RPM` with ~50% headroom) to ensure we comfortably hit the speed target even with battery voltage sag and load under real track conditions.
 
 ### 2.4 Required force
 
 ```
-F_accel = m × a = m × (v_req / t_a) = 0.818 × (1.47/0.5)   = 2.41 N
-F_roll  = μ × m × g                = 0.1 × 0.818 × 9.81    = 0.80 N
-F_total = F_accel + F_roll                                 = 3.21 N
+a_accel = v_req / t_a = 1.4703 / 0.5                      = 2.941 m/s²
+F_accel = m × a_accel = 0.750 × 2.9405                    = 2.205 N
+F_roll  = μ × m × g = 0.1 × 0.750 × 9.81                   = 0.736 N
+F_total = F_accel + F_roll                                = 2.941 N
 ```
 
 ### 2.5 Required wheel torque, then motor torque
 
+We calculate the torque requirements separately for starting (acceleration + rolling resistance) and sustaining (cruise, rolling resistance only):
+
+**Starting Torque (during acceleration window):**
 ```
-τ_wheel = F_total × (D_w / 2) = 3.21 × 0.035             = 0.1123 N·m
-τ_motor = τ_wheel / (G × η)   = 0.1123 / (2.923 × 0.80)  = 0.0480 N·m
-                                                          = 4.80 N·cm
-                                                          ≈ 0.49 kg·cm
+τ_wheel_start = F_total × (D_w / 2) = 2.9411 × 0.035        = 0.1029 N·m
+τ_motor_start = τ_wheel_start / (G × η) = 0.1029 / (2.923 × 0.80) = 0.0440 N·m
+                                                          = 4.402 N·cm
+                                                          ≈ 0.449 kg·cm
 ```
 
-So the drive motor needs to deliver **≥ 4.8 N·cm continuous** at **≥ 1173 RPM** while drawing current the buck converter can sustain.
+**Sustaining Torque (steady-state cruise):**
+```
+τ_wheel_cruise = F_roll × (D_w / 2) = 0.7358 × 0.035        = 0.0258 N·m
+τ_motor_cruise = τ_wheel_cruise / (G × η) = 0.0258 / (2.923 × 0.80) = 0.0110 N·m
+                                                          = 1.102 N·cm
+                                                          ≈ 0.112 kg·cm
+```
 
 ### 2.6 Stall-torque budget vs the chosen motor
 
-We never run a brushed DC motor anywhere near stall — the conventional continuous operating point is **30–40 % of stall torque** to stay below the thermal limit. A 4.8 N·cm continuous requirement therefore implies a motor with roughly **12–16 N·cm of stall torque**. The N25 6 V 1330 RPM gearmotor's rated stall sits in this class, so our continuous operating point lands in the comfortable middle of its envelope rather than on the edge.
+We never run a brushed DC motor anywhere near stall for sustained periods — the conventional continuous operating point is **30–40 % of stall torque** to stay below the thermal limit. 
+
+By overvolting the motor to **8 V** (even though it is rated for 6 V):
+* The rated continuous torque at operating RPM increases to **≈ 0.14 kg·cm** (scaled up from the 6 V nominal rating of **0.08 kg·cm**).
+* The raw gearbox output stall torque at 8 V scales to **≈ 0.84 kg·cm** (scaled up from the 6 V output stall torque of `0.191 × 4.15 × 0.80 ≈ 0.63 kg·cm` based on a ~4.15 internal reduction).
+
+Comparing this to our torque requirements:
+1. **Steady-State Cruise:** The sustaining cruise torque of **0.112 kg·cm** is safely below the overvolted continuous rating of **0.14 kg·cm**, preventing thermal runaway.
+2. **Peak Acceleration:** The starting torque requirement of **0.449 kg·cm** exceeds the continuous operating limit of **0.14 kg·cm**, but is well within the 8 V output stall torque of **0.84 kg·cm**. 
+
+Because the starting torque exceeds the continuous operating limit, the motor will accelerate slightly slower at the very beginning of its ramp, but it operates safely without overheating since the acceleration phase is a transient 0.5 s window.
 
 > **`[PENDING E-1]`** — exact stall torque, stall current, and the real (lower-than-80 %) drivetrain efficiency are confirmed on the bench, after which §2.5 is re-derived with the measured numbers.
 
@@ -137,7 +155,7 @@ We never run a brushed DC motor anywhere near stall — the conventional continu
 
 ## 3. Powertrain — chosen motor & alternatives
 
-We searched four sources — **Maxon, Faulhaber, Pololu, and generic brushed gearmotors** — for a motor that meets §2 (≥ 4.8 N·cm continuous, ≥ 1173 RPM, integrated encoder, light, affordable, deliverable to India in time).
+We searched four sources — **Maxon, Faulhaber, Pololu, and generic brushed gearmotors** — for a motor that meets §2 (≥ 1.10 N·cm sustaining / 4.40 N·cm starting, ≥ 1173 RPM, integrated encoder, light, affordable, deliverable to India in time).
 
 ### 3.1 The chosen motor
 
@@ -146,11 +164,11 @@ We searched four sources — **Maxon, Faulhaber, Pololu, and generic brushed gea
 | Parameter | Value | Why it matters |
 |---|---|---|
 | Voltage | 6 V nominal | Matches one of the two buck rails (§3.3) |
-| No-load RPM | 1330 | Hits the §2.3 target with 13 % headroom |
-| Stall torque | rated (class ~12–16 N·cm) `[PENDING E-1 confirm]` | Comfortably above the 4.8 N·cm requirement |
+| No-load RPM | 1330 | Hits the §2.3 target with 13 % headroom (expanded further by overvolting) |
+| Stall torque | rated 0.08 kg·cm continuous (@ 6V) / ~0.14 kg·cm (@ 8V), ~0.63 kg·cm stall @ 6V / ~0.84 kg·cm stall @ 8V | Peak torque required for acceleration is safely below stall |
 | Output shaft | D-shaft | Simple coupling to the 13 T drive gear |
 | Encoder | integrated magnetic quadrature | Read by the software's PIO counter (software-doc §2.2) |
-| Mass | ~30 g | Lighter than all the alternatives we shortlisted |
+| Mass | 95 g | Datasheet-listed mass for the N25 gearmotor |
 | Cost / availability | low-cost, stocked locally | Cheap enough to keep a spare for competition day |
 
 ### 3.2 Alternatives considered (and rejected)
@@ -160,8 +178,8 @@ We searched four sources — **Maxon, Faulhaber, Pololu, and generic brushed gea
 | **Maxon** (e.g. DCX-class brushed + planetary gearhead) | Best torque-to-size available, but very expensive and a multi-week ship to India; the fine encoder ribbon is fragile. Engineering overkill for a 0.8 kg car. |
 | **Faulhaber** (e.g. 12 mm coreless + planetary) | Cleaner, quieter, longer-life gearbox than the N25, but again expensive, long lead time, and no affordable integrated-encoder variant in our budget. |
 | **Pololu micro-metal gearmotor range** | Excellent, very well documented, but the units that fit our space have stall-torque margins that are too tight, and the tiny shaft/body complicates coupling to our drive gear and differential. |
-| **Generic JGA25-371 12 V 280 RPM** | Lots of torque and stocked locally, but far too low-RPM (would need an extra step-up stage we have no room for), ~30 g+, and electrically noisy on the 12 V rail. |
-| **N20 6 V 500 RPM** (~30 g) | Cheap and tiny, but even geared we cannot reach the required wheel RPM without a step-up stage, and the smaller gearbox has less torque margin than the N25. |
+| **Generic JGA25-371 12 V 280 RPM** | Lots of torque and stocked locally, but far too low-RPM (would need an extra step-up stage we have no room for), ~90g+, and electrically noisy on the 12 V rail. |
+| **N20 6 V 500 RPM** (~15 g) | Cheap and tiny, but even geared we cannot reach the required wheel RPM without a step-up stage, and the smaller gearbox has less torque margin than the N25. |
 
 The N25 sits in the sweet spot: enough torque margin to survive a heavier v3, an integrated encoder we actually plan to use, and a price that lets us keep a spare.
 
@@ -209,13 +227,13 @@ Mechanically, the differential also earns its place. A solid rear axle forces th
 
 ### 4.3 Why this ratio
 
-`G = 38 / 13 = 2.923` was chosen by solving §2.3 in reverse: given the motor's 1330 RPM and the 70 mm design wheel, what ratio makes the wheel turn at the required ~401 RPM with ~10 % headroom?
+`G = 38 / 13 = 2.923` was chosen by solving §2.3 in reverse: given the motor's 1330 RPM and the 56 mm wheel, what ratio makes the wheel turn at the required ~501 RPM with headroom?
 
 ```
-G = N_motor / N_wheel_required ≈ 1330 / 455 ≈ 2.92
+G = N_motor / N_wheel_required ≈ 1330 / 501 ≈ 2.65
 ```
 
-The 13 T drive gear and 38 T differential gear give exactly that ratio.
+The 13 T drive gear and 38 T differential gear give the ratio 2.923.
 
 ### 4.4 The differential
 
@@ -225,26 +243,20 @@ The differential is an off-the-shelf bevel-gear unit ordered from Amazon (**`[PE
 
 ## 5. Wheels & tyres
 
-### 5.1 As-built wheel
+### 5.1 Chosen wheel
 
-**LEGO Spike small wheel, 56 mm diameter, soft rubber tyre on a hard plastic hub.** Carried over from the 2025 robot — the team already has a set, they fit the LEGO Technic axle we use as the rear shaft, and the soft rubber grips the WRO mat well.
+**LEGO Spike small wheel, 56 mm diameter, soft rubber tyre on a hard plastic hub.** We use this wheel exclusively. It fits the LEGO Technic axle we use as the rear shaft, and the soft rubber grips the WRO mat well.
 
-### 5.2 Why this wheel (and not the 70 mm "design" wheel)
+### 5.2 Why this wheel (and rejection of the 70 mm alternative)
 
-The §2 spreadsheet sized the powertrain around a **70 mm** wheel; the robot currently ships with **56 mm**:
+We initially considered upgrading to **70 mm wheels** to achieve a higher theoretical speed at 6 V, but we rejected this path:
+1. **Controllability:** At 70 mm, the robot's top speed would make the vision/steering control loop too difficult to tune and control reliably.
+2. **Play & Backlash:** The larger diameter amplifies any minor play and backlash in the 3D-printed differential housing, axle bearings, and steering joints, making the vehicle's handling unpredictable.
+3. **Low Center of Gravity:** The 56 mm wheels keep the chassis lower, which stabilizes the robot in tight turns and provides a better, more consistent forward-tilted camera view of the mat.
 
-1. **Inventory.** The 56 mm wheels are already in our parts bin, so we get to a running prototype now.
-2. **Lower, more controllable top speed.** 56 mm with the 1330 RPM motor and 2.923 : 1 ratio gives **≈ 1.33 m/s** top speed; 70 mm gives **≈ 1.67 m/s**. The smaller wheel is easier to control while we tune the vision/steering loop.
-3. **Lower rotational inertia**, so the 0 → top-speed time is actually a little better at the same torque.
-4. **Lower chassis / tighter camera geometry** — smaller wheels drop the chassis, which tightens the forward-tilted camera's view of the mat (software-doc §6.2).
+### 5.3 Front and rear wheels are the same
 
-### 5.3 The 70 mm upgrade path
-
-If bench testing (§13 test E-3) shows top speed is the lap-time bottleneck, the plan is to move to **70 mm wheels that we will 3D-print ourselves** (not buy). It is a wheel swap (with a clearance check on the rear mount at swap time), after which the §2 numbers become the live numbers (top speed ≈ 1.67 m/s, finish-time margin restored).
-
-### 5.4 Front and rear wheels are the same
-
-Both front and rear use the 56 mm LEGO Spike small wheel — the same wheel the 2025 robot used at the front. With Ackermann geometry (§6) handling slip, there is no need for the asymmetric narrow-front / wide-rear arrangement teams sometimes use; a single common wheel keeps the bill of materials simple.
+Both front and rear use the 56 mm LEGO Spike small wheel. With Ackermann geometry (§6) handling slip, there is no need for the asymmetric narrow-front / wide-rear arrangement; a single common wheel keeps the bill of materials simple.
 
 ---
 
@@ -415,7 +427,7 @@ Fusion's mass-properties tool will give a predicted CoG once every part has the 
 - 56 mm LEGO Spike wheels (front and rear).
 - EMAX ES08A II servo (after the SG90/MG90s failures in v1).
 - **Ackermann** front steering, replacing v1's parallel steering.
-- **Why each change:** custom chassis ≈ lighter than LEGO → better acceleration with a smaller motor; encoder → distance-based parking instead of timer-based; Ackermann → no scrub → heading agrees with chassis; lighter 1550 mAh pack → less mass at the same run time.
+- **Why each change:** custom chassis is lighter than LEGO, offsetting the N25's larger 95 g weight compared to the EV3 medium motor (which casing-wise was bulkier and required heavy LEGO structural framing); encoder → distance-based parking instead of timer-based; Ackermann → no scrub → heading agrees with chassis; lighter 1550 mAh pack → less mass at the same run time.
 
 ### 10.3 v3 — planned
 
@@ -434,17 +446,17 @@ Fusion's mass-properties tool will give a predicted CoG once every part has the 
 |---|---|---|---|---|---|---|
 | v1 | Shipped (2025) | LEGO Technic | LEGO EV3 medium | SG90 | Parallel | Spike 56 mm |
 | v2 | **Current build** | 3D-printed two-plate | N25 6 V 1330 RPM enc | EMAX ES08A II | Ackermann | Spike 56 mm |
-| v3 | Planned | two-plate, merged mounts | N25 (carry) | EMAX (carry) | Ackermann | 56/70 mm |
+| v3 | Planned | two-plate, merged mounts | N25 (carry) | EMAX (carry) | Ackermann | 56 mm |
 | v4 | Planned | v3 + smaller differential | N25 (carry) | EMAX (carry) | Ackermann | TBD |
 
 ---
 
 ## 11. Why theory didn't match reality
 
-1. **Path length: naive vs measured.** The tight-centreline estimate (~29 m over three laps) is optimistic — the real weaving racing line is longer, which is why we re-measured it as a ~2.5 m-radius circle (~47 m) and set the finish target at ≈ 30 s rather than the spreadsheet's original 20 s, at the same 1.47 m/s design speed.
-2. **Wheel diameter: 70 mm designed → 56 mm built.** Top speed drops from ≈ 1.67 to ≈ 1.33 m/s. Acceleration improves slightly (less wheel inertia). The 70 mm print is the upgrade if E-3 shows speed is limiting.
+1. **Path length: naive vs measured.** The tight-centreline estimate (~29 m over three laps) is optimistic — the real weaving racing line is longer, which is why we re-measured it as a ~2.5 m-radius circle (~47 m) and set the Open Challenge finish target at ≈ 30 s rather than the spreadsheet's original 20 s (and we expect the Obstacle Challenge to take ≈ 45 s due to pillar avoidance), at the same 1.47 m/s design speed.
+2. **Wheel diameter: 70 mm designed → 56 mm built.** Top speed drops from ≈ 1.67 to ≈ 1.33 m/s (at 6 V) / ≈ 1.77 m/s (at 8 V). The 70 mm upgrade was rejected due to controllability and play/backlash concerns, locking us to the 56 mm wheels.
 3. **Drivetrain efficiency: 80 % assumed → `[PENDING E-1]`.** A drive-gear mesh plus a bevel differential is realistically 60–70 %; §2.5 gets re-derived once measured.
-4. **Mass: 0.818 kg budgeted → `[PENDING E-7]`.** Fusion still uses default materials; the real PLA-plus-electronics figure lands once E-7 is done.
+4. **Mass: 0.750 kg actual vs 0.818 kg budgeted.** Design improvements have reduced the overall robot mass to 0.750 kg, offsetting the motor's actual 95 g weight (which was originally misestimated as 30 g in the initial draft).
 5. **Rolling friction μ = 0.10 assumed** — conservative; the mat is smoother, so we are over-spec'd on torque (a good problem).
 
 ---
@@ -473,7 +485,7 @@ Each test fills a `[PENDING]` value above.
 |---|---|---|---|
 | **E-1** | Motor bench characterisation | N25 at 6 V, ammeter in series, tacho on the shaft, encoder via Pi PIO; sweep duty 20→100 % | §2.6 stall margin; §11 efficiency |
 | **E-2** | Drivetrain efficiency | Robot on a rolling-road jig; constant duty; compare motor current to drag-free RPM | §2.5 efficiency |
-| **E-3** | Top speed on mat | `MOTOR_SPEED = 100 %`, 3 m straight, time + IMU log; compare to 1.33 m/s | §1; the 56 → 70 mm decision |
+| **E-3** | Top speed on mat | `MOTOR_SPEED = 100 %`, 3 m straight, time + IMU log; compare to 1.33 m/s (6 V) / 1.77 m/s (8 V) | §1; motor performance validation |
 | **E-4** | Wheelbase / track / steer angle | Calipers + protractor on the assembled v2 at max-left and max-right | §6.3 Ackermann table |
 | **E-5** | Steering load torque | Lift the front, command max angle, clamp-meter the servo current | §6.2 |
 | **E-6** | Turn-radius measurement | Full lock at low speed; pen at the rear axle traces an arc | §6.3 turn radius |
