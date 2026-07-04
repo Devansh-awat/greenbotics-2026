@@ -27,12 +27,17 @@ _RPM_MIN_DT = 0.02
 # requested AVERAGE rpm (the motion is stop-start at low targets).
 _RPM_PULSE_DUTY = 46.0   # duty used to pulse the wheel forward (above stall)
 # Hardware polarity of the encoder: driving FORWARD makes encoder.position
-# DECREASE, so forward travel has sign -1 (measured empirically). The controller
-# uses this to track SIGNED progress in the commanded direction, so a wheel still
-# coasting the wrong way (e.g. residual forward momentum when a reverse move
-# begins) reads as negative progress and is actively driven the right way instead
-# of being mistaken for progress (the old abs() behaviour drove it into a wall).
-_ENC_FORWARD_SIGN = -1.0
+# INCREASE, so forward travel has sign +1 (re-measured 2026-07-04 via
+# test_encoder_raw.py after fixing a broken GND wire on the encoder - the
+# previous -1.0 dated from before that fix and was inverted, which turned the
+# rpm controller's error term into positive feedback: see the runaway during
+# parking() where measured_rpm ran away from the +80 target instead of
+# holding it). The controller uses this to track SIGNED progress in the
+# commanded direction, so a wheel still coasting the wrong way (e.g. residual
+# forward momentum when a reverse move begins) reads as negative progress and
+# is actively driven the right way instead of being mistaken for progress
+# (the old abs() behaviour drove it into a wall).
+_ENC_FORWARD_SIGN = 1.0
 # Closed-loop duty for targets at/above the stall floor (continuous mode): rather
 # than commanding a FIXED duty (which stalls if the load is high, e.g. the wheels
 # are cranked hard over), the controller ramps the duty up until the wheel turns
