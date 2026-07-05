@@ -39,13 +39,13 @@ USE_LAB = False
 # is kept low at 3ms to avoid motion blur). S floor clamped >=50 and S/V ceilings
 # opened to 255 (brightness varies); hue bounds kept from the data.
 HSV_RANGES = {
-    'LOWER_RED_1': np.array([0, 128, 50]), 'UPPER_RED_1': np.array([2, 226, 158]),
-    'LOWER_RED_2': np.array([172, 128, 50]), 'UPPER_RED_2': np.array([180, 226, 158]),
-    'LOWER_GREEN': np.array([40, 50, 39]), 'UPPER_GREEN': np.array([88, 190, 135]),
-    'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 100, 80]),
+    'LOWER_RED_1': np.array([0, 92, 43]), 'UPPER_RED_1': np.array([4, 230, 166]),
+    'LOWER_RED_2': np.array([173, 92, 43]), 'UPPER_RED_2': np.array([180, 230, 166]),
+    'LOWER_GREEN': np.array([42, 85, 39]), 'UPPER_GREEN': np.array([88, 190, 135]),
+    'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 95, 70]),
     'LOWER_ORANGE': np.array([6, 50, 182]), 'UPPER_ORANGE': np.array([15, 255, 255]),
-    'LOWER_MAGENTA': np.array([158, 73, 64]), 'UPPER_MAGENTA': np.array([172, 255, 223]),
-    'LOWER_BLUE': np.array([114, 50, 110]), 'UPPER_BLUE': np.array([123, 255, 255])
+    'LOWER_BLUE': np.array([114, 50, 110]), 'UPPER_BLUE': np.array([123, 255, 255]),
+    'LOWER_MAGENTA': np.array([158, 73, 64]), 'UPPER_MAGENTA': np.array([172, 255, 223])
 }
 
 # LAB values from the polygon tuner (OpenCV LAB: L,a,b = 0-255).
@@ -94,14 +94,14 @@ BLOCK_MIN_AREA = 500
 MAGENTA_MIN_AREA = 500
 CLOSE_BLOCK_MIN_AREA = 15
 
-left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 105, 135, 150
-right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 105, 135, 150
-inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h = 140, 150, 100, 100
-inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h = 400, 150 , 100, 100
-line_roi_x, line_roi_y, line_roi_w, line_roi_h = 280, 165, 80, 40
-close_x,close_y,close_w,close_h = 140,85,360,10
-full_frame_roi = (0, 50, 640, 195)
-close_block_roi = (250, 195, 140, 10)
+left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 127, 135, 163
+right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 127, 135, 163
+inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h = 140, 172, 100, 113
+inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h = 400, 172 , 100, 113
+full_frame_roi = (0, 65, 640, 195)
+close_block_roi = (250, 210, 140, 10)
+line_roi_x, line_roi_y, line_roi_w, line_roi_h = 280, 180, 80, 40
+close_x, close_y, close_w, close_h = 140, 130, 360, 10
 
 left_side_job = {'roi': (left_roi_x, left_roi_y, left_roi_w, left_roi_h), 'type': 'wall_left'}
 right_side_job = {'roi': (right_roi_x, right_roi_y, right_roi_w, right_roi_h), 'type': 'wall_right'}
