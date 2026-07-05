@@ -2,38 +2,24 @@ from collections import deque
 import random
 import time
 import queue
-from src.sensors import camera, bno055, distance
+from src.sensors import bno055, camera, distance, encoder
+from src.motors.motor import move as encoder_move
 from src.motors import motor, servo
-from gpiozero import Button
+from gpiozero import Button, LED
 import numpy as np
 import cv2
 import threading
 import os
 import sys
-import logging
+import traceback
 from datetime import datetime
 import math
 
-logger = logging.getLogger("obstacle_challenge")
-logger.addHandler(logging.NullHandler())
-
-
-class Throttle:
-    """Rate-limits noisy per-iteration debug logging (tight loops poll every ~10ms)."""
-
-    def __init__(self, interval=0.2):
-        self.interval = interval
-        self.last = 0.0
-
-    def ready(self):
-        now = time.monotonic()
-        if now - self.last >= self.interval:
-            self.last = now
-            return True
-        return False
 
 
 MOTOR_SPEED = 60
+ORANGE_COOLDOWN_FRAMES = 100
+ORANGE_DETECTION_HISTORY_LENGTH = 4
 
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 360
@@ -43,10 +29,10 @@ USE_LAB = False
 
 # HSV/LAB Color Ranges
 HSV_RANGES = {
-    'LOWER_RED_1': np.array([0, 98, 60]), 'UPPER_RED_1': np.array([4, 230, 166]),
-    'LOWER_RED_2': np.array([174, 98, 60]), 'UPPER_RED_2': np.array([180, 230, 166]),
-    'LOWER_GREEN': np.array([42, 85, 39]), 'UPPER_GREEN': np.array([88, 190, 135]),
-    'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 60, 80]),
+    'LOWER_RED_1': np.array([0, 92, 43]), 'UPPER_RED_1': np.array([4, 230, 166]),
+    'LOWER_RED_2': np.array([173, 92, 43]), 'UPPER_RED_2': np.array([180, 230, 166]),
+    'LOWER_GREEN': np.array([42, 85, 38]), 'UPPER_GREEN': np.array([88, 190, 135]),
+    'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 95, 70]),
     'LOWER_ORANGE': np.array([6, 50, 182]), 'UPPER_ORANGE': np.array([15, 255, 255]),
     'LOWER_BLUE': np.array([114, 50, 110]), 'UPPER_BLUE': np.array([123, 255, 255]),
     'LOWER_MAGENTA': np.array([158, 73, 64]), 'UPPER_MAGENTA': np.array([172, 255, 223])
@@ -77,16 +63,16 @@ LOWER_BLACK = COLOR_RANGES['LOWER_BLACK']
 UPPER_BLACK = COLOR_RANGES['UPPER_BLACK']
 LOWER_ORANGE = COLOR_RANGES['LOWER_ORANGE']
 UPPER_ORANGE = COLOR_RANGES['UPPER_ORANGE']
+LOWER_MAGENTA = COLOR_RANGES['LOWER_MAGENTA']
+UPPER_MAGENTA = COLOR_RANGES['UPPER_MAGENTA']
 LOWER_BLUE = COLOR_RANGES['LOWER_BLUE']
 UPPER_BLUE = COLOR_RANGES['UPPER_BLUE']
 
 WALL_MIN_AREA = 300
 BLOCK_MIN_AREA = 500
+MAGENTA_MIN_AREA = 500
 CLOSE_BLOCK_MIN_AREA = 15
-ORANGE_COOLDOWN_FRAMES = 100
-ORANGE_DETECTION_HISTORY_LENGTH = 4
 
-# ROIs shifted down by 15px
 left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 127, 135, 163
 right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 127, 135, 163
 inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h = 140, 172, 100, 113
@@ -94,6 +80,7 @@ inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h = 400
 full_frame_roi = (0, 65, 640, 195)
 close_block_roi = (250, 210, 140, 10)
 line_roi_x, line_roi_y, line_roi_w, line_roi_h = 280, 180, 80, 40
+close_x, close_y, close_w, close_h = 140, 130, 360, 10
 
 left_side_job = {'roi': (left_roi_x, left_roi_y, left_roi_w, left_roi_h), 'type': 'wall_left'}
 right_side_job = {'roi': (right_roi_x, right_roi_y, right_roi_w, right_roi_h), 'type': 'wall_right'}
@@ -102,143 +89,10 @@ inner_right_side_job = {'roi': (inner_right_roi_x, inner_right_roi_y, inner_righ
 
 WALL_JOBS = [left_side_job, right_side_job, inner_left_side_job, inner_right_side_job]
 
-class ImuThread(threading.Thread):
-    def __init__(self, bno, init_event):
-        super().__init__()
-        self.name = "ImuThread"
-        self.bno = bno
-        self.initialization_complete = init_event
-        self.lock = threading.Lock()
-        self.stop_event = threading.Event()
-        self.daemon = True
-        self.heading = None
-
-    def run(self):
-        try:
-            ok = self.bno.initialize()
-            if ok:
-                logger.info("IMU initialized.")
-            else:
-                logger.error("IMU init FAILED, heading unavailable.")
-            self.initialization_complete.set()
-            if not ok:
-                return
-            while not self.stop_event.is_set():
-                heading = self.bno.get_heading()
-                with self.lock:
-                    self.heading = heading
-                # BNO055 fusion output updates at 100 Hz; polling faster just burns CPU/GIL
-                time.sleep(0.005)
-        except Exception:
-            logger.exception("Error during initialization/operation")
-            self.initialization_complete.set()
-        finally:
-            self.bno.cleanup()
-            logger.info("IMU cleanup complete.")
-
-    def get_heading(self):
-        with self.lock:
-            return self.heading
-
-    def stop(self):
-        self.stop_event.set()
-
-class SensorThread(threading.Thread):
-    def __init__(self, dist, init_event):
-        super().__init__()
-        self.name = "SensorThread"
-        self.dist = dist
-        self.initialization_complete = init_event
-        self.lock = threading.Lock()
-        self.stop_event = threading.Event()
-        self.daemon = True
-        self.distance_left = None
-        self.distance_right = None
-        self.distance_back = None
-        self.distance_center = None
-
-    def run(self):
-        try:
-            for attempt in range(3):
-                try:
-                    logger.info("Initializing distance sensors...")
-                    self.dist.initialise()
-                    logger.info("Both sensors initialized.")
-                    break
-                except Exception:
-                    logger.exception(f"Error during initialization (attempt {attempt + 1}/3)")
-                time.sleep(0.3)
-            time.sleep(0.3)
-            logger.info("Initialization complete flag set.")
-            self.initialization_complete.set()
-
-            consecutive_none = {ch: 0 for ch in [0, 3]}
-            reinit_threshold = 15
-            reinit_cooldown = 3.0
-            last_reinit = {ch: 0.0 for ch in [0, 3]}
-            last_diag = time.monotonic()
-            while not self.stop_event.is_set():
-                try:
-                    readings = {}
-                    for ch in list(consecutive_none.keys()):
-                        val = self.dist.get_distance(ch)
-                        readings[ch] = val
-                        if val is None:
-                            consecutive_none[ch] = consecutive_none.get(ch, 0) + 1
-                        else:
-                            consecutive_none[ch] = 0
-
-                    with self.lock:
-                        self.distance_left = None
-                        self.distance_center = readings.get(0)
-                        self.distance_right = None
-                        self.distance_back = readings.get(3)
-
-                    now_mono = time.monotonic()
-                    for ch, count in list(consecutive_none.items()):
-                        if (count >= reinit_threshold
-                                and now_mono - last_reinit[ch] >= reinit_cooldown):
-                            logger.warning(f"Channel {ch} returned None {count}x, reinitializing...")
-                            ok = self.dist.reinit_sensor(ch)
-                            (logger.info if ok else logger.warning)(f"Reinit channel {ch} -> {ok}")
-                            last_reinit[ch] = now_mono
-                            consecutive_none[ch] = 0
-
-                    if time.monotonic() - last_diag >= 2.0:
-                        try:
-                            logger.debug(f"Distance diag: {self.dist.get_diag()}")
-                        except Exception:
-                            pass
-                        last_diag = time.monotonic()
-
-                    time.sleep(1 / 30)
-                except Exception:
-                    logger.exception("Error during sensor reading")
-                    time.sleep(0.1)
-        except Exception:
-            logger.exception("Error during initialization/operation")
-            self.initialization_complete.set()
-        finally:
-            logger.info("Cleaning up distance sensors...")
-            self.dist.cleanup()
-            logger.info("Distance sensor cleanup complete.")
-
-    def get_readings(self):
-        with self.lock:
-            return {
-                'distance_left': self.distance_left,
-                'distance_center': self.distance_center,
-                'distance_right': self.distance_right,
-                'distance_back' : self.distance_back
-            }
-
-    def stop(self):
-        self.stop_event.set()
 
 class CameraThread(threading.Thread):
     def __init__(self, camera_instance):
         super().__init__()
-        self.name = "CameraThread"
         self.camera = camera_instance
         self.latest_frame = None
         self.cond = threading.Condition()
@@ -273,10 +127,51 @@ class CameraThread(threading.Thread):
             self.stop_event.set()
             self.cond.notify_all()
 
+
+class ImuThread(threading.Thread):
+    def __init__(self, bno, init_event):
+        super().__init__()
+        self.bno = bno
+        self.initialization_complete = init_event
+        self.lock = threading.Lock()
+        self.stop_event = threading.Event()
+        self.daemon = True
+        self.heading = None
+
+    def run(self):
+        try:
+            ok = self.bno.initialize()
+            if ok:
+                print("ImuThread: IMU initialized.")
+            else:
+                print("ImuThread: IMU init FAILED, heading unavailable.")
+            self.initialization_complete.set()
+            if not ok:
+                return
+            while not self.stop_event.is_set():
+                heading = self.bno.get_heading()
+                with self.lock:
+                    self.heading = heading
+                # BNO055 fusion output updates at 100 Hz; polling faster just burns CPU/GIL
+                time.sleep(0.005)
+        except Exception:
+            print("ImuThread: ERROR during initialization/operation"); traceback.print_exc()
+            self.initialization_complete.set()
+        finally:
+            self.bno.cleanup()
+            print("ImuThread: IMU cleanup complete.")
+
+    def get_heading(self):
+        with self.lock:
+            return self.heading
+
+    def stop(self):
+        self.stop_event.set()
+
+
 class VideoWriterThread(threading.Thread):
     def __init__(self, path, fourcc, fps, frame_size):
         super().__init__()
-        self.name = "VideoWriterThread"
         self.out = cv2.VideoWriter(path, fourcc, fps, frame_size)
         self.queue = queue.Queue()
         self.stop_event = threading.Event()
@@ -291,7 +186,7 @@ class VideoWriterThread(threading.Thread):
             except queue.Empty:
                 continue
             except Exception:
-                logger.exception("Error writing frame")
+                print("VideoWriterThread: ERROR writing frame"); traceback.print_exc()
                 continue
         self.out.release()
 
@@ -302,10 +197,10 @@ class VideoWriterThread(threading.Thread):
     def stop(self):
         self.stop_event.set()
 
+
 class AnnotateAndWriteThread(threading.Thread):
     def __init__(self, writer_thread):
         super().__init__()
-        self.name = "AnnotateAndWriteThread"
         self.writer_thread = writer_thread
         self.queue = queue.Queue(maxsize=2)
         self.stop_event = threading.Event()
@@ -327,7 +222,7 @@ class AnnotateAndWriteThread(threading.Thread):
                 )
                 self.writer_thread.write(annotated)
             except Exception:
-                logger.exception("Error processing frame")
+                print("AnnotateAndWriteThread: ERROR processing frame"); traceback.print_exc()
 
     def submit(self, frame, detections, driving_direction, debug_info="", visual_target_x=None, visual_target_line=None):
         if self.stop_event.is_set():
@@ -348,12 +243,118 @@ class AnnotateAndWriteThread(threading.Thread):
     def stop(self):
         self.stop_event.set()
 
+
+class SensorThread(threading.Thread):
+    def __init__(self, dist, init_event):
+        super().__init__()
+        self.dist = dist
+        self.initialization_complete = init_event
+        self.lock = threading.Lock()
+        self.stop_event = threading.Event()
+        self.daemon = True
+        self.distance_left = None
+        self.distance_right = None
+        self.distance_back = None
+        self.distance_center = None
+
+    def run(self):
+        try:
+            for attempt in range(3):
+                try:
+                    print("SensorThread: Initializing distance sensors...")
+                    self.dist.initialise()
+                    print("SensorThread: Both sensors initialized.")
+                    break
+                except Exception as e:
+                    print(f"SensorThread: ERROR during initialization: {e}"); traceback.print_exc()
+                time.sleep(0.3)
+            time.sleep(0.3)
+            print("SensorThread: Initialization complete flag set.")
+            self.initialization_complete.set()
+
+            consecutive_none = {ch: 0 for ch in [0, 3]}
+            reinit_threshold = 15
+            reinit_cooldown = 3.0
+            last_reinit = {ch: 0.0 for ch in [0, 3]}
+            last_diag = time.monotonic()
+            while not self.stop_event.is_set():
+                try:
+                    readings = {}
+                    for ch in list(consecutive_none.keys()):
+                        val = self.dist.get_distance(ch)
+                        readings[ch] = val
+                        if val is None:
+                            consecutive_none[ch] = consecutive_none.get(ch, 0) + 1
+                        else:
+                            consecutive_none[ch] = 0
+
+                    with self.lock:
+                        self.distance_left = None
+                        self.distance_center = readings.get(0)
+                        self.distance_right = None
+                        self.distance_back = readings.get(3)
+
+                    now_mono = time.monotonic()
+                    for ch, count in list(consecutive_none.items()):
+                        if (count >= reinit_threshold
+                                and now_mono - last_reinit[ch] >= reinit_cooldown):
+                            print(f"SensorThread: channel {ch} returned None {count}x, reinitializing...")
+                            ok = self.dist.reinit_sensor(ch)
+                            print(f"SensorThread: reinit channel {ch} -> {ok}")
+                            last_reinit[ch] = now_mono
+                            consecutive_none[ch] = 0
+
+                    if time.monotonic() - last_diag >= 2.0:
+                        try:
+                            print(f"DIAG distance reasons: {self.dist.get_diag()}")
+                        except Exception:
+                            pass
+                        last_diag = time.monotonic()
+
+                    time.sleep(1 / 30)
+                except Exception as e:
+                    print(f"SensorThread: ERROR during sensor reading: {e}"); traceback.print_exc()
+                    time.sleep(0.1)
+        except Exception as e:
+            print(f"SensorThread: ERROR during initialization/operation: {e}"); traceback.print_exc()
+            self.initialization_complete.set()
+        finally:
+            print("SensorThread: Cleaning up distance sensors...")
+            self.dist.cleanup()
+            print("SensorThread: Distance sensor cleanup complete.")
+
+    def get_readings(self):
+        with self.lock:
+            return {
+                'distance_left': self.distance_left,
+                'distance_center': self.distance_center,
+                'distance_right': self.distance_right,
+                'distance_back' : self.distance_back
+            }
+
+    def stop(self):
+        self.stop_event.set()
+
+
+def get_angular_difference(angle1, angle2):
+    if angle1 is None or angle2 is None:
+        return 360
+    diff = angle1 - angle2
+    while diff <= -180:
+        diff += 360
+    while diff > 180:
+        diff -= 360
+    return abs(diff)
+
+
 def process_video_frame(frame):
     processed_data = {
         'detected_blocks': [],
         'detected_walls': [],
         'detected_orange': [],
-        'detected_blue': []
+        'detected_blue': [],
+        'detected_close_black': [],
+        'detected_magenta': []
     }
 
     def converted_crop(x, y, w, h):
@@ -371,6 +372,7 @@ def process_video_frame(frame):
         mask_red2_main = cv2.inRange(main_crop, LOWER_RED_2, UPPER_RED_2)
         mask_red_main = cv2.bitwise_or(mask_red1_main, mask_red2_main)
     mask_green_main = cv2.inRange(main_crop, LOWER_GREEN, UPPER_GREEN)
+    mask_magenta_main = cv2.inRange(main_crop, LOWER_MAGENTA, UPPER_MAGENTA)
 
     cx, cy, cw, ch = close_block_roi
     close_crop = converted_crop(cx, cy, cw, ch)
@@ -422,10 +424,10 @@ def process_video_frame(frame):
                 if area > min_area:
                     M = cv2.moments(c)
                     if M["m00"] != 0:
-                        c_x = int(M["m10"] / M["m00"]) + offset_x
-                        c_y = int(M["m01"] / M["m00"]) + offset_y
-                        c_global = c + [offset_x, offset_y]
-                        blocks.append({'type': b_type, 'color': b_color, 'area': area, 'centroid': (c_x, c_y), 'contour': c_global})
+                        cx = int(M["m10"] / M["m00"]) + offset_x
+                        cy = int(M["m01"] / M["m00"]) + offset_y
+                        contour_global = c + [offset_x, offset_y]
+                        blocks.append({'type': b_type, 'color': b_color, 'area': area, 'centroid': (cx, cy), 'contour': contour_global})
         return blocks
 
     all_detected_blocks = []
@@ -440,6 +442,35 @@ def process_video_frame(frame):
     main_blocks.sort(key=lambda b: b['centroid'][1], reverse=True)
     processed_data['detected_blocks'] = main_blocks + other_blocks
     
+    # Magenta Contour Finding
+    if cv2.countNonZero(mask_magenta_main) > 0:
+        contours, _ = cv2.findContours(mask_magenta_main, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            biggest_contour = max(contours, key=cv2.contourArea)
+            area = cv2.contourArea(biggest_contour)
+            if area > MAGENTA_MIN_AREA:
+                M = cv2.moments(biggest_contour)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"]) + mx
+                    cy = int(M["m01"] / M["m00"]) + my
+                    biggest_contour_global = biggest_contour + [mx, my]
+                    leftmost_x = biggest_contour_global[:, 0, 0].min()
+                    rightmost_x = biggest_contour_global[:, 0, 0].max()
+                    dist_to_center_left = abs(leftmost_x - FRAME_MIDPOINT_X)
+                    dist_to_center_right = abs(rightmost_x - FRAME_MIDPOINT_X)
+                    if dist_to_center_left <= dist_to_center_right:
+                        target_x = leftmost_x
+                    else:
+                        target_x = rightmost_x
+                    processed_data['detected_magenta'].append({
+                        'type': 'magenta_block',
+                        'area': area,
+                        'centroid': (cx, cy),
+                        'contour': biggest_contour_global,
+                        'target_x': target_x,
+                        'target_y': cy
+                    })
+
     # Orange (Line)
     if cv2.countNonZero(mask_orange_line) > 0:
         contours, _ = cv2.findContours(mask_orange_line, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -449,10 +480,10 @@ def process_video_frame(frame):
             if area > 20:
                 M = cv2.moments(biggest_contour)
                 if M["m00"] != 0:
-                    cx_val = int(M["m10"] / M["m00"]) + lx
-                    cy_val = int(M["m01"] / M["m00"]) + ly
+                    cx = int(M["m10"] / M["m00"]) + lx
+                    cy = int(M["m01"] / M["m00"]) + ly
                     biggest_contour_global = biggest_contour + [lx, ly]
-                    processed_data['detected_orange'].append({'type': 'orange_block', 'color': 'orange', 'area': area, 'centroid': (cx_val, cy_val), 'contour': biggest_contour_global})
+                    processed_data['detected_orange'].append({'type': 'orange_block', 'color': 'orange', 'area': area, 'centroid': (cx, cy), 'contour': biggest_contour_global})
 
     # Blue (Line)
     if cv2.countNonZero(mask_blue_line) > 0:
@@ -463,10 +494,10 @@ def process_video_frame(frame):
             if area > 20:
                 M = cv2.moments(biggest_contour)
                 if M["m00"] != 0:
-                    cx_val = int(M["m10"] / M["m00"]) + lx
-                    cy_val = int(M["m01"] / M["m00"]) + ly
+                    cx = int(M["m10"] / M["m00"]) + lx
+                    cy = int(M["m01"] / M["m00"]) + ly
                     biggest_contour_global = biggest_contour + [lx, ly]
-                    processed_data['detected_blue'].append({'type': 'blue_block', 'color': 'blue', 'area': area, 'centroid': (cx_val, cy_val), 'contour': biggest_contour_global})
+                    processed_data['detected_blue'].append({'type': 'blue_block', 'color': 'blue', 'area': area, 'centroid': (cx, cy), 'contour': biggest_contour_global})
 
     # Walls: biggest qualifying contour per wall ROI
     for job in WALL_JOBS:
@@ -483,12 +514,43 @@ def process_video_frame(frame):
         if biggest_contour is not None:
             M = cv2.moments(biggest_contour)
             if M["m00"] != 0:
-                c_x = int(M["m10"] / M["m00"]) + wx
-                c_y = int(M["m01"] / M["m00"]) + wy
+                cx = int(M["m10"] / M["m00"]) + wx
+                cy = int(M["m01"] / M["m00"]) + wy
                 biggest_contour_global = biggest_contour + [wx, wy]
-                processed_data['detected_walls'].append({'type': job['type'], 'color': 'black', 'area': biggest_area, 'centroid': (c_x, c_y), 'contour': biggest_contour_global})
+                processed_data['detected_walls'].append({'type': job['type'], 'color': 'black', 'area': biggest_area, 'centroid': (cx, cy), 'contour': biggest_contour_global})
+
+    # Close Black
+    close_crop = converted_crop(close_x, close_y, close_w, close_h)
+    mask_black_close = cv2.inRange(close_crop, LOWER_BLACK, UPPER_BLACK)
+    for block_mask, (bx, by, bw, bh) in block_mask_regions:
+        ox1, oy1 = max(close_x, bx), max(close_y, by)
+        ox2, oy2 = min(close_x + close_w, bx + bw), min(close_y + close_h, by + bh)
+        if ox1 < ox2 and oy1 < oy2:
+            wall_region = mask_black_close[oy1-close_y:oy2-close_y, ox1-close_x:ox2-close_x]
+            block_region = block_mask[oy1-by:oy2-by, ox1-bx:ox2-bx]
+            mask_black_close[oy1-close_y:oy2-close_y, ox1-close_x:ox2-close_x] = cv2.bitwise_and(
+                wall_region, cv2.bitwise_not(block_region))
+
+    if cv2.countNonZero(mask_black_close) > 0:
+        contours, _ = cv2.findContours(mask_black_close, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area > WALL_MIN_AREA:
+                M = cv2.moments(c)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"]) + close_x
+                    cy = int(M["m01"] / M["m00"]) + close_y
+                    contour_global = c + [close_x, close_y]
+                    processed_data['detected_close_black'].append({
+                        'type': 'close_black',
+                        'color': 'black',
+                        'area': area,
+                        'centroid': (cx, cy),
+                        'contour': contour_global
+                    })
 
     return processed_data
+
 
 def annotate_video_frame(frame, detections, driving_direction, debug_info="", visual_target_x=None, visual_target_line=None):
     annotated_frame = frame
@@ -502,7 +564,8 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
         (inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h),
         full_frame_roi,
         close_block_roi,
-        (line_roi_x, line_roi_y, line_roi_w, line_roi_h)
+        (line_roi_x, line_roi_y, line_roi_w, line_roi_h),
+        (close_x, close_y, close_w, close_h)
     ]
     for x, y, w, h in all_rois:
         cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), light_blue, 2)
@@ -523,6 +586,15 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
 
     for blue_obj in detections.get('detected_blue', []):
         cv2.drawContours(annotated_frame, [blue_obj['contour']], -1, (255, 0, 0), 2)
+
+    for black_obj in detections['detected_close_black']:
+        cv2.drawContours(annotated_frame, [black_obj['contour']], -1, (0, 0, 0), 2)
+
+    for magenta_obj in detections.get('detected_magenta', []):
+        cv2.drawContours(annotated_frame, [magenta_obj['contour']], -1, (255, 0, 255), 2)
+        target_x = magenta_obj['target_x']
+        cy = magenta_obj['centroid'][1]
+        cv2.circle(annotated_frame, (target_x, cy), 7, (255, 255, 255), -1)
 
     if visual_target_x is not None:
         cv2.line(annotated_frame, (visual_target_x, 0), (visual_target_x, FRAME_HEIGHT), target_line_color, 2)
@@ -545,15 +617,6 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
     
     return annotated_frame
 
-def get_angular_difference(angle1, angle2):
-    if angle1 is None or angle2 is None:
-        return 360
-    diff = angle1 - angle2
-    while diff <= -180:
-        diff += 360
-    while diff > 180:
-        diff -= 360
-    return abs(diff)
 
 def steer_with_gyro(current_heading: float, 
                     target_heading: float, 
@@ -569,8 +632,9 @@ def steer_with_gyro(current_heading: float,
     clamped_steer_angle = np.clip(steer_angle, min_servo_angle, max_servo_angle)
     return clamped_steer_angle
 
+
 def drive_straight_with_gyro(target_heading, duration, speed, direction='forward'):
-    logger.info(f"Driving {direction} with gyro stabilization for {duration}s...")
+    print(f"Driving {direction} with gyro stabilization for {duration}s...")
     KP = 0.85
     start_time = time.monotonic()
     if direction == 'forward':
@@ -593,10 +657,11 @@ def drive_straight_with_gyro(target_heading, duration, speed, direction='forward
 
     motor.brake()
     servo.set_angle(0)
-    logger.info("Gyro-stabilized drive complete.")
+    print("Gyro-stabilized drive complete.")
+
 
 def perform_initial_maneuver():
-    logger.info("--- Executing Full Initial Maneuver ---")
+    print("--- Executing Full Initial Maneuver ---")
     SERVO_TURN_ANGLE = 40.0
     if driving_direction == "clockwise":
         initial_turn_servo = SERVO_TURN_ANGLE
@@ -607,21 +672,21 @@ def perform_initial_maneuver():
         target_forward_heading = (INITIAL_HEADING - 55) % 360
         drive_duration = 0.2
 
-    logger.info(f"Direction: {driving_direction.upper()}")
-    logger.info(f"Initial Heading: {INITIAL_HEADING:.1f}°")
-    logger.info(f"Forward Drive Target Heading: {target_forward_heading:.1f}°")
+    print(f"Direction: {driving_direction.upper()}")
+    print(f"Initial Heading: {INITIAL_HEADING:.1f}°")
+    print(f"Forward Drive Target Heading: {target_forward_heading:.1f}°")
 
     motor.forward(80)
     servo.set_angle_unlimited(initial_turn_servo)
-    logger.info("Starting initial turn (skipping scan)...")
+    print("Starting initial turn (skipping scan)...")
 
     while get_angular_difference(target_forward_heading, imu_thread.get_heading()) > 15:
         time.sleep(0.01)
 
-    logger.info("Driving forward with gyro stabilization...")
+    print("Driving forward with gyro stabilization...")
     drive_straight_with_gyro(target_forward_heading, drive_duration, 70, 'forward')
 
-    logger.info(f"Performing final turn to return to {INITIAL_HEADING:.1f}°...")
+    print(f"Performing final turn to return to {INITIAL_HEADING:.1f}°...")
     motor.forward(50)
 
     while get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) > 15:
@@ -631,7 +696,7 @@ def perform_initial_maneuver():
     motor.brake()
     servo.set_angle(0)
 
-    logger.info("Reversing slightly to align heading...")
+    print("Reversing slightly to align heading...")
     motor.reverse(50)
     start_time = time.monotonic()
     while time.monotonic() - start_time < 0.4:
@@ -640,18 +705,17 @@ def perform_initial_maneuver():
     time.sleep(0.5)
     motor.brake()
     servo.set_angle(0)
-    logger.info("--- Initial Maneuver Complete. Transitioning to straight driving. ---")
+    print("--- Initial Maneuver Complete. Transitioning to straight driving. ---")
+
 
 def parking():
-    logger.info("--- Parking (clockwise) sequence started ---")
+    print("--- Parking (clockwise) sequence started ---")
     servo.set_angle_unlimited(-60)
     motor.start_rpm_control(80, "reverse")
-    _dbg = Throttle(0.2)
     while True:
         sensor_readings = sensor_thread.get_readings()
         heading = imu_thread.get_heading()
-        if _dbg.ready():
-            logger.debug(f"Reverse to wall: distance_back={sensor_readings['distance_back']} heading={heading} measured_rpm={motor.get_measured_rpm():.1f}")
+        print(sensor_readings['distance_back'], heading)
         if sensor_readings['distance_back'] is not None and sensor_readings['distance_back'] < 70:
             break
         servo.set_angle_unlimited(-steer_with_gyro(heading,(INITIAL_HEADING+90)%360, kp=1, min_servo_angle=-60, max_servo_angle=60))
@@ -677,7 +741,7 @@ def parking():
     while True:
         frame, frame_counter = camera_thread.get_next_frame(past_frame_counter)
         if frame is None:
-            logger.warning("Failed to get frame, breaking loop.")
+            print("Failed to get frame, breaking loop.")
             break
         past_frame_counter = frame_counter
 
@@ -717,21 +781,21 @@ def parking():
 
         try:
             video_writer_thread.write(frame)
-        except Exception:
-            logger.exception("Error writing frame to video writer")
+        except Exception as e:
+            print(e)
 
         if first_magenta_line_passed:
             if magenta_pixel_count > MAGENTA_HIGH_THRESHOLD:
-                logger.info("Second magenta line detected. Stopping.")
+                print("Second magenta line detected. Stopping.")
                 break
         else:
             if on_first_line:
                 if magenta_pixel_count < MAGENTA_LOW_THRESHOLD:
-                    logger.info("First magenta line fully crossed. Now armed to stop on the next one.")
+                    print("First magenta line fully crossed. Now armed to stop on the next one.")
                     first_magenta_line_passed = True
             else:
                 if magenta_pixel_count > MAGENTA_HIGH_THRESHOLD:
-                    logger.info("Detected what seems to be the first magenta line.")
+                    print("Detected what seems to be the first magenta line.")
                     on_first_line = True
     servo.set_angle(3)
     time.sleep(0.85)
@@ -741,27 +805,23 @@ def parking():
     while get_angular_difference((INITIAL_HEADING+100)%360, imu_thread.get_heading()) > 10:
             pass
     motor.stop_rpm_control()
-    logger.info(f"Parking first reverse turn done: {sensor_thread.get_readings()}")
+    print('parking first reverse turn:',sensor_thread.get_readings())
     motor.start_rpm_control(80, "reverse")
     servo.set_angle(0)
-    logger.info("Reversing to back wall...")
-    _dbg = Throttle(0.2)
+    print('reverse')
     while True:
         dist = sensor_thread.get_readings()['distance_back']
-        if _dbg.ready():
-            logger.debug(f"Reverse for parking back distance: {dist} measured_rpm={motor.get_measured_rpm():.1f}")
+        print('Reverse for parking back distance:', dist)
         if dist is not None and dist < 170:
             break
         time.sleep(0.01)
-    logger.info(f"Parking forward, readings: {sensor_thread.get_readings()}")
+    print('parking forward:',sensor_thread.get_readings())
     motor.start_rpm_control(80, "forward")
-    _dbg = Throttle(0.2)
     while True:
         sensor_readings = sensor_thread.get_readings()
         dist = sensor_readings['distance_back']
         heading = imu_thread.get_heading()
-        if _dbg.ready():
-            logger.debug(f"Forward for parking back distance: {dist} heading={heading} measured_rpm={motor.get_measured_rpm():.1f}")
+        print('Forward for parking back distance:', dist, 'heading:', heading)
         if dist is not None and dist > 170:
             break
         servo.set_angle(steer_with_gyro(heading, (INITIAL_HEADING + 90) % 360, kp=1.0))
@@ -799,30 +859,27 @@ def parking():
         if get_angular_difference((INITIAL_HEADING+180)%360, imu_thread.get_heading()) < 2:
             break
     motor.stop_rpm_control()
-    logger.info("--- Parking (clockwise) sequence complete ---")
+    
+
 
 def parking2():
-    logger.info("--- Parking (counter-clockwise) sequence started ---")
+    print('forward')
+    print(sensor_thread.get_readings()['distance_center'])
     motor.forward(60)
-    logger.info(f"Forward, distance_center={sensor_thread.get_readings()['distance_center']}")
-    _dbg = Throttle(0.2)
     while True:
         sensor_readings = sensor_thread.get_readings()
         distance_center = sensor_readings.get('distance_center')
         if distance_center is not None and distance_center <= 200:
-            logger.info(f"Distance is {distance_center}. Exiting loop.")
+            print(f"Distance is {distance_center}. Exiting loop.")
             break
-        if _dbg.ready():
-            logger.debug(f"distance_center={distance_center} heading={imu_thread.get_heading()}")
+        print(distance_center, imu_thread.get_heading())
         servo.set_angle(steer_with_gyro(imu_thread.get_heading(), (INITIAL_HEADING+5) % 360, kp=1))
         time.sleep(0.01)
     motor.reverse(60)
-    _dbg = Throttle(0.2)
     while True:
         sensor_readings = sensor_thread.get_readings()
         heading = imu_thread.get_heading()
-        if _dbg.ready():
-            logger.debug(f"distance_back={sensor_readings['distance_back']} heading={heading}")
+        print(sensor_readings['distance_back'], heading)
         if sensor_readings['distance_back'] is not None and sensor_readings['distance_back'] < 160:
             break
         servo.set_angle_unlimited(-steer_with_gyro(heading,(INITIAL_HEADING-90)%360, kp=2, min_servo_angle=-60, max_servo_angle=60))
@@ -845,7 +902,7 @@ def parking2():
     while True:
         frame, frame_counter = camera_thread.get_next_frame(past_frame_counter)
         if frame is None:
-            logger.warning("Failed to get frame, breaking loop.")
+            print("Failed to get frame, breaking loop.")
             break
         past_frame_counter = frame_counter
 
@@ -884,22 +941,22 @@ def parking2():
 
         if first_magenta_line_passed:
             if magenta_pixel_count > MAGENTA_HIGH_THRESHOLD:
-                logger.info("Second magenta line detected. Stopping.")
+                print("Second magenta line detected. Stopping.")
                 break
         else:
             if on_first_line:
                 if magenta_pixel_count < MAGENTA_LOW_THRESHOLD:
-                    logger.info("First magenta line fully crossed. Now armed to stop on the next one.")
+                    print("First magenta line fully crossed. Now armed to stop on the next one.")
                     first_magenta_line_passed = True
             else:
                 if magenta_pixel_count > MAGENTA_HIGH_THRESHOLD:
-                    logger.info("Detected what seems to be the first magenta line.")
+                    print("Detected what seems to be the first magenta line.")
                     on_first_line = True
 
         try:
             video_writer_thread.write(frame)
-        except Exception:
-            logger.exception("Error writing frame to video writer")
+        except Exception as e:
+            print(e)
 
     servo.set_angle(1)
     time.sleep(1.0)
@@ -909,19 +966,17 @@ def parking2():
     while get_angular_difference((INITIAL_HEADING-100)%360, imu_thread.get_heading()) > 10:
             pass
     motor.brake()
-    logger.info(f"Parking first reverse turn done: {sensor_thread.get_readings()}")
+    print('parking first reverse turn:',sensor_thread.get_readings())
     motor.reverse(60)
     servo.set_angle(0)
-    logger.info("Reversing to back wall...")
-    _dbg = Throttle(0.2)
+    print('reverse')
     while True:
         dist = sensor_thread.get_readings()['distance_back']
-        if _dbg.ready():
-            logger.debug(f"Reverse for parking back distance: {dist}")
+        print('Reverse for parking back distance:', dist)
         if dist is not None and dist < 180:
             break
         time.sleep(0.01)
-    logger.info(f"Parking forward, readings: {sensor_thread.get_readings()}")
+    print('parking forward:',sensor_thread.get_readings())
     motor.brake()
     motor.reverse(60)
     servo.set_angle_unlimited(65)
@@ -955,7 +1010,8 @@ def parking2():
         if get_angular_difference((INITIAL_HEADING+180)%360, imu_thread.get_heading()) < 2:
             break
     motor.brake()
-    logger.info("--- Parking (counter-clockwise) sequence complete ---")
+    
+
 
 if __name__ == "__main__":
     run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -968,18 +1024,6 @@ if __name__ == "__main__":
     sys.stdout = log_file
     sys.stderr = log_file
 
-    # All of main_v4's own logging goes through `logger` -> formatted with a
-    # timestamp/level/thread name and written into the same per-run log file
-    # (via the redirected sys.stdout above, so stray print()s from other
-    # modules like motor.py still land in the same file, just unformatted).
-    log_handler = logging.StreamHandler(sys.stdout)
-    log_handler.setFormatter(logging.Formatter(
-        "%(asctime)s.%(msecs)03d [%(levelname)-7s] %(threadName)-20s %(message)s",
-        datefmt="%H:%M:%S",
-    ))
-    logger.addHandler(log_handler)
-    logger.setLevel(logging.DEBUG)
-
     fourcc = cv2.VideoWriter_fourcc(*'avc1')
 
     video_writer_thread = VideoWriterThread(video_path, fourcc, 20, (640, 360))
@@ -988,7 +1032,7 @@ if __name__ == "__main__":
     annotate_and_write_thread.start()
 
     if not camera.initialize():
-        logger.error("FATAL: Camera initialization failed. Exiting.")
+        print("MainThread: FATAL: Camera initialization failed. Exiting.")
         sys.exit(1)
     motor.initialize()
     servo.initialize()
@@ -1003,31 +1047,31 @@ if __name__ == "__main__":
     sensors_initialized_event = threading.Event()
     sensor_thread = SensorThread(distance, sensors_initialized_event)
     sensor_thread.start()
-    logger.info("Waiting for sensors to initialize...")
+    print("MainThread: Waiting for sensors to initialize...")
     sensors_initialized_event.wait()
-    logger.info("Sensors are ready.")
+    print("MainThread: Sensors are ready.")
 
     imu_initialized_event = threading.Event()
     imu_thread = ImuThread(bno055, imu_initialized_event)
     imu_thread.start()
-    logger.info("Waiting for IMU to initialize...")
+    print("MainThread: Waiting for IMU to initialize...")
     imu_initialized_event.wait()
-    logger.info("IMU is ready. Proceeding with main logic.")
+    print("MainThread: IMU is ready. Proceeding with main logic.")
 
     time.sleep(1)
 
     # Hardcode driving direction to clockwise
     driving_direction = 'clockwise'
-    logger.info(f"Hardcoded driving direction: {driving_direction.upper()}")
+    print(f"Hardcoded driving direction: {driving_direction.upper()}")
 
     INITIAL_HEADING = None
-    logger.info("Waiting for first valid heading reading...")
+    print("MainThread: Waiting for first valid heading reading...")
     while INITIAL_HEADING is None:
         heading = imu_thread.get_heading()
         if heading is not None:
             INITIAL_HEADING = heading
         time.sleep(0.05)
-    logger.info(f"Initial heading locked: {INITIAL_HEADING}")
+    print(f"MainThread: Initial heading locked: {INITIAL_HEADING}")
 
     # Initialize variables for lap (turn) counting
     orange_detection_history = deque([False] * ORANGE_DETECTION_HISTORY_LENGTH, maxlen=ORANGE_DETECTION_HISTORY_LENGTH)
@@ -1042,10 +1086,10 @@ if __name__ == "__main__":
         perform_initial_maneuver()
         motor.forward(MOTOR_SPEED)
         frame_start_time = time.perf_counter()
-        logger.info(f"Starting run at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+        print(f"[{run_start_time:.2f}] Starting run at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
         while True:
             if button.is_pressed:
-                logger.info("Run stopped by button.")
+                print(f"\n[{run_end_time:.2f}] Run stopped by button | Total time: {total_time:.2f}s | Total turns: {turn_counter}")
                 break
 
             speed = MOTOR_SPEED
@@ -1061,11 +1105,11 @@ if __name__ == "__main__":
             detections = process_video_frame(frame)
             detected_blocks = detections['detected_blocks']
             detected_walls = detections['detected_walls']
-            detected_orange = detections['detected_orange']
-            detected_blue = detections['detected_blue']
+            detected_orange_object = detections['detected_orange']
+            detected_blue_object = detections['detected_blue']
 
             # Lap counting logic using orange line crossing detection
-            orange_detected_this_frame = bool(detected_orange)
+            orange_detected_this_frame = bool(detected_orange_object)
             orange_detection_history.append(orange_detected_this_frame)
 
             current_time = time.monotonic()
@@ -1074,15 +1118,15 @@ if __name__ == "__main__":
             elif last_turn_time == 0 or (current_time - last_turn_time >= 1.5):
                 if not orange_detection_history[-ORANGE_DETECTION_HISTORY_LENGTH] and all(list(orange_detection_history)[1:]):
                     turn_counter += 1
-                    time_since_last_turn = current_time - last_turn_time if last_turn_time > 0 else 0.0
+                    time_since_last_turn = current_time - last_turn_time
                     time_since_start = current_time - run_start_time
                     cooldown_frames = ORANGE_COOLDOWN_FRAMES
-                    logger.info(f"Turn {turn_counter} detected | Since last turn: {time_since_last_turn:.2f}s | Total elapsed: {time_since_start:.2f}s")
+                    print(f"[{current_time:.2f}] Turn {turn_counter} detected | Since last turn: {time_since_last_turn:.2f}s | Total elapsed: {time_since_start:.2f}s")
                     last_turn_time = current_time
 
             # Stop after 13 turns (3 complete laps + start line crossing)
             if turn_counter >= 13:
-                logger.info("Completed 13 turns (3 laps). Stopping.")
+                
                 if driving_direction == 'clockwise':
                     parking()
                 else:
@@ -1131,15 +1175,29 @@ if __name__ == "__main__":
                             RED_ORIGIN_Y = FRAME_HEIGHT
                             RED_IDEAL_ANGLE = math.degrees(math.atan2(RED_OTHER_X - RED_ORIGIN_X, RED_ORIGIN_Y - RED_OTHER_Y))
                             
-                            visual_target_line = ((RED_ORIGIN_X, RED_ORIGIN_Y), (block_x, block_y), RED_IDEAL_ANGLE, (RED_OTHER_X, RED_OTHER_Y))
-                            current_angle = math.degrees(math.atan2(block_x - RED_ORIGIN_X, RED_ORIGIN_Y - block_y))
-                            angle = (current_angle - RED_IDEAL_ANGLE) * 1.5
+                            close_black_area = sum(obj['area'] for obj in detections['detected_close_black'])
+                            
+                            # Logic of going between magenta and block
+                            if detections['detected_magenta'] and driving_direction == 'counter-clockwise' and abs(detections['detected_magenta'][0]['target_y']-block_y)<70 and abs(detections['detected_magenta'][0]['centroid'][0]-block_x)>70:
+                                target_x = detections['detected_magenta'][0]['target_x']
+                                midpoint_x = (block_x + target_x) // 2
+                                visual_target_x = midpoint_x
+                                angle = (midpoint_x - FRAME_MIDPOINT_X) * 0.10
+                            else:
+                                visual_target_line = ((RED_ORIGIN_X, RED_ORIGIN_Y), (block_x, block_y), RED_IDEAL_ANGLE, (RED_OTHER_X, RED_OTHER_Y))
+                                current_angle = math.degrees(math.atan2(block_x - RED_ORIGIN_X, RED_ORIGIN_Y - block_y))
+                                angle = (current_angle - RED_IDEAL_ANGLE) * 1.5
                             
                             wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
                             if wall_inner_right_size > 3000:
-                                angle = np.clip(angle, -45, -10)
+                                if 500 < close_black_area < 1200:
+                                    angle = np.clip(angle, -45, -30)
+                                else:
+                                    angle = np.clip(angle, -45, -15)
                             else:
                                 angle = np.clip(angle, -45, 35)
+                            if driving_direction == 'clockwise' and close_black_area > 500:
+                                angle = np.clip(angle, -45, -15)
                         
                         elif block_color == 'green':
                             GREEN_OTHER_X = 400
@@ -1148,22 +1206,35 @@ if __name__ == "__main__":
                             GREEN_ORIGIN_Y = FRAME_HEIGHT
                             GREEN_IDEAL_ANGLE = math.degrees(math.atan2(GREEN_OTHER_X - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - GREEN_OTHER_Y))
      
-                            visual_target_line = ((GREEN_ORIGIN_X, GREEN_ORIGIN_Y), (block_x, block_y), GREEN_IDEAL_ANGLE, (GREEN_OTHER_X, GREEN_OTHER_Y))
-                            current_angle = math.degrees(math.atan2(block_x - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - block_y))
-                            angle = (current_angle - GREEN_IDEAL_ANGLE) * 1.5
+                            close_black_area = sum(obj['area'] for obj in detections['detected_close_black'])
+                            
+                            # Logic of going between magenta and block
+                            if detections['detected_magenta'] and driving_direction == 'clockwise' and abs(detections['detected_magenta'][0]['target_y']-block_y)<70:
+                                target_x = detections['detected_magenta'][0]['target_x']
+                                midpoint_x = (block_x + target_x) // 2
+                                visual_target_x = midpoint_x
+                                angle = (midpoint_x - FRAME_MIDPOINT_X) * 0.10
+                            else:
+                                visual_target_line = ((GREEN_ORIGIN_X, GREEN_ORIGIN_Y), (block_x, block_y), GREEN_IDEAL_ANGLE, (GREEN_OTHER_X, GREEN_OTHER_Y))
+                                current_angle = math.degrees(math.atan2(block_x - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - block_y))
+                                angle = (current_angle - GREEN_IDEAL_ANGLE) * 1.5
                             
                             wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
                             if wall_inner_left_size > 3000:
                                 angle = np.clip(angle, 15, 45)
                             else:
                                 angle = np.clip(angle, -45, 45)
+                            if driving_direction == 'clockwise' and close_black_area > 500:
+                                angle = np.clip(angle, 15, 45)
+                            
+
                     else:
                         left_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
                         right_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
                         wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
                         wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
                         
-                        if (detected_orange or detected_blue) and (
+                        if (detected_orange_object or detected_blue_object) and (
                             (driving_direction == 'clockwise' and right_pixel_size == 0) or
                             (driving_direction == 'counter-clockwise' and left_pixel_size == 0)
                         ):
@@ -1182,14 +1253,28 @@ if __name__ == "__main__":
                                     right_pixel_size += 12500
                             # Proportional (P) controller for wall following
                             angle = ((left_pixel_size + wall_inner_left_size) - (right_pixel_size + wall_inner_right_size)) * 0.001
+
+                            close_black_area = sum(obj['area'] for obj in detections['detected_close_black'])
+                            if close_black_area > 3000:
+                                if driving_direction == 'clockwise':
+                                    angle += 35
+                                else:
+                                    angle += -35
         
+            elif detections['detected_magenta']:
+                if driving_direction == 'clockwise':
+                    target_pos = 320 - 200
+                else:
+                    target_pos = 320 + 220
+                angle = (detections['detected_magenta'][0]['centroid'][0] - target_pos) * 0.15
+
             else:
                 left_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
                 right_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
                 wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
                 wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
                 
-                if (detected_orange or detected_blue) and (
+                if (detected_orange_object or detected_blue_object) and (
                     (driving_direction == 'clockwise' and right_pixel_size == 0) or
                     (driving_direction == 'counter-clockwise' and left_pixel_size == 0)
                 ):
@@ -1208,6 +1293,13 @@ if __name__ == "__main__":
                             right_pixel_size += 12500
                     # Proportional (P) controller for wall following
                     angle = ((left_pixel_size + wall_inner_left_size) - (right_pixel_size + wall_inner_right_size)) * 0.001
+
+                    close_black_area = sum(obj['area'] for obj in detections['detected_close_black'])
+                    if close_black_area > 3000:
+                        if driving_direction == 'clockwise':
+                            angle += 35
+                        else:
+                            angle += -35
 
             debug.append(round(angle))
             debug.append(turn_counter)
@@ -1228,8 +1320,8 @@ if __name__ == "__main__":
                     visual_target_x=visual_target_x,
                     visual_target_line=visual_target_line,
                 )
-            except Exception:
-                logger.exception("Error submitting frame to annotate/write thread")
+            except Exception as e:
+                print(e)
 
             angle = np.clip(angle, prevangle-6, prevangle+6)
             angle = np.clip(angle,-30,30)
@@ -1242,9 +1334,10 @@ if __name__ == "__main__":
             angle = 0
 
     except KeyboardInterrupt:
-        logger.info("Run stopped by KeyboardInterrupt.")
-    except Exception:
-        logger.exception("Error during execution")
+        print("Run stopped by KeyboardInterrupt.")
+    except Exception as e:
+        print(f"MainThread: ERROR during execution: {e}")
+        traceback.print_exc()
 
     finally:
         try:
@@ -1253,14 +1346,17 @@ if __name__ == "__main__":
             time.sleep(0.5)
             motor.cleanup()
         except BaseException as e:
-            logger.warning(f"Motor priority shutdown error (ignored): {e}")
+            print(f"Motor priority shutdown error (ignored): {e}")
 
         try:
             run_end_time = time.monotonic()
             total_time = run_end_time - run_start_time
-            logger.info(f"{'=' * 60}")
-            logger.info(f"Run completed | Total time: {total_time:.2f}s | Total turns: {turn_counter}")
-            logger.info(f"{'=' * 60}")
+            print(f"\n{'='*60}")
+            print(f"[{run_end_time:.2f}] Run completed | Total time: {total_time:.2f}s | Total turns: {turn_counter}")
+            if turn_counter > 0:
+                avg_time_per_turn = total_time / turn_counter
+                print(f"Average time per turn: {avg_time_per_turn:.2f}s")
+            print(f"{'='*60}\n")
         except BaseException:
             pass
 
@@ -1274,7 +1370,7 @@ if __name__ == "__main__":
         except BaseException:
             pass
 
-        logger.info("Signaling threads to stop...")
+        print("MainThread: Signaling threads to stop...")
         try:
             camera_thread.stop()
         except BaseException:
@@ -1292,7 +1388,7 @@ if __name__ == "__main__":
         except BaseException:
             pass
 
-        logger.info("Waiting for threads to complete...")
+        print("MainThread: Waiting for threads to complete...")
         try:
             camera_thread.join(timeout=1.0)
         except BaseException:
@@ -1320,9 +1416,9 @@ if __name__ == "__main__":
 
         try:
             video_writer_thread.out.release()
-            logger.info("VideoWriter released successfully.")
+            
         except BaseException as e:
-            logger.warning(f"Error releasing VideoWriter: {e}")
+            print(f"Error releasing VideoWriter: {e}")
 
         try:
             camera.cleanup()
@@ -1342,7 +1438,7 @@ if __name__ == "__main__":
 
         if 'log_file' in locals() and not log_file.closed:
             try:
-                logger.info(f"Log file saved to {log_path}")
+                print(f"Log file saved to {log_path}")
                 log_file.close()
             except BaseException:
                 pass

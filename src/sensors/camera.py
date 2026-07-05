@@ -267,16 +267,32 @@ def cleanup():
 
 
 if __name__ == "__main__":
-    print("--- Testing Camera and Vision Module with Cropping ---")
+    from src.obstacle_challenge import main_v4
+
+    print("--- Testing Camera ROIs (from main_v4, no detection) ---")
     if not initialize():
         print("Camera test failed during initialization.")
     else:
         cv2.namedWindow("Camera Test")
         cv2.setMouseCallback("Camera Test", mouse_event_handler)
 
+        light_blue = (255, 255, 0)
+        all_rois = [
+            (main_v4.left_roi_x, main_v4.left_roi_y, main_v4.left_roi_w, main_v4.left_roi_h),
+            (main_v4.right_roi_x, main_v4.right_roi_y, main_v4.right_roi_w, main_v4.right_roi_h),
+            (main_v4.inner_left_roi_x, main_v4.inner_left_roi_y, main_v4.inner_left_roi_w, main_v4.inner_left_roi_h),
+            (main_v4.inner_right_roi_x, main_v4.inner_right_roi_y, main_v4.inner_right_roi_w, main_v4.inner_right_roi_h),
+            main_v4.full_frame_roi,
+            main_v4.close_block_roi,
+            (main_v4.line_roi_x, main_v4.line_roi_y, main_v4.line_roi_w, main_v4.line_roi_h),
+            (main_v4.close_x, main_v4.close_y, main_v4.close_w, main_v4.close_h),
+        ]
+
         try:
             while True:
                 frame = capture_frame()
+                for x, y, w, h in all_rois:
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), light_blue, 2)
                 cv2.line(frame,(242,277),(222,355),(255,255,255),2)
                 cv2.line(frame,(242,277),(369,277),(255,255,255),2)
                 cv2.imshow("Camera Test", frame)
