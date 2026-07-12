@@ -152,7 +152,7 @@ Avg mission time: 148.2 s    (5 CW rounds, 7 CCW rounds)
 Worst clearance to any sign: 0.14 m — no sign moved, ever
 ```
 
-![Batch evaluation](./matlab/obstacle_challenge/results/evaluation_12runs.png)
+![Batch evaluation](https://github.com/Devansh-awat/greenbotics-2026/blob/main/matlab/evolution.png?raw=true)
 
 Per-run reports (trajectory coloured by state, speed profile, clearance-vs-time,
 summary statistics) are saved automatically after every run.
@@ -172,7 +172,7 @@ summary statistics) are saved automatically after every run.
    which is what lets us trust its answer for the one case we cannot safely
    measure: worst-case stall (44 W, 2.6 C — inside every rating).
 
-![Power budget](./matlab/obstacle_challenge/results/power_budget.png)
+![Power budget](https://github.com/Devansh-awat/greenbotics-2026/blob/main/matlab/power_budget.png?raw=true)
 
 ## Closing the Loop: Simulation-Tuned Parameters
 
@@ -192,7 +192,7 @@ Our deployed 0.09 sits in the flat optimum; gains ≥ 0.12 cost up to +20%
 mission time through oversteer. The physical tuning session can skip the
 high-gain region entirely.
 
-![KP sweep](./matlab/obstacle_challenge/results/kp_sweep.png)
+![KP sweep](https://github.com/Devansh-awat/greenbotics-2026/blob/main/matlab/KP_sweep.png?raw=true)
 
 ## How to Run
 
