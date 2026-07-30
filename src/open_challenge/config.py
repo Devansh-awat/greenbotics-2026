@@ -55,3 +55,8 @@ cv2.rectangle(roi_mask_orange, (orange_roi_x, orange_roi_y), (orange_roi_x + ora
 # Mask for "Close Black" Wall ROI (directly in front)
 roi_mask_close_black = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
 cv2.rectangle(roi_mask_close_black, (close_x, close_y), (close_x + close_w, close_y + close_h), 255, -1)
+
+# GPIO Pin Configuration
+BUTTON_PIN = 23
+LED_PIN = 12
+
