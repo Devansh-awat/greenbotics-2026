@@ -25,12 +25,14 @@ def initialize():
     try:
         picam2 = Picamera2()
         cam_config = picam2.create_preview_configuration(
-            main={
-                "format": "RGB888",
-                "size": (2304, 1296),
-            },
-            lores={"size": (640, 360), "format": "RGB888"},
-
+            # 640x360 is produced directly by the ISP. The `raw` size pins the
+            # sensor to mode 1 (2304x1296, 2x2 binned) -- the only mode that is
+            # both uncropped (full FoV) and capable of 56fps. Previously this was
+            # done by requesting a 2304x1296 `main` and reading a `lores`; that
+            # selected the same mode but burned ~2.5% of a core and ~500MB/s of
+            # memory bandwidth producing a full-res stream nobody read.
+            main={"format": "RGB888", "size": (640, 360)},
+            raw={"size": (2304, 1296)},
             controls={
                         "ExposureTime": 3000,
                         #"AnalogueGain": 10000.0,
@@ -50,7 +52,7 @@ def initialize():
 def capture_frame():
     """Captures and returns a single frame from the camera."""
     if picam2:
-        frame = picam2.capture_array("lores")
+        frame = picam2.capture_array("main")
         #frame = cv2.rotate(frame, cv2.ROTATE_180)
         #if frame.shape[2] == 4:
             #frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
