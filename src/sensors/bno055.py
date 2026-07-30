@@ -38,6 +38,8 @@ def get_heading():
             with i2c_bus.LOCK:
                 heading, _, _ = sensor.euler
             if heading is not None:
+                if getattr(config, "INVERT_GYRO", False):
+                    heading = (360.0 - heading) % 360.0
                 return heading
         except Exception:
             return None

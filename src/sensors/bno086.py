@@ -92,7 +92,10 @@ def get_heading():
             with i2c_bus.LOCK:
                 qi, qj, qk, qr = sensor.quaternion
             if None not in (qi, qj, qk, qr):
-                return _quaternion_to_heading(qi, qj, qk, qr)
+                heading = _quaternion_to_heading(qi, qj, qk, qr)
+                if getattr(config, "INVERT_GYRO", False):
+                    heading = (360.0 - heading) % 360.0
+                return heading
         except Exception:
             return None
     return None
