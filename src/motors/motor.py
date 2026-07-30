@@ -44,11 +44,24 @@ _ENC_FORWARD_SIGN = 1.0
 # and eases it back to hold the target rpm. PI gains are duty-% per wheel-rpm.
 _RPM_CONTINUOUS_MIN = 40.0   # wheel rpm at/above which we hold rpm with closed-loop duty
 _RPM_STALL_RPM = 5.0         # below this MEASURED rpm the wheel counts as "not moving yet"
-_RPM_KP_DUTY = 0.15          # proportional duty-% per wheel-rpm of error
-_RPM_KI_DUTY = 0.40          # integral duty-% per (wheel-rpm * s) of error
+_RPM_KP_DUTY = 0.20          # proportional duty-% per wheel-rpm of error (bumped from 0.15
+                              # 2026-07-26 for faster tracking of a fluctuating target; needs
+                              # on-hardware bench validation, see test_rpm_10.py)
+_RPM_KI_DUTY = 0.50          # integral duty-% per (wheel-rpm * s) of error (bumped from 0.40,
+                              # same caveat - watch for the oscillation failure mode described
+                              # above (stall/re-stall chatter) if pushed further)
 _RPM_KICK_DUTY = 60.0        # break-free duty the wheel starts at while stalled
 _RPM_STALL_RAMP = 115.0      # while stalled, ramp duty up this fast (%/s): kick->cap in ~0.35s
 _RPM_CAP = 100.0             # max duty (%) the loop may command
+# Feed-forward estimate of the duty (%) needed to just HOLD a moving wheel at a
+# given target: duty ~= static + gain * wheel_rpm. Calibrated off the known
+# ~40 wheel-rpm @ ~33% duty operating point (30 + 0.12*40 = 34.8). Used to reseed
+# the PI integrator the instant the wheel breaks free, so the (much higher)
+# break-free duty doesn't get carried into the hold and overshoot the target -
+# see the stall->move hand-off in set_speed_rpm().
+_RPM_FF_STATIC = 30.0        # duty (%) a moving wheel needs near 0 rpm (static/coulomb friction)
+_RPM_FF_GAIN = 0.12          # extra duty (%) per wheel-rpm to hold speed
+_RPM_EMA_ALPHA = 0.3          # smoothing for the reported (not control-loop) measured rpm
 # Persistent controller state, shared across successive set_speed_rpm() calls.
 _rpm_state = {
     "start_pos": None,    # encoder position when control began
@@ -58,6 +71,9 @@ _rpm_state = {
     "last_pos": None,     # encoder position at the previous control step
     "pulsing": False,
     "duty": 0.0,          # current commanded/integrated duty (%)
+    "broke_free": False,  # True once the wheel has broken free in the current continuous move
+    "ema_rpm": 0.0,        # smoothed instantaneous rpm, for reporting/logging only
+    "applied": None,      # what was LAST ACTUALLY WRITTEN to the driver (see _apply_*)
 }
 
 # Background control thread (so the loop can run once and hold a target).
@@ -123,22 +139,26 @@ def _set_speed(speed):
         motor_pwm.change_duty_cycle(max(0, min(100, speed)))
 
 
+def _drive(ain1, speed):
+    """Engage the driver in the direction given by AIN1 (AIN2 is its complement),
+    honouring config.MOTOR_DIR_INVERT for the reversed motor leads."""
+    if gpio_handle:
+        if getattr(config, "MOTOR_DIR_INVERT", False):
+            ain1 = 1 - ain1
+        lgpio.gpio_write(gpio_handle, config.STBY_PIN, 1)
+        lgpio.gpio_write(gpio_handle, config.AIN1_PIN, ain1)
+        lgpio.gpio_write(gpio_handle, config.AIN2_PIN, 1 - ain1)
+        _set_speed(speed)
+
+
 def forward(speed):
     """Drives the motor forward at a given speed."""
-    if gpio_handle:
-        lgpio.gpio_write(gpio_handle, config.STBY_PIN, 1)
-        lgpio.gpio_write(gpio_handle, config.AIN1_PIN, 1)
-        lgpio.gpio_write(gpio_handle, config.AIN2_PIN, 0)
-        _set_speed(speed)
+    _drive(1, speed)
 
 
 def reverse(speed):
     """Drives the motor in reverse at a given speed."""
-    if gpio_handle:
-        lgpio.gpio_write(gpio_handle, config.STBY_PIN, 1)
-        lgpio.gpio_write(gpio_handle, config.AIN1_PIN, 0)
-        lgpio.gpio_write(gpio_handle, config.AIN2_PIN, 1)
-        _set_speed(speed)
+    _drive(0, speed)
 
 
 def standby():
@@ -237,11 +257,42 @@ def reset_rpm_control():
     _rpm_state["last_pos"] = None
     _rpm_state["pulsing"] = False
     _rpm_state["duty"] = 0.0
+    _rpm_state["broke_free"] = False
+    _rpm_state["ema_rpm"] = 0.0
+    _rpm_state["applied"] = None
+
+
+def _apply_drive(motor_func, duty, direction):
+    """Write a drive command to the driver AND record exactly what was written.
+
+    Every hardware write in the rpm controller goes through here or
+    _apply_brake(), so the log can report what the driver actually received
+    rather than what the controller intended. Those two silently diverged once
+    already: a refactor left the stall branch computing a duty it never wrote,
+    while the log's "Duty:" field (which prints the intended _rpm_state["duty"])
+    happily showed 100% for a minute at a time with the motor sitting shorted
+    and stone cold. Logging intent and reality side by side makes that class of
+    bug obvious on the first line instead of invisible for days.
+
+    NOTE: "applied" deliberately persists until the next write. That mirrors the
+    hardware, which latches the last command -- if a control path stops writing,
+    the driver keeps doing whatever it was last told, and the log should show
+    that stale value rather than implying a fresh command.
+    """
+    motor_func(duty)
+    _rpm_state["applied"] = f"{'FWD' if direction == 'forward' else 'REV'} {duty:.1f}%"
+
+
+def _apply_brake():
+    """Brake the motor and record it as the applied hardware state."""
+    brake()
+    _rpm_state["applied"] = "BRAKE"
 
 
 def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
                   deadband_rev=0.02, kp_duty=_RPM_KP_DUTY, ki_duty=_RPM_KI_DUTY,
-                  kick_duty=_RPM_KICK_DUTY, stall_ramp=_RPM_STALL_RAMP, cap=_RPM_CAP):
+                  kick_duty=_RPM_KICK_DUTY, stall_ramp=_RPM_STALL_RAMP, cap=_RPM_CAP,
+                  ff_static=_RPM_FF_STATIC, ff_gain=_RPM_FF_GAIN):
     """Hold a target WHEEL rpm using encoder feedback.
 
     Performs ONE control update per call. You can either call it yourself in a
@@ -297,6 +348,7 @@ def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
         _rpm_state["last_pos"] = pos
         _rpm_state["pulsing"] = False
         _rpm_state["duty"] = 0.0
+        _rpm_state["broke_free"] = False
         return 0.0
 
     dt = now - _rpm_state["last_time"]
@@ -323,14 +375,22 @@ def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
     step = dir_cmd * _ENC_FORWARD_SIGN * (pos - _rpm_state["last_pos"])
     _rpm_state["last_pos"] = pos
     meas_rpm = (step / cpr) * 60.0 / dt
+    # Smoothed instantaneous rpm, for get_measured_rpm()/logging only - the PI
+    # loop above uses the raw per-step meas_rpm directly. The lifetime average
+    # returned below lags badly behind the true current speed (it's dragged
+    # down by the break-free/ramp-up at the start of the session), which made
+    # tuning off the log misleading - it looked like targets were never
+    # reached even once the wheel had settled near them.
+    _rpm_state["ema_rpm"] += _RPM_EMA_ALPHA * (meas_rpm - _rpm_state["ema_rpm"])
 
     deficit = _rpm_state["target_pos"] - actual
     deadband = deadband_rev * cpr
 
     if target_rpm <= 0:
-        brake()
+        _apply_brake()
         _rpm_state["pulsing"] = False
         _rpm_state["duty"] = 0.0
+        _rpm_state["broke_free"] = False
     elif target_rpm >= _RPM_CONTINUOUS_MIN:
         # Continuous regime, two phases:
         err = target_rpm - meas_rpm
@@ -338,25 +398,69 @@ def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
             # Stalled (not moving yet): start at the break-free kick and ramp the
             # duty quickly toward the cap so it breaks free even under a heavy
             # steering load. Feedback-driven, so this stops the instant it moves.
+            # NOTE: broke_free is NOT cleared here. Under sustained heavy load
+            # (e.g. reversing at full steering lock) the wheel can dip back
+            # under the stall threshold and re-enter this branch mid-move; if
+            # broke_free were reset to False, the next crossing back into the
+            # "moving" branch below would reseed duty down to the light-load
+            # ff_hold estimate, which is too low to sustain the wheel against
+            # that load, so it stalls again immediately -- a self-inflicted
+            # oscillation between ~35% and ~60-90% duty that can chatter for
+            # many seconds (observed 2026-07-25: 40 rpm target reverse turn
+            # at 55 deg lock, measured rpm stuck oscillating around 4-6 for
+            # ~7s). Leaving broke_free True after the first break-free means
+            # a re-stall just keeps ramping from its current (already-working)
+            # duty instead of getting reseeded back down.
             _rpm_state["duty"] = min(cap, max(_rpm_state["duty"], kick_duty) + stall_ramp * dt)
-            out = _rpm_state["duty"]
+            out = max(0.0, min(cap, _rpm_state["duty"]))
+            # MUST command the motor here too. This used to live (dedented) after
+            # the if/else so it covered both branches; when it was moved inside
+            # the `else` the stall ramp became dead code -- the duty was computed
+            # and logged but never written to the driver, so a wheel that dipped
+            # below _RPM_STALL_RPM just held whatever was last commanded. Coming
+            # out of a brake() that means the motor stays SHORTED while the log
+            # prints "Duty: 100.0%", and it can only recover if something
+            # externally spins the wheel back above the threshold.
+            _apply_drive(motor_func, out, direction)
         else:
+            # First step after breaking free: the ramped break-free duty (60..cap)
+            # is usually well above the duty needed to merely HOLD the target,
+            # especially under light load (e.g. wheels near-straight after the
+            # camera wall-follow). Carrying it into the integrator makes the wheel
+            # overshoot the target for the ~1-2 s the PI takes to bleed it back
+            # down. So seed the integrator with a feed-forward hold estimate the
+            # instant it starts moving, and it settles at the target immediately.
+            # One-shot (broke_free): if a heavy load re-stalls the wheel and it
+            # breaks free again we keep its higher duty rather than re-clamping,
+            # so it doesn't chatter between the ramp and this seed.
+            if not _rpm_state["broke_free"]:
+                ff_hold = ff_static + ff_gain * target_rpm
+                _rpm_state["duty"] = min(_rpm_state["duty"], ff_hold)
+                _rpm_state["broke_free"] = True
             # Moving: PI trim on the rpm error eases the duty up/down to hold target.
-            _rpm_state["duty"] = max(0.0, min(cap, _rpm_state["duty"] + ki_duty * err * dt))
+            # If decelerating (err < 0), bleed accumulated duty 3x faster to eliminate overshoot lag
+            if err < 0:
+                _rpm_state["duty"] = max(0.0, _rpm_state["duty"] + 3.0 * ki_duty * err * dt)
+            else:
+                _rpm_state["duty"] = max(0.0, min(cap, _rpm_state["duty"] + ki_duty * err * dt))
+
             out = _rpm_state["duty"] + kp_duty * err
-        out = max(0.0, min(cap, out))
-        motor_func(out)
+            if err < -20.0 and out <= 0.0:
+                _apply_brake()
+            else:
+                out = max(0.0, min(cap, out))
+                _apply_drive(motor_func, out, direction)
         _rpm_state["pulsing"] = True
     elif deficit > deadband:
         # Sub-stall regime: drive a fixed break-free pulse while behind.
         if not _rpm_state["pulsing"]:
-            motor_func(pulse_duty)
+            _apply_drive(motor_func, pulse_duty, direction)
             _rpm_state["pulsing"] = True
             _rpm_state["duty"] = pulse_duty
     else:
         # Sub-stall regime: caught up, brake and let the wheel coast.
         if _rpm_state["pulsing"]:
-            brake()
+            _apply_brake()
             _rpm_state["pulsing"] = False
             _rpm_state["duty"] = 0.0
 
@@ -370,6 +474,7 @@ def _rpm_loop(stop_event, period, kwargs):
     """Background worker: holds the current target until stopped."""
     global _rpm_measured
     reset_rpm_control()
+    step_count = 0
     while not stop_event.is_set():
         with _rpm_lock:
             target = _rpm_target
@@ -377,7 +482,21 @@ def _rpm_loop(stop_event, period, kwargs):
         rpm = set_speed_rpm(target, direction, **kwargs)
         if rpm is not None:
             with _rpm_lock:
-                _rpm_measured = rpm
+                _rpm_measured = _rpm_state["ema_rpm"]
+        
+        step_count += 1
+        if step_count >= 10:
+            step_count = 0
+            duty = _rpm_state.get("duty", 0.0)
+            broke_free = _rpm_state.get("broke_free", False)
+            measured = _rpm_measured
+            # Duty = what the controller WANTS. Applied = what the driver last
+            # actually got. If these disagree, believe Applied -- that is the
+            # hardware truth, and a mismatch means a control path computed a
+            # command without writing it.
+            applied = _rpm_state.get("applied") or "none yet"
+            print(f"[RPM Loop] Target: {target:.1f} RPM ({direction}) | Measured: {measured:.1f} RPM | Duty: {duty:.1f}% | Applied: {applied} | BrokeFree: {broke_free}")
+            
         time.sleep(period)
     brake()
     reset_rpm_control()
