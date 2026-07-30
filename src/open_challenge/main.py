@@ -1,6 +1,7 @@
 from collections import deque
 import time
 import threading
+import queue
 import cv2
 import numpy as np
 from gpiozero import Button, LED
@@ -9,40 +10,67 @@ import sys
 import traceback
 from datetime import datetime
 
-# Import all settings from the new config file
-from src.obstacle_challenge.main_v3 import get_angular_difference
+# Import all settings from the config file
 import src.open_challenge.config as config
 
 # Import hardware control modules
-from src.sensors import bno055, camera, distance
+from src.sensors import bno086, camera, distance
 from src.motors import motor, servo
 
 ORANGE_COOLDOWN_FRAMES = 50
 ORANGE_DETECTION_HISTORY_LENGTH = 4
+
+
+def get_angular_difference(angle1, angle2):
+    if angle1 is None or angle2 is None:
+        return 360
+    diff = angle1 - angle2
+    while diff <= -180:
+        diff += 360
+    while diff > 180:
+        diff -= 360
+    return abs(diff)
+
 
 class CameraThread(threading.Thread):
     def __init__(self, camera_instance):
         super().__init__()
         self.camera = camera_instance
         self.latest_frame = None
-        self.lock = threading.Lock()
+        self.cond = threading.Condition()
         self.stop_event = threading.Event()
         self.daemon = True
+        self.frame_counter = 0
 
     def run(self):
         while not self.stop_event.is_set():
             frame = self.camera.capture_frame()
-            with self.lock:
+            with self.cond:
+                self.frame_counter += 1
                 self.latest_frame = frame
+                self.cond.notify_all()
 
     def get_frame(self):
-        with self.lock:
+        with self.cond:
             if self.latest_frame is not None:
-                return self.latest_frame.copy()
-            return None
+                return self.latest_frame.copy(), self.frame_counter
+            return None, self.frame_counter
+
+    def get_next_frame(self, last_counter, timeout=1.0):
+        with self.cond:
+            self.cond.wait_for(
+                lambda: self.frame_counter != last_counter or self.stop_event.is_set(),
+                timeout=timeout,
+            )
+            if self.latest_frame is not None:
+                return self.latest_frame.copy(), self.frame_counter
+            return None, self.frame_counter
 
     def stop(self):
-        self.stop_event.set()
+        with self.cond:
+            self.stop_event.set()
+            self.cond.notify_all()
+
 
 class ImuThread(threading.Thread):
     def __init__(self, bno, init_event):
@@ -61,8 +89,10 @@ class ImuThread(threading.Thread):
             self.initialization_complete.set()
             while not self.stop_event.is_set():
                 heading = self.bno.get_heading()
-                with self.lock:
-                    self.heading = heading
+                if heading is not None:
+                    with self.lock:
+                        self.heading = heading
+                time.sleep(0.01)
         except Exception as e:
             print(f"ImuThread: ERROR during initialization/operation: {e}")
             traceback.print_exc()
@@ -79,6 +109,36 @@ class ImuThread(threading.Thread):
         self.stop_event.set()
 
 
+class VideoWriterThread(threading.Thread):
+    def __init__(self, path, fourcc, fps, frame_size):
+        super().__init__()
+        self.out = cv2.VideoWriter(path, fourcc, fps, frame_size)
+        self.queue = queue.Queue()
+        self.stop_event = threading.Event()
+        self.daemon = True
+
+    def run(self):
+        while not self.stop_event.is_set() or not self.queue.empty():
+            try:
+                frame = self.queue.get(timeout=0.1)
+                self.out.write(frame)
+                self.queue.task_done()
+            except queue.Empty:
+                continue
+            except:
+                print("VideoWriterThread: ERROR writing frame")
+                traceback.print_exc()
+                continue
+        self.out.release()
+
+    def write(self, frame):
+        if not self.stop_event.is_set():
+            self.queue.put(frame)
+
+    def stop(self):
+        self.stop_event.set()
+
+
 def process_video_frame(frame):
     processed_data = {
         'detected_walls': [],
@@ -86,7 +146,7 @@ def process_video_frame(frame):
         'detected_close_black': []
     }
     
-    frame = cv2.GaussianBlur(frame,(1,7),0)
+    frame = cv2.GaussianBlur(frame, (1, 7), 0)
     hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
     mask_black = cv2.inRange(hsv_frame, config.LOWER_BLACK, config.UPPER_BLACK)
@@ -144,6 +204,7 @@ def process_video_frame(frame):
     
     return processed_data
 
+
 def annotate_video_frame(frame, detections, debug_info=""):
     annotated_frame = frame.copy()
     light_blue = (255, 255, 0)
@@ -177,31 +238,27 @@ if __name__ == "__main__":
     camera.initialize()
     motor.initialize()
     servo.initialize()
-    button = Button(23)
-    led = LED(12)
+    # button = Button(config.BUTTON_PIN)
+    led = LED(config.LED_PIN)
 
     run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     base_folder = "open"
     run_folder = os.path.join(base_folder, run_timestamp)
     
-    # 2. Create the directories. `exist_ok=True` prevents errors if the folder already exists.
     os.makedirs(run_folder, exist_ok=True)
 
-    # 3. Define the full paths for the video and log files
     video_path = os.path.join(run_folder, 'open.mp4')
     log_path = os.path.join(run_folder, 'open_output.txt')
     
-    # 4. Redirect all print statements (stdout) and errors (stderr) to the log file
-    #    We open the file and keep it open for the duration of the script.
     log_file = open(log_path, 'w')
     sys.stdout = log_file
     sys.stderr = log_file
 
     fourcc = cv2.VideoWriter_fourcc(*'avc1')
-    out = cv2.VideoWriter(video_path, fourcc, 30, (config.FRAME_WIDTH, config.FRAME_HEIGHT))
+    video_writer_thread = VideoWriterThread(video_path, fourcc, 30, (config.FRAME_WIDTH, config.FRAME_HEIGHT))
+    video_writer_thread.start()
 
-    # Deque to track recent orange line detections for debouncing
-    orange_detection_history = deque([False] * ORANGE_DETECTION_HISTORY_LENGTH,maxlen=ORANGE_DETECTION_HISTORY_LENGTH)
+    orange_detection_history = deque([False] * ORANGE_DETECTION_HISTORY_LENGTH, maxlen=ORANGE_DETECTION_HISTORY_LENGTH)
     cooldown_frames = 0
 
     final_run_initiated = False
@@ -209,19 +266,20 @@ if __name__ == "__main__":
     turn_counter = 0
     
     prev_angle = 0
+    past_frame_counter = 0
 
     # Start camera and sensor threads
     imu_initialized_event = threading.Event()
     camera_thread = CameraThread(camera)
     camera_thread.start()
-    imu_thread = ImuThread(bno055, imu_initialized_event)
+    imu_thread = ImuThread(bno086, imu_initialized_event)
     imu_thread.start()
     
     print("MainThread: Waiting for IMU to initialize...")
     imu_initialized_event.wait()
     print("MainThread: IMU is ready. Proceeding with main logic.")  
     led.on()
-    button.wait_for_press()
+    # button.wait_for_press()
     led.off()
     time.sleep(0.5)
     INITIAL_HEADING = None
@@ -239,9 +297,10 @@ if __name__ == "__main__":
         while True:
             angle = 0
             debug = []
-            frame = camera_thread.get_frame()
-            if frame is None:
+            frame, frame_counter = camera_thread.get_frame()
+            if frame is None or frame_counter == past_frame_counter:
                 continue
+            past_frame_counter = frame_counter
             
             # Process frame to find walls and orange lines
             detections = process_video_frame(frame)
@@ -258,32 +317,24 @@ if __name__ == "__main__":
                 print("turn_counter ---------------->", turn_counter)
 
             # --- Steering Logic ---
-            # Balance pixel areas of left vs. right walls
             left_pixel_size = sum(obj['area'] for obj in detections['detected_walls'] if 'left' in obj['type'])
             right_pixel_size = sum(obj['area'] for obj in detections['detected_walls'] if 'right' in obj['type'])
 
-            # If one side wall disappears, turn sharply towards the other side
             if left_pixel_size < 100 and right_pixel_size > 100:
                 right_pixel_size += 25000
             elif right_pixel_size < 100 and left_pixel_size > 100:
                 left_pixel_size += 25000
             
-            # Proportional steering based on the difference in wall area
             angle = ((left_pixel_size - right_pixel_size) * 0.0005)
             
-            # Override with sharp turn if a wall is detected directly in front
             close_black_area = sum(obj['area'] for obj in detections.get('detected_close_black', []))
             if close_black_area > 3000:
-                # Decide turn direction based on which side has more "space" (fewer pixels)
                 if left_pixel_size < right_pixel_size:
                     angle = -35  # Turn left
                 else:
                     angle = 35   # Turn right
             
-            # --- Angle Smoothing and Clamping ---
-            # Limit the rate of change of the servo to prevent jerky movements
             angle = np.clip(angle, prev_angle - 10, prev_angle + 10)
-            # Clamp the final angle to the servo's limits
             angle = np.clip(angle, -40, 40)
             servo.set_angle(angle)
             prev_angle = angle
@@ -294,22 +345,16 @@ if __name__ == "__main__":
             debug.append(f"Turns:{turn_counter}")
             annotated_frame = annotate_video_frame(frame, detections, debug_info=str(debug))
             try:
-                out.write(annotated_frame)
+                video_writer_thread.write(annotated_frame)
             except Exception as e:
                 print(e)
-
             
             # --- Exit Conditions ---
-            # if button.is_pressed:
-            #     print("Button pressed. Stopping.")
-            #     break
-            
-            if turn_counter == 12 and not final_run_initiated and get_angular_difference(imu_thread.get_heading(),INITIAL_HEADING)<30:
+            if turn_counter == 12 and not final_run_initiated and get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) < 30:
                 print("12 turns reached. Stopping in 0.6 seconds")
                 final_run_initiated = True
                 final_run_start_time = time.monotonic()
 
-            # 2. If the final run has been initiated, check if the timer is up
             if final_run_initiated and (time.monotonic() - final_run_start_time) >= 0.8:
                 print("0.8 second complete. Stopping.")
                 break
@@ -326,13 +371,13 @@ if __name__ == "__main__":
         print("MainThread: Signaling threads to stop...")
         camera_thread.stop()
         imu_thread.stop()
+        video_writer_thread.stop()
 
         print("MainThread: Waiting for threads to complete...")
         camera_thread.join()
         imu_thread.join()
+        video_writer_thread.join()
         print("MainThread: All threads have completed.")
-        
-        out.release()
         
         camera.cleanup()
         servo.set_angle(0)
@@ -341,5 +386,5 @@ if __name__ == "__main__":
         cv2.destroyAllWindows()
         print("Program finished.")
         if 'log_file' in locals() and not log_file.closed:
-            print(f"Log file saved to {log_path}") # This will print to your console
+            print(f"Log file saved to {log_path}")
             log_file.close()
