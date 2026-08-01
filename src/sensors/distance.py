@@ -1,17 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-Distance sensing with two VL53L4CD sensors on I2C bus 3:
+Distance sensing with up to four VL53L4CD sensors on I2C bus 3.
 
-- Front: one VL53L4CD on GPIO 17 (Address 0x2A).
-- Back:  one VL53L4CD on GPIO 27 (Address 0x2B).
+All four chips power up at the default address 0x29, so they are brought up one
+at a time: every XSHUT is held low (in reset), then each sensor is released,
+probed at 0x29 and moved to its own address before the next one is woken.
 
-Callers address sensors by a logical "channel" number, kept consistent with the
-old mux-only layout so the rest of the codebase is unchanged:
+Callers address sensors by a logical "channel", which is simply the sensor's
+XSHUT GPIO number:
 
-    channel 0 -> Front (VL53L4CD, address 0x2A, XSHUT GPIO17)
-    channel 3 -> Back  (VL53L4CD, address 0x2B, XSHUT GPIO27)
+    channel 17 -> Front (0x2A)   [wired]
+    channel 16 -> Back  (0x2B)   [wired]
+    channel 22 -> Left  (0x2C)   [not wired yet — optional]
+    channel 27 -> Right (0x2D)   [not wired yet — optional]
+
+Left/Right are declared optional: if they aren't physically present, bring-up
+fails fast, initialise() still returns True, and get_distance() on those
+channels just returns None. Wire them up and they start working with no code
+change.
+
+The legacy mux channel numbers still work: 0 maps to Front, 3 maps to Back.
 """
 
+import struct
 import time
 import traceback
 import threading
@@ -40,27 +51,37 @@ def _custom_write_register(self, address, data, length=None):
 adafruit_vl53l4cd.VL53L4CD._write_register = _custom_write_register
 
 # --- Configuration ---
+_REG_RANGE_OFFSET_MM = 0x001E  # signed 16-bit register for range offset (mm * 4)
 I2C_BUS = 3
 
-# Channels (XSHUT Pin Numbers)
-FRONT_CHANNEL = 17   # Forward VL53L4CD (GPIO17)
-BACK_CHANNEL = 27    # Backward VL53L4CD (GPIO27)
+# Channels == XSHUT GPIO numbers.
+FRONT_CHANNEL = 17
+BACK_CHANNEL = 16
+LEFT_CHANNEL = 22
+RIGHT_CHANNEL = 27
 
-# Keep compatibility variables so callers don't break
-VL53L1X_CHANNELS = [0]
-VL53L8CX_CHANNELS = [3]
-SENSOR_CHANNELS = [0, 3, FRONT_CHANNEL, BACK_CHANNEL]
+# Sensor table: channel -> (i2c address, label, required)
+# "required" sensors make initialise() return False if they fail; the optional
+# ones (not yet wired) are allowed to be absent.
+SENSORS = {
+    FRONT_CHANNEL: (0x2A, "Front VL53L4CD (GPIO17)", True),
+    BACK_CHANNEL:  (0x2B, "Back VL53L4CD (GPIO16)",  True),
+    LEFT_CHANNEL:  (0x2C, "Left VL53L4CD (GPIO22)",  False),
+    RIGHT_CHANNEL: (0x2D, "Right VL53L4CD (GPIO27)", False),
+}
 
-# Pins and Addresses (matching test_vl53l4cd_dual.py)
-XSHUT_A_PIN = 17
-XSHUT_B_PIN = 27
-ADDR_A = 0x2A
-ADDR_B = 0x2B
+# Bring-up order matters only in that each sensor must be alone at 0x29 when it
+# is probed; _bring_up() guarantees that by leaving the rest in reset.
+SENSOR_CHANNELS = list(SENSORS.keys())
+
+# Legacy mux channel numbers used by older call sites.
+_CHANNEL_ALIASES = {0: FRONT_CHANNEL, 3: BACK_CHANNEL}
 
 # Timing settings
 TIMING_BUDGET_MS = 33
 BOOT_DELAY_S = 0.2
-BRING_UP_RETRIES = 6
+BRING_UP_RETRIES = 6           # for required sensors
+OPTIONAL_BRING_UP_RETRIES = 2  # unwired sensors: fail fast, don't stall startup
 
 # range_status values we accept as a usable distance
 _VALID_STATUSES = (
@@ -99,23 +120,35 @@ class _ExtendedI2C(busio.I2C):
             pass
 
 
-def _bring_up(channel, new_address, label):
-    """Wake one sensor (others must be in reset), move it to new_address.
+def _resolve_channel(channel):
+    """Map a legacy mux channel number onto its XSHUT-GPIO channel."""
+    return _CHANNEL_ALIASES.get(channel, channel)
+
+
+def _bring_up(channel, retries=None):
+    """Wake one sensor (all others stay in reset), move it off 0x29.
 
     Each attempt does a full XSHUT reset (low -> high) so the chip boots fresh:
     a chip left ranging / killed mid-transaction by a previous run gets wedged
     (ACKs its address but stalls every data transfer), and only a reset edge
     clears it — re-probing alone won't. A reset also returns the chip to the
     default 0x29, so re-probing 0x29 is correct on every attempt.
+
+    Sensors brought up earlier already sit at their own address, so they don't
+    answer at 0x29 and can stay awake here.
     """
-    global _sensors, _xshut_devices, _i2c
+    global _sensors
+
+    new_address, label, required = SENSORS[channel]
+    if retries is None:
+        retries = BRING_UP_RETRIES if required else OPTIONAL_BRING_UP_RETRIES
 
     xshut = _xshut_devices.get(channel)
     if xshut is None:
         raise RuntimeError(f"XSHUT pin for channel {channel} not initialized.")
 
     last_err = None
-    for attempt in range(BRING_UP_RETRIES):
+    for attempt in range(retries):
         xshut.off()
         time.sleep(0.05)
         xshut.on()              # clean reset edge -> fresh boot at 0x29
@@ -126,6 +159,8 @@ def _bring_up(channel, new_address, label):
                 s.set_address(new_address)
                 s.timing_budget = TIMING_BUDGET_MS
                 s.inter_measurement = 0
+                # Set range offset to 0 mm
+                s._write_register(_REG_RANGE_OFFSET_MM, struct.pack(">h", 0))
                 s.start_ranging()
             print(f"  - {label}: up at 0x{new_address:02X} (attempt {attempt + 1})")
             _sensors[channel] = s
@@ -134,18 +169,22 @@ def _bring_up(channel, new_address, label):
             last_err = e
             time.sleep(0.05)
 
-    raise RuntimeError(f"{label}: bring-up failed after retries: {last_err}")
+    # Leave a failed sensor in reset so it can't sit on 0x29 and collide with a
+    # later bring-up.
+    xshut.off()
+    raise RuntimeError(f"{label}: bring-up failed after {retries} tries: {last_err}")
 
 
 def initialise(i2c_bus_num=I2C_BUS, **_ignored):
-    """
-    Initializes the I2C bus and brings up the two VL53L4CD sensors
-    as front (channel 0) and back (channel 3) sensors.
+    """Initialize the I2C bus and bring up every configured VL53L4CD.
+
+    Returns True if all *required* sensors came up. Optional (not-yet-wired)
+    sensors are reported but don't fail initialisation.
     """
     global _i2c, _sensors, _xshut_devices
 
     # Clean up any previously opened objects
-    cleanup()
+    cleanup(silent=True)
 
     try:
         _i2c = _ExtendedI2C(i2c_bus_num)
@@ -154,49 +193,42 @@ def initialise(i2c_bus_num=I2C_BUS, **_ignored):
         return False
 
     try:
-        # Initial value False: hold both low (in reset) from the start
-        _xshut_devices[FRONT_CHANNEL] = DigitalOutputDevice(XSHUT_A_PIN, initial_value=False)
-        _xshut_devices[BACK_CHANNEL] = DigitalOutputDevice(XSHUT_B_PIN, initial_value=False)
+        # Initial value False: hold every sensor low (in reset) from the start so
+        # only one at a time answers at the default 0x29.
+        for channel in SENSOR_CHANNELS:
+            _xshut_devices[channel] = DigitalOutputDevice(channel, initial_value=False)
         time.sleep(0.05)
     except Exception as e:
         print(f"FATAL: Could not initialize GPIO XSHUT devices. Error: {e}")
-        cleanup()
+        cleanup(silent=True)
         return False
 
     ok = True
+    for channel in SENSOR_CHANNELS:
+        _, label, required = SENSORS[channel]
+        try:
+            _bring_up(channel)
+        except Exception as e:
+            if required:
+                print(f"distance.py: ERROR initializing {label}: {e}")
+                traceback.print_exc()
+                ok = False
+            else:
+                print(f"distance.py: {label} not present (optional) — skipping.")
 
-    # Front VL53L4CD (GPIO17 -> 0x2A)
-    try:
-        _bring_up(FRONT_CHANNEL, ADDR_A, "Front VL53L4CD (GPIO17)")
-    except Exception as e:
-        print(f"distance.py: ERROR initializing Front VL53L4CD: {e}")
-        traceback.print_exc()
-        ok = False
-
-    # Back VL53L4CD (GPIO27 -> 0x2B)
-    try:
-        _bring_up(BACK_CHANNEL, ADDR_B, "Back VL53L4CD (GPIO27)")
-    except Exception as e:
-        print(f"distance.py: ERROR initializing Back VL53L4CD: {e}")
-        traceback.print_exc()
-        ok = False
-
-    print(f"INFO: Sensor initialization complete. Status: {ok}")
+    print(f"INFO: Sensor initialization complete. Status: {ok}. "
+          f"Live channels: {sorted(_sensors.keys())}")
     return ok
 
 
 def reinit_sensor(channel, **_ignored):
     """Reinitialize the sensor on the specified channel."""
-    global _sensors, _xshut_devices
-    print("Reinitializing sensor on channel", channel)
-    
-    # Map backward compatibility channels
-    if channel == 0:
-        channel = FRONT_CHANNEL
-    elif channel == 3:
-        channel = BACK_CHANNEL
+    global _sensors
 
-    if channel not in SENSOR_CHANNELS:
+    channel = _resolve_channel(channel)
+    print("Reinitializing sensor on channel", channel)
+
+    if channel not in SENSORS:
         return False
 
     old = _sensors.pop(channel, None)
@@ -208,9 +240,7 @@ def reinit_sensor(channel, **_ignored):
             print(f"Warning: Could not stop existing sensor on channel {channel}: {e}")
 
     try:
-        addr = ADDR_A if channel == FRONT_CHANNEL else ADDR_B
-        label = "Front VL53L4CD (GPIO17)" if channel == FRONT_CHANNEL else "Back VL53L4CD (GPIO27)"
-        _bring_up(channel, addr, label)
+        _bring_up(channel)
         return True
     except Exception as e:
         print(f"Warning: Error during reinit on channel {channel}: {e}")
@@ -237,14 +267,10 @@ def _bump(channel, key):
 def get_distance(channel):
     """
     Returns distance in mm (float) for a configured channel, or None if the
-    channel is not configured or no new frame is ready (non-blocking).
+    channel is not configured / not wired up, or no new frame is ready
+    (non-blocking).
     """
-    # Map backward compatibility channels
-    actual_channel = channel
-    if channel == 0:
-        actual_channel = FRONT_CHANNEL
-    elif channel == 3:
-        actual_channel = BACK_CHANNEL
+    actual_channel = _resolve_channel(channel)
 
     if actual_channel not in _sensors:
         _bump(channel, 'absent')
@@ -272,15 +298,17 @@ def get_distance(channel):
         return None
 
 
-def cleanup():
+def cleanup(silent=False):
     """Stops ranging on all initialized sensors and releases GPIOs."""
-    print("\n--- Cleaning up Sensors ---")
+    if not silent:
+        print("\n--- Cleaning up Sensors ---")
     for channel, sensor in list(_sensors.items()):
         try:
             with _lock:
                 sensor.stop_ranging()
         except (OSError, AttributeError):
-            print(f"Warning: Error during cleanup of sensor on channel {channel}.")
+            if not silent:
+                print(f"Warning: Error during cleanup of sensor on channel {channel}.")
 
     _sensors.clear()
 
@@ -302,27 +330,28 @@ def cleanup():
             pass
         _i2c = None
 
-    print("Cleanup complete.")
+    if not silent:
+        print("Cleanup complete.")
 
 
 if __name__ == "__main__":
-    print("--- Testing Distance Sensor Library (Dual VL53L4CD on I2C3) ---")
+    print("--- Testing Distance Sensor Library (VL53L4CD x4 on I2C3) ---")
     if not initialise():
-        print("Test failed during initialization.")
+        print("Test failed: a required sensor did not come up.")
     elif not _sensors:
         print("No sensors were detected.")
     else:
         try:
             print("\nReading data from all detected sensors. Press Ctrl+C to stop.")
-            print(list(_sensors.keys()))
             while True:
                 output_line_parts = []
-                for i in sorted(_sensors.keys()):
-                    dist_mm = get_distance(i)
+                for ch in sorted(_sensors.keys()):
+                    name = SENSORS[ch][1].split()[0]
+                    dist_mm = get_distance(ch)
                     if dist_mm is not None:
-                        output_line_parts.append(f"Ch{i}: {dist_mm:6.0f} mm")
+                        output_line_parts.append(f"{name}(Ch{ch}): {dist_mm:6.0f} mm")
                     else:
-                        output_line_parts.append(f"Ch{i}:   ----   ")
+                        output_line_parts.append(f"{name}(Ch{ch}):   ----   ")
                 print(f"\r{(' | '.join(output_line_parts))}", end="", flush=True)
                 time.sleep(1 / 30)  # ~30 Hz
         except KeyboardInterrupt:
