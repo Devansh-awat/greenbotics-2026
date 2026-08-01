@@ -28,7 +28,7 @@ from src.motors import motor, servo
 
 
 # --- Tuning -----------------------------------------------------------------
-STEER_MAX_DEG = 45.0          # maps |steer|=1 -> this servo angle
+STEER_MAX_DEG = 60.0          # maps |steer|=1 -> this servo angle
 STEER_DEADZONE = 0.04         # ignore tiny jitter around centre
 THROTTLE_DEADZONE = 0.06      # below this magnitude the motor brakes
 WATCHDOG_TIMEOUT_S = 0.35     # no message for this long -> stop everything
@@ -52,7 +52,7 @@ def _apply(throttle, steer):
         # Steering
         if abs(steer) < STEER_DEADZONE:
             steer = 0.0
-        servo.set_angle(steer * STEER_MAX_DEG)
+        servo.set_angle_unlimited(steer * STEER_MAX_DEG)
 
         # Throttle
         if abs(throttle) < THROTTLE_DEADZONE:
