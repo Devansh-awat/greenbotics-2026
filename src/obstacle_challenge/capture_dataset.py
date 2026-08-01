@@ -9,6 +9,7 @@ import cv2
 import time
 from datetime import datetime
 from gpiozero import Button
+from src.obstacle_challenge import config
 from src.sensors import camera
 
 DATASET_DIR = os.path.join(
@@ -24,7 +25,7 @@ def main():
         print("Camera failed to initialize. Exiting.")
         sys.exit(1)
 
-    button = Button(23)
+    button = Button(config.BUTTON_PIN)
     session_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
     count = 0
 
