@@ -355,8 +355,8 @@ if __name__ == "__main__":
                 final_run_initiated = True
                 final_run_start_time = time.monotonic()
 
-            if final_run_initiated and (time.monotonic() - final_run_start_time) >= 0.8:
-                print("0.8 second complete. Stopping.")
+            if final_run_initiated and (time.monotonic() - final_run_start_time) >= 0.3:
+                print("0.3 second complete. Stopping.")
                 break
             if turn_counter >= 13:
                 motor.brake()
