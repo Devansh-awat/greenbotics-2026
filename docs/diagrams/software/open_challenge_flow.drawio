@@ -1,0 +1,78 @@
+<mxfile host="app.diagrams.net" agent="Kiro">
+  <diagram name="Open Challenge Flow" id="open-challenge-flow-v2">
+    <mxGraphModel dx="1361" dy="627" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="700" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;align=center;verticalAlign=middle;fontSize=20;" value="&lt;b&gt;Open Challenge Flow Chart&lt;/b&gt;" vertex="1">
+          <mxGeometry height="30" width="300" x="350" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="boot" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=13;" value="&lt;b&gt;Initialize&lt;/b&gt;&lt;br&gt;Camera, IMU, Motor, Servo" vertex="1">
+          <mxGeometry height="50" width="175" x="75" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="wait" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=13;" value="&lt;b&gt;Wait for Start&lt;/b&gt;&lt;br&gt;Button press + IMU Reading" vertex="1">
+          <mxGeometry height="50" width="175" x="291" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="drive" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=13;" value="&lt;b&gt;Drive Forward&lt;/b&gt;&lt;br&gt;Full speed" vertex="1">
+          <mxGeometry height="50" width="122" x="514" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" edge="1" parent="1" source="boot" style="strokeWidth=2;strokeColor=#333333;" target="wait">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" edge="1" parent="1" source="wait" style="strokeWidth=2;strokeColor=#333333;" target="drive">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="loop_box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f9f9f9;strokeColor=#999999;strokeWidth=2;dashed=1;" value="" vertex="1">
+          <mxGeometry height="470" width="900" x="50" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" edge="1" parent="1" source="drive" style="strokeWidth=2;strokeColor=#333333;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" target="sense">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="loop_label" parent="1" style="text;html=1;align=center;fontSize=13;fontColor=#555555;" value="&lt;b&gt;Main Loop&lt;/b&gt; — repeats every frame (~60 fps)" vertex="1">
+          <mxGeometry height="25" width="300" x="131" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="sense" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontSize=13;" value="&lt;b&gt;Capture &amp; Process Frame&lt;/b&gt;&lt;br&gt;Detect walls (left/right areas)&lt;br&gt;Detect orange floor lines" vertex="1">
+          <mxGeometry height="60" width="300" x="350" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="steer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=13;" value="&lt;b&gt;Decide Steering&lt;/b&gt;&lt;br&gt;Balance left vs right wall area&lt;br&gt;If wall ahead → force hard turn into corner" vertex="1">
+          <mxGeometry height="65" width="300" x="350" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="act" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=2;fontSize=13;" value="&lt;b&gt;Steer &amp; Count&lt;/b&gt;&lt;br&gt;Apply smoothed angle to servo&lt;br&gt;Increment turn counter on orange line" vertex="1">
+          <mxGeometry height="65" width="300" x="350" y="425" as="geometry" />
+        </mxCell>
+        <mxCell id="exit_check" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#333333;strokeWidth=2;fontSize=12;" value="&lt;b&gt;3 laps done?&lt;/b&gt;&lt;br&gt;Turn complete + robot straight" vertex="1">
+          <mxGeometry height="100" width="220" x="390" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="b1" edge="1" parent="1" source="sense" style="strokeWidth=2;strokeColor=#333333;" target="steer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" edge="1" parent="1" source="steer" style="strokeWidth=2;strokeColor=#333333;" target="act">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" edge="1" parent="1" source="act" style="strokeWidth=2;strokeColor=#333333;" target="exit_check">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="loop_back" edge="1" parent="1" source="exit_check" style="strokeWidth=2;strokeColor=#82b366;dashed=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="sense">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="130" y="580" />
+              <mxPoint x="130" y="250" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="no_label" parent="1" style="text;html=1;fontSize=15;fontColor=#82b366;" value="&lt;b&gt;No&lt;/b&gt; → next frame" vertex="1">
+          <mxGeometry height="20" width="100" x="230" y="552" as="geometry" />
+        </mxCell>
+        <mxCell id="stop" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=14;fontStyle=1;" value="&lt;b&gt;Stop&lt;/b&gt;" vertex="1">
+          <mxGeometry height="50" width="80" x="800" y="555" as="geometry" />
+        </mxCell>
+        <mxCell id="yes_arrow" edge="1" parent="1" source="exit_check" style="strokeWidth=2;strokeColor=#333333;" target="stop">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="yes_label" parent="1" style="text;html=1;fontSize=15;fontColor=#333333;" value="&lt;b&gt;Yes&lt;/b&gt; → coast 0.8s" vertex="1">
+          <mxGeometry height="20" width="110" x="650" y="548" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

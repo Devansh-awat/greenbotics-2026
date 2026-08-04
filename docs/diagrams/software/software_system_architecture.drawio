@@ -1,0 +1,58 @@
+<mxfile host="app.diagrams.net" agent="Kiro">
+  <diagram name="System Architecture" id="system-arch-v2">
+    <mxGraphModel dx="1225" dy="564" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="500" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;" value="Software System Architecture" vertex="1">
+          <mxGeometry height="30" width="350" x="350" y="15" as="geometry" />
+        </mxCell>
+        <mxCell id="camera" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=14;fontStyle=0;align=center;" value="CameraThread&#xa;&#xa;RPi Camera Module 3 Wide&#xa;640x360 @ 60 fps&#xa;HSV masks + contours" vertex="1">
+          <mxGeometry height="110" width="220" x="30" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="imu" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=14;fontStyle=0;align=center;" value="ImuThread&#xa;&#xa;BNO086 @ 100 Hz&#xa;Heading angle (degrees)" vertex="1">
+          <mxGeometry height="100" width="220" x="30" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="sensors" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=14;fontStyle=0;align=center;" value="SensorThread&#xa;&#xa;4x VL53L4CD @ 50 Hz&#xa;Front, Back, Left, Right (mm)" vertex="1">
+          <mxGeometry height="100" width="220" x="30" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="main" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=3;fontSize=15;fontStyle=0;align=center;" value="Main Thread (~50 fps)&#xa;&#xa;Read sensors&#xa;Process frame&#xa;Decide steering + speed&#xa;Command actuators&#xa;Count turns" vertex="1">
+          <mxGeometry height="170" width="250" x="380" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="servo" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=14;fontStyle=0;align=center;" value="Servo&#xa;&#xa;Steering angle&#xa;Hardware PWM (RP1)" vertex="1">
+          <mxGeometry height="100" width="200" x="780" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="motor" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=14;fontStyle=0;align=center;" value="Motor + Encoder&#xa;&#xa;RPM control via PIO&#xa;TB6612FNG driver" vertex="1">
+          <mxGeometry height="100" width="200" x="780" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="video" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=1;fontSize=13;fontStyle=0;align=center;" value="VideoWriterThread&#xa;&#xa;Annotated MP4&#xa;Debug recording" vertex="1">
+          <mxGeometry height="90" width="200" x="780" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" edge="1" parent="1" source="camera" style="rounded=1;strokeWidth=2;strokeColor=#333333;entryX=0;entryY=0.2;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="main">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" edge="1" parent="1" source="imu" style="rounded=1;strokeWidth=2;strokeColor=#333333;entryX=0;entryY=0.5;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="main">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" edge="1" parent="1" source="sensors" style="rounded=1;strokeWidth=2;strokeColor=#333333;entryX=0;entryY=0.8;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="main">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" edge="1" parent="1" source="main" style="rounded=1;strokeWidth=2;strokeColor=#333333;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="servo">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a5" edge="1" parent="1" source="main" style="rounded=1;strokeWidth=2;strokeColor=#333333;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" target="motor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a6" edge="1" parent="1" source="main" style="rounded=1;strokeWidth=1;strokeColor=#666666;dashed=1;exitX=1;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="video">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lbl_in" parent="1" style="text;fontSize=12;fontStyle=2;fontColor=#666666;align=center;" value="sensor data" vertex="1">
+          <mxGeometry height="20" width="80" x="280" y="195" as="geometry" />
+        </mxCell>
+        <mxCell id="lbl_out" parent="1" style="text;fontSize=12;fontStyle=2;fontColor=#666666;align=center;" value="commands" vertex="1">
+          <mxGeometry height="20" width="80" x="660" y="195" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
