@@ -8,7 +8,7 @@ from src.obstacle_challenge.main_v2 import HSV_RANGES, LAB_RANGES
 
 # --- Configuration ---
 # Change these variables to switch modes
-TARGET_COLOR = 'GREEN'   # Options: RED, GREEN, BLUE, MAGENTA, ORANGE, BLACK
+TARGET_COLOR = 'RED'   # Options: RED, GREEN, BLUE, MAGENTA, ORANGE, BLACK
 TARGET_SPACE = 'HSV'   # Options: HSV, LAB
 # ---------------------
 
