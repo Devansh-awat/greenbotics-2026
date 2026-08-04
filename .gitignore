@@ -214,7 +214,6 @@ __marimo__/
 *.pstats
 obstacle/
 open/
-*.png
 *.pyi
 dataset/
 *.npy
