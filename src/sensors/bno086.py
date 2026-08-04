@@ -64,10 +64,10 @@ def initialize():
             with i2c_bus.LOCK:
                 i2c = i2c_bus.get_bus()
                 sensor = BNO08X_I2C(i2c, address=BNO086_ADDRESS)
-                # Enable the fused absolute-orientation report.
-                sensor.enable_feature(adafruit_bno08x.BNO_REPORT_ROTATION_VECTOR)
+                # Enable the fused absolute-orientation report (magnetometer-free).
+                sensor.enable_feature(adafruit_bno08x.BNO_REPORT_GAME_ROTATION_VECTOR)
                 time.sleep(1)
-            print("INFO: Gyro (BNO086) Initialized.")
+            print("INFO: Gyro (BNO086) Initialized (using Game Rotation Vector).")
             return True
         except Exception as e:
             print(f"bno086.py: ERROR during Gyro initialisation: {e}")
@@ -90,7 +90,7 @@ def get_heading():
     if sensor:
         try:
             with i2c_bus.LOCK:
-                qi, qj, qk, qr = sensor.quaternion
+                qi, qj, qk, qr = sensor.game_quaternion
             if None not in (qi, qj, qk, qr):
                 heading = _quaternion_to_heading(qi, qj, qk, qr)
                 if getattr(config, "INVERT_GYRO", False):

@@ -350,7 +350,7 @@ if __name__ == "__main__":
 
     try:
         run_start_time = time.monotonic()
-        motor.forward(100)
+        motor.forward(70)
 
         while True:
             frame, frame_counter = camera_thread.get_frame()
