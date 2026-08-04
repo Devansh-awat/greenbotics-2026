@@ -1,0 +1,137 @@
+<mxfile host="app.diagrams.net" agent="Kiro">
+  <diagram name="RPM Control Loop" id="rpm-control-loop">
+    <mxGraphModel dx="1531" dy="705" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="500" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=16;fontStyle=1;" value="PWM motor control loop with encoder feedback" vertex="1">
+          <mxGeometry height="30" width="360" x="420" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="rpi5_boundary" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;spacingTop=5;" value="Raspberry Pi 5 — Linux Userspace (Python)" vertex="1">
+          <mxGeometry height="235" width="700" x="180" y="43" as="geometry" />
+        </mxCell>
+        <mxCell id="rp1_boundary" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#2e7d32;strokeWidth=2;dashed=1;verticalAlign=top;fontSize=12;fontStyle=1;spacingTop=5;align=left;" value="&amp;nbsp; &amp;nbsp;RP1 I/O Controller — Hardware (Zero CPU cost)" vertex="1">
+          <mxGeometry height="150" width="505" x="180" y="318" as="geometry" />
+        </mxCell>
+        <mxCell id="target_rpm" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=11;fontStyle=1;" value="Target RPM&#xa;(from main loop)" vertex="1">
+          <mxGeometry height="70" width="120" x="30" y="138" as="geometry" />
+        </mxCell>
+        <mxCell id="sum" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;strokeWidth=2;fontSize=14;fontStyle=1;" value="Σ&#xa;+  −" vertex="1">
+          <mxGeometry height="50" width="50" x="220" y="148" as="geometry" />
+        </mxCell>
+        <mxCell id="pi_controller" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontSize=11;fontStyle=1;" value="PI Controller&lt;br&gt;Kp=0.20  Ki=0.50" vertex="1">
+          <mxGeometry height="90" width="170" x="320" y="128" as="geometry" />
+        </mxCell>
+        <mxCell id="pwm_sum" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;strokeWidth=2;fontSize=14;fontStyle=1;" value="Σ" vertex="1">
+          <mxGeometry height="40" width="40" x="545" y="148" as="geometry" />
+        </mxCell>
+        <mxCell id="hw_pwm" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;strokeWidth=2;fontSize=11;fontStyle=1;" value="Hardware PWM&#xa;(RP1 GPIO)" vertex="1">
+          <mxGeometry height="50" width="130" x="500" y="348" as="geometry" />
+        </mxCell>
+        <mxCell id="motor_driver" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=11;fontStyle=1;" value="TB6612FNG&#xa;Motor Driver" vertex="1">
+          <mxGeometry height="40" width="130" x="720" y="353" as="geometry" />
+        </mxCell>
+        <mxCell id="motor" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=light-dark(#f8cecc, #1c361d);strokeColor=#b85450;strokeWidth=2;fontSize=11;fontStyle=1;" value="DC Motor&#xa;+ Wheel" vertex="1">
+          <mxGeometry height="60" width="124" x="917" y="348" as="geometry" />
+        </mxCell>
+        <mxCell id="encoder" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=light-dark(#f8cecc, #1c361d);strokeColor=light-dark(#b85450, #B4524E);strokeWidth=2;fontSize=11;fontStyle=1;" value="Motor Encoder" vertex="1">
+          <mxGeometry height="60" width="120" x="700" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="pio" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#2e7d32;strokeWidth=2;fontSize=11;fontStyle=1;" value="RP1 PIO Block&#xa;(hardware state machine)&#xa;— counts edges —&#xa;never misses a pulse" vertex="1">
+          <mxGeometry height="70" width="180" x="243" y="348" as="geometry" />
+        </mxCell>
+        <mxCell id="rpm_calc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontSize=11;fontStyle=1;" value="RPM Calculator&#xa;(pulses → RPM)" vertex="1">
+          <mxGeometry height="50" width="130" x="620" y="138" as="geometry" />
+        </mxCell>
+        <mxCell id="actual_rpm_label" parent="1" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=14;fontStyle=2;" value="Actual RPM" vertex="1">
+          <mxGeometry height="30" width="100" x="770" y="148" as="geometry" />
+        </mxCell>
+        <mxCell id="error_label" parent="1" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=10;fontStyle=2;" value="error" vertex="1">
+          <mxGeometry height="25" width="45" x="270" y="153" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="target_rpm" style="strokeWidth=2;strokeColor=#333333;fontSize=10;" target="sum">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="sum" style="strokeWidth=2;strokeColor=#333333;fontSize=10;" target="pi_controller">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="pi_controller" style="strokeWidth=2;strokeColor=#333333;fontSize=10;" target="pwm_sum">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" style="strokeWidth=2;strokeColor=#333333;fontSize=10;rounded=0;curved=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="hw_pwm">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="566" y="288" />
+            </Array>
+            <mxPoint x="566" y="188" as="sourcePoint" />
+            <mxPoint x="561" y="348" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e4_label" connectable="0" parent="e4" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=14;fontStyle=2;" value="PWM duty cycle" vertex="1">
+          <mxGeometry relative="1" x="-0.2" y="10" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="hw_pwm" style="strokeWidth=2;strokeColor=#333333;fontSize=10;" target="motor_driver">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="motor_driver" style="strokeWidth=2;strokeColor=#b85450;fontSize=10;" target="motor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6_label" connectable="0" parent="e6" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=14;fontStyle=2;" value="power" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="motor" style="strokeWidth=2;strokeColor=light-dark(#b85450, #64a868);fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="encoder">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7_label" connectable="0" parent="e7" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=14;fontStyle=2;" value="shaft rotation" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="encoder" style="strokeWidth=2;strokeColor=light-dark(#b85450, #64a868);fontSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" target="pio">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="670" y="488" />
+              <mxPoint x="333" y="490" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e8_label" connectable="0" parent="e8" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=14;fontStyle=2;" value="Pulses" vertex="1">
+          <mxGeometry relative="1" x="-0.1" y="-10" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="pio" style="strokeWidth=2;strokeColor=#2e7d32;fontSize=10;" target="rpm_calc">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="333" y="298" />
+              <mxPoint x="685" y="298" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e9_label" connectable="0" parent="e9" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=14;fontStyle=2;" value="pulse count (read via register)" vertex="1">
+          <mxGeometry relative="1" x="-0.2" y="-10" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="rpm_calc" style="strokeWidth=2;strokeColor=#b85450;dashed=1;fontSize=10;" target="sum">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="810" y="163" />
+              <mxPoint x="810" y="78" />
+              <mxPoint x="245" y="78" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10_label" connectable="0" parent="e10" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=14;fontStyle=2;fontColor=#b85450;" value="feedback (actual RPM)" vertex="1">
+          <mxGeometry relative="1" x="-0.3" y="10" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

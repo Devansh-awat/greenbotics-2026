@@ -1,0 +1,117 @@
+<mxfile host="app.diagrams.net" agent="Kiro">
+  <diagram name="State Machine" id="state-machine-v4">
+    <mxGraphModel dx="1361" dy="1627" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="start" parent="1" style="ellipse;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;fontSize=16;fontStyle=1;" value="START" vertex="1">
+          <mxGeometry height="70" width="130" x="190" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="nEZapRy8XdNIJcRJA_BT-2" edge="1" parent="1" source="wall_follow" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" target="nEZapRy8XdNIJcRJA_BT-1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="539.2893218813451" y="279.99640687119285" as="sourcePoint" />
+            <mxPoint x="450" y="497.5700000000002" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="nEZapRy8XdNIJcRJA_BT-6" connectable="0" parent="nEZapRy8XdNIJcRJA_BT-2" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="&lt;span style=&quot;font-size: 18px;&quot;&gt;close block&lt;/span&gt;" vertex="1">
+          <mxGeometry relative="1" x="-0.0521" y="3" as="geometry">
+            <mxPoint x="36" y="-16" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="wall_follow" parent="1" style="ellipse;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=3;fontSize=16;fontStyle=1;" value="PROCESS NEXT FRAME" vertex="1">
+          <mxGeometry height="120" width="200" x="470" y="150" as="geometry" />
+        </mxCell>
+        <mxCell id="avoid_block" parent="1" style="ellipse;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=2;fontSize=16;fontStyle=1;" value="P2-PASS TRAFFIC SIGN&#xa;target-line steering" vertex="1">
+          <mxGeometry height="120" width="200" x="220" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="evade_close" parent="1" style="ellipse;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=16;fontStyle=1;" value="P4-WALL FOLLOW" vertex="1">
+          <mxGeometry height="120" width="220" x="730" y="478" as="geometry" />
+        </mxCell>
+        <mxCell id="corner_turn" parent="1" style="ellipse;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=16;fontStyle=1;" value="P3-CORNER TURN&#xa;force hard steer" vertex="1">
+          <mxGeometry height="120" width="200" x="476" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="parking" parent="1" style="ellipse;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6C8EBF;strokeWidth=2;fontSize=16;fontStyle=1;" value="PARKING&#xa;6-step parallel park" vertex="1">
+          <mxGeometry height="120" width="200" x="950" y="358" as="geometry" />
+        </mxCell>
+        <mxCell id="stop" parent="1" style="ellipse;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=14;fontStyle=1;" value="STOP" vertex="1">
+          <mxGeometry height="60" width="103" x="1000" y="538" as="geometry" />
+        </mxCell>
+        <mxCell id="t1" edge="1" parent="1" source="nEZapRy8XdNIJcRJA_BT-7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#333333;fontSize=18;" target="wall_follow" value="init complete">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" edge="1" parent="1" source="wall_follow" style="rounded=1;strokeWidth=2;strokeColor=#333333;fontSize=18;exitX=0;exitY=1;exitDx=0;exitDy=0;entryX=0.453;entryY=0.032;entryDx=0;entryDy=0;entryPerimeter=0;" target="avoid_block" value="block visible">
+          <mxGeometry relative="1" x="-0.3085" y="10" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="499.28932188134513" y="254.42640687119285" as="sourcePoint" />
+            <mxPoint x="500" y="502.0000000000002" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="t3" edge="1" parent="1" source="wall_follow" style="rounded=1;strokeWidth=2;strokeColor=#333333;fontSize=18;exitX=1;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="evade_close" value="follow wall">
+          <mxGeometry relative="1" x="-0.5207" y="6" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="t4" edge="1" parent="1" style="rounded=1;strokeWidth=2;strokeColor=#333333;fontSize=18;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="corner_turn" value="wall ahead">
+          <mxGeometry relative="1" x="-0.4046" y="18" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="570" y="268" as="sourcePoint" />
+            <mxPoint x="576" y="478" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="t6" edge="1" parent="1" source="wall_follow" style="rounded=0;strokeWidth=2;strokeColor=#333333;fontSize=18;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;curved=0;" target="parking" value="13 turns done">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="t7" edge="1" parent="1" source="parking" style="rounded=1;strokeWidth=2;strokeColor=#333333;fontSize=18;" target="stop" value="parked">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r1" edge="1" parent="1" source="avoid_block" style="rounded=0;strokeWidth=1;strokeColor=#333333;fontSize=18;dashed=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=1;entryDx=0;entryDy=0;curved=1;" target="wall_follow" value="">
+          <mxGeometry relative="1" x="-0.2441" y="25" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="340" y="320" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r2" edge="1" parent="1" source="evade_close" style="rounded=0;strokeWidth=1;strokeColor=#333333;fontSize=18;dashed=1;exitX=0.456;exitY=-0.008;exitDx=0;exitDy=0;entryX=1;entryY=1;entryDx=0;entryDy=0;curved=1;exitPerimeter=0;" target="wall_follow" value="">
+          <mxGeometry relative="1" x="-0.3853" y="-12" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="610" y="330" />
+            </Array>
+            <mxPoint x="998.084767709704" y="443.7961743607346" as="sourcePoint" />
+            <mxPoint x="630.0006781186548" y="259.99640687119296" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r3" edge="1" parent="1" source="corner_turn" style="rounded=0;strokeWidth=1;strokeColor=#333333;fontSize=18;dashed=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;curved=1;startSize=8;endSize=8;" target="wall_follow" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="520" y="450" />
+              <mxPoint x="510" y="370" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="nEZapRy8XdNIJcRJA_BT-3" edge="1" parent="1" source="nEZapRy8XdNIJcRJA_BT-1" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;dashed=1;curved=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;" target="wall_follow">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="270" y="200" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="nEZapRy8XdNIJcRJA_BT-1" parent="1" style="ellipse;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;strokeWidth=3;fontSize=16;fontStyle=1;" value="P1-AVOID HEADON&#xa;reverse + counter-steer" vertex="1">
+          <mxGeometry height="120" width="200" x="20" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="nEZapRy8XdNIJcRJA_BT-8" edge="1" parent="1" source="start" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=2;strokeColor=#333333;fontSize=18;" target="nEZapRy8XdNIJcRJA_BT-7" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="320" y="45" as="sourcePoint" />
+            <mxPoint x="570" y="150" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="nEZapRy8XdNIJcRJA_BT-7" parent="1" style="ellipse;whiteSpace=wrap;strokeWidth=3;fontSize=16;fontStyle=1;fillColor=#cce5ff;strokeColor=light-dark(#6C8EBF,#BABDC0);" value="INITIAL MANEUVER&#xa;leave parking + pass first traffic sign " vertex="1">
+          <mxGeometry height="120" width="200" x="470" y="-15" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

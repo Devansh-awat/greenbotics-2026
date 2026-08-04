@@ -1,1412 +1,1609 @@
-| <img src="other/readmephotos/logo.png" alt="4" width="500" /> |
-| :----------------------------------------------------------: |
+# Greenbotics — WRO Future Engineers 2026
 
-| <img src="other/readmephotos/GithubQR.svg" alt="GithubQR" width="200" align="left"/> | <img src="other/readmephotos/YoutubeQR.svg" alt="YoutubeQR" width="200" align="right" /> |
-| :----------------------------------------------------------- | -----------------------------------------------------------: |
-| Scan QR to open Github repo                                  |                                Scan QR to open YouTube video |
+> Consolidated engineering documentation for Team Greenbotics' WRO Future Engineers 2026 entry. This document merges the team's detailed design documentation into a single reference, structured according to the WRO FE 2026 Documentation Golden Reference (5 scored criteria).
+>
+> Outstanding action items (experiments to run, images to capture, data to record) are tracked separately in [`TODO_Consolidated.md`](TODO_Consolidated.md).
 
-<div style="font-family: Baskerville; font-size: 28px; text-align: center; font-style: italic;">
-    This Incredible Repository
-</div>
-
-Welcome to the Greenbotics 2025 repository! This repository contains everything we've worked on over the past ten months, including all our code and resources. You can also use this repository as a complete guide to understand and reconstruct the robot from the ground up.
+---
 
 ## Table of Contents
 
-- [The Team](#the-team)
-- [The Challenge](#the-challenge)
-  - [Our Vision](#our-vision)
-  - [Skills We Learned](#skills-we-learned)
-- [Photos of our Robot](#photos-of-our-robot)
-- [Robot Performance Video](#robot-performance-video)
-- [Mobility Management](#mobility-management)
-  - [Powertrain](#powertrain)
-  - [Steering System](#steering-system)
-  - [Chassis](#chassis)
-  - [Code for mobility components](#code-for-mobility-components)
-- [Power and Sense Management](#power-and-sense-management)
-  - [LiPo battery](#lipo-battery)
-  - [Raspberry Pi](#raspberry-pi)
-  - [Voltage Converter](#voltage-converter)
-  - [Printed Circuit Board (PCB)](#printed-circuit-board-pcb)
-  - [Camera](#camera)
-  - [IMU](#imu)
-  - [Distance Sensor](#distance-sensor)
-  - [Multiplexer](#multiplexer)
-  - [Code for sensors](#code-for-sensors)
-- [Obstacle Management](#obstacle-management)
-  - [Open Challenge Navigation Algorithm](#open-challenge-navigation-algorithm)
-    - [Potential improvements in Open Navigation Algorithm](#potential-improvements-in-open-navigation-algorithm)
-  - [Obstacle Challenge Navigation Algorithm](#obstacle-challenge-navigation-algorithm)
-    - [Potential improvements in Obstacle Navigation Algorithm](#potential-improvements-in-obstacle-navigation-algorithm)
-- [Engineering Factors](#engineering-factors)
-  - [Design evolution](#design-evolution)
-  - [From Nationals to Internationals!](#from-nationals-to-internationals)
-- [Robot construction guide](#robot-construction-guide)
-  - [1: Print the 3D parts](#1-print-the-3d-parts)
-  - [2: Assemble the steering and drive train](#2-assemble-the-steering-and-drive-train)
-  - [3: Attach the 3D mounts](#3-attach-the-3d-mounts)
-  - [4: Fabricate the PCB](#4-fabricate-the-pcb)
-  - [5: Soldering the electronics and gradual safe startup](#5-soldering-the-electronics-and-gradual-safe-startup)
-  - [6: Download the code](#6-download-the-code)
-  - [7: Robot stability](#7-robot-stability)
-- [Major challenges faced](#major-challenges-faced)
-- [How we used Github](#how-we-used-github)
-- [Bill of Materials](#bill-of-materials)
-
-# The Team
-
-<img src="t-photos/GreenboticsTeamPic.jpeg" width="450" style="margin-center:20px;"/>
-
-<img src="t-photos/GreenboticsClowns.jpeg" width="350" style="margin-center:20px;"/>
-
-<p style="text-align:center;">Yes. We did know the camera was on!</p>
+1. [Mobility & Mechanical Design](#1-mobility--mechanical-design)
+2. [Power & Sensor Architecture](#2-power--sensor-architecture)
+3. [Software Architecture & Obstacle Strategy](#3-software-architecture--obstacle-strategy)
+4. [Systems Thinking & Engineering Decisions](#4-systems-thinking--engineering-decisions)
+5. [Reproducibility & GitHub Quality](#5-reproducibility--github-quality)
 
 ---
 
-| <img src="other/readmephotos/Devansh.jpg" width="400" align="left" style="margin-right:20px;"/> | Devansh<br/>Hi! I’m Devansh doing my second WRO season. Last year I represented India in the RoboMission category coming #25 in Internationals. This year I wanted a new challenge and learn new things. My hobbies are coding and robotics. |
-| ------------------------------------------------------------ | ------------------------------------------------------------ |
-| <img src="other/readmephotos/Sheel.jpg" width="400" align="left" style="margin-right:20px;"/> | **Sheel**<br/>**Hi! I'm Sheel. I'm 15, and doing my second WRO season. Last year, our team made it to the International Finals in Robomission Junior. Additionally, I'm learning competitive debate. I also have a dog, and both of us are obsessed with Monkeys.** |
-| <img src="other/readmephotos/Rakshith.jpeg" width="400" align="left" style="margin-right:20px;"/> | **Rakshith**<br/>**I'm Rakshith, a 9th grader passionate about robotics and aspiring to study engineering in Germany. I love building drones, experimenting with sensors. I also have 3 dogs, and two of them live with my grandparents in Hyderabad.** |
-| <img src="other/readmephotos/PareshGambhava.jpg" width="400" align="left" style="margin-right:20px;"/> | **Paresh Gambhava**<br/>**Mr. Paresh Gambhava is our chief coach from The Robotronics Club Ahmedabad. He is a robotics enthusiast, and electrical engineer by profession. He has vast experience training students for Robotics competition and projects.** |
+## 1. Mobility & Mechanical Design
 
-<p style="page-break-before: always;"></p>
-
-# The Challenge
-
-The [Future Engineer Challenge](https://wro-association.org/wp-content/uploads/WRO-2025-Future-Engineers-Self-Driving-Cars-General-Rules.pdf "View the season rulebook") for the 2025 WRO Season involves building an autonomous vehicle that can complete two challenges. The first challenge is the Open Challenge. This challenge involves the robot completing three full laps on the field. The field consists of outer boundary walls, and 4 inner walls that are randomly placed to form a closed rectangle.
-
-The second challenge is the Obstacle Challenge. In the Obstacle Challenge red or green cuboids called Traffic Signs are placed along the course. The robot must complete three laps around the track while making sure to pass the red traffic signs from the left, and the green traffic signs from the right. The Obstacle Challenge also has a dedicated Parking Space. The robot must start and end in the parking space to attain full points. The walls placement is fixed for the Obstacle Challenge.
-
-## Our Vision
-
-With a deep interest in robotics and programming, the WRO Future engineers challenge was a great opportunity for us to work and build a robot together. We had been seeing other teams in our institute work on this problem last year, and it was greatly motivating for us to see them work. Having represented India in last years WRO RoboMission, we were excited to participate in new category and learn new things.
-
-## Skills We Learned
-
-**Technical Skills:**
-
-- 3D printing and design
-- PCB design and creation
-- Raspberry Pi programming
-- Computer vision and camera programming
-- Hardware integration
-
-**Soft Skills:**
-
-- Teamwork
-- Problem-solving
-- Not go crazy when the robot doesn’t behave as expected !!!
-
-# Photos of our Robot
-
-We designed our robot with Raspberry Pi 5 as the main brain of the car. Raspberry Pi 5 had pre-integrations with the camera allowing us to use faster smarter image procesing algorithms which is critical in this robots design.
-Having spent a lot of time working on LEGO-based hardware in the 2024 season, we chose to use many LEGO parts for our Robot's Hardware.  However the robot also uses a Raspberry Pi, Raspberry Pi camera, and other off the shelf electronic components.
-
-|                           Top view                           |                         Bottom view                          |
-| :----------------------------------------------------------: | :----------------------------------------------------------: |
-| <img src="v-photos/Top.jpeg" alt="Top" width="500" style="zoom:50%;" /> | <img src="v-photos/Bottom.jpeg" alt="Bottom" width="500" style="zoom:50%;" /> |
-
-|                          Front view                          |                          Rear view                           |
-| :----------------------------------------------------------: | :----------------------------------------------------------: |
-| <img src="v-photos/Front.jpeg" alt="Front" width="400" style="zoom:50%;" /> | <img src="v-photos/Back.jpeg" alt="Back" width="400" style="zoom:40%;" /> |
-
-
-
-|                          Left view                           | Right view                                                   |
-| :----------------------------------------------------------: | ------------------------------------------------------------ |
-| <img src="v-photos/Left.jpeg" alt="Left" width="500" style="zoom:50%;"/> | <img src="v-photos/Right.jpeg" alt="Right" width="500" style="zoom:50%;"/> |
-
-# Robot Performance Video
-
-This playlist consists of 3 videos that show our robot's construction, open challenge run as well as obstacle challenge run.
-
-| [<img src="other/readmephotos/VideoThumbnail.png" alt="Robot Video" width="300"/>](https://www.youtube.com/playlist?list=PLtGeYglcz-LV6koN9wQThOjIqPL0-ONzv) | <img src="other/readmephotos/YoutubeQR.svg" alt="YoutubeQR" width="100" /> <br />Scan QR code to open in YouTube |
-| ------------------------------------------------------------ | ------------------------------------------------------------ |
-
-
+At the top of doc, we should have a paragraph on the excellent performance we achieved at WRO 2025 with old robot and we strived to improve it in every possible aspect this year.
 
 ---
 
-# Mobility Management
+### 1.1 Drivetrain selection
 
-Our robot's mobility system is designed around a LEGO-based chassis that balances ease of assembly with reliable performance. We selected a LEGO EV3 Medium Motor for propulsion due to its compatibility with our modular design approach, delivering 240-250 RPM at 9V through a differential drivetrain that enables smooth turning by allowing wheels to rotate at different speeds. For precise steering control, we integrated an SG90 servo motor with a custom 3D-printed mount that connects to our LEGO chassis. The TB6612FNG motor driver manages power delivery and speed control, while all components are securely mounted to our LEGO framework using standard connectors and custom PCB integration. This design prioritizes modularity and maintainability while providing the torque and precision needed for autonomous navigation challenges.
+WRO rules do not allow a differential drive robot. This steers us towards a real vehicle like design that consists of a front wheel steering. These vehicles have multiple drive options
 
-## Powertrain
+|  | All Wheel Drive | Front Wheel Drive | Rear Wheel Drive |
+| :---- | :---- | :---- | :---- |
+|  Driving power | All wheels | Front wheels | Rear wheels |
+| Physical complexity | Transfer rotational force to a wheel that is changing its angles w.r.t chassis | Transfer rotational force to a wheel that is changing its angles w.r.t chassis | Simpler design. Rear axis \- rotational force Front axis \- turning force |
+| Mechanical complexity | Drive motor mounted on steering mechanism. Requires powerful servo due to extra weight | Drive motor mounted on steering mechanism. Requires powerful servo due to extra weight | **Separates mechanical responsibilities.** Steering and Drive motors mounted on separate axis |
+| Highlights | Off roading, steep inclines, muddy road | Pulling over obstacles  | Smooth roads, better turns |
 
-### Motor
+We chose RWD for its simpler design and smoother turns.   
 
-We chose to use a standard LEGO EV3 Medium Motor, as it easily integrates with the lego chassis and lego axle. This motor also embeds an encoder which could be used if required. However, the standard Lego connector doesn’t directly connect to our motor driver, therefore we identified the pinout of the LEGO motor and directly connected the wires to the motor driver. The pinout diagram of Lego EV3 motor is shown below
+**Differential gear**  
+The rear wheels have a differential gear to prevent inner wheels from skidding when turning. As shown in the diagram below, during turns, the outer wheel covers more distance(wo) than inner wheels (wi). In absence of differential gear, the inner wheels would skid.
 
-<img src="other/readmephotos/motordiagram.jpeg" alt="Motor Pinout Diagram" width="1500"/>
-
-
----
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/MediumMotor.jpeg" alt="EV3 Medium Motor" width="60%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>Specifications:</h3>
-      <li>Name: LEGO EV3 Motor</li>
-      <li>Voltage: 9V</li>
-      <li>No Load Speed: 240 to 250 RPM</li>
-      <li>Weight: 40g</li>
-      <li>Encoder resolution: 1°</li>
-    </td>
-  </tr>
-</table>
-
+<img src="docs/diagrams/mobility/Differential_gear.png" alt="Differential Gear" width="200">
 
 ---
 
-**Potential improvements:**
+### 1.2 Steering selection
 
-- Use the built-in encoder for more accurate movement and turns of the robot. Using the encoder allows for precise and accurate movements, helping in complex tasks like parking.
+Ackermann vs Parallel  
+We used Parallel steering in our last year's robot. We realised certain manoeuvres such as entering parking space and tight turns between two inner blocks and inner walls caused tyre slip. We improved upon this aspect for this year's robot by using Ackermann steering. In Ackerman steering, the inner wheel turns slightly more than the outer wheel, so the robot stays on the same arc without tyre slip. This improves maneuverability especially during cornering.
 
-- Consider exploring more powerful non-Lego geared motors that are
+<img src="docs/diagrams/mobility/ackermann_steering.png" alt="Ackermann Steering" width="400">
 
-    -Compact and lightweight
+TODO: Tests that show tyre slip at cornering between both robots. Ackermann should be able to get higher speeds at cornering so we can measure one lap time.
 
-    -More powerful
+TODO: Add annotated image like below sample
 
-    -Cheaper
+<img src="docs/diagrams/mobility/ackermann_ref_robot.png" alt="Ackermann Reference Robot" width="200">
 
+<img src="docs/diagrams/mobility/ackermann_ref_robot_geometry.png" alt="Ackermann Reference Robot Geometry" width="400">
 
-### Drivetrain
+TODO: Add hand drawn or computer diagram of Ackerman corresponding to our robot measurements
 
-Our EV3 motor is connected to a Lego axle that drives a gear connected to a Lego differential, which splits torque between two wheels. The differential lets both wheels rotate at different speeds when turning, thereby reducing the friction at each wheel, and making turns smoother. We used lego wheels as they are compatible with lego axle used for the chassis. We experimented with a wide variety of Lego wheels for the robot. Increasing the size of the rear wheel increased the robot speed almost linearly proportional to the wheel diameter. Increasing the width of the front tyres caused the robot to skid during turns, hence the front wheels are narrower to make smooth turns. The rear wheels are wider to provide sufficient friction to the vehicle.
+---
 
-<img src="other/lddphotos/lego_1_iso.png" alt="lego_1_iso" style="zoom:50%;" />
+### 1.3 Vehicle dimensions
 
-**Potential Improvements**
+The defining constraint in this vehicle is its turning radius for its parallel parking. The turning radius is defined by the dimensions of the vehicle.
 
-- Explore alternative differential gear mechanisms to avoid the wheels slipping, especially on the smooth surface of the mat.
-- Explore options for front wheels with vertical treads as the Lego narrow wheels do not have tread.
+**Length Impact**  
+`R = L / sin(θ)`  
+Turning Radius(R) scales proportionally with the Length(L) of the vehicle
 
+**Width**  
+`R(outer) = R(center) + W/2`  
+Width does not change the turning radius, but increases the outer clearance radius
 
-### Motor Driver
+We strive to keep both the Length and Width as minimum as possible.  
+Length is the minimum length to accommodate the differential gear assembly, drive motor and the steering assembly back to back.  
+Width is the minimum width for the differential assembly, couplings and the wheels attached back to back  
+This results into a x(TODO) mm long and  y(TODO) mm wide vehicle
 
-To control the current received by the motor and to control the speed of the drive motor, we utilized a SparkFun Dual TB6612FNG motor driver. The motor driver is connected to our PCB, and receives signals from the Raspberry Pi.
+TODO – insert image explaining this 
 
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/TB6612FNG.jpeg" alt="Motor Driver" width="60%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>Specifications:</h3>
-      <li>Name: TB6612FNG</li>
-      <li>Power Supply Voltage: 15V (Max)</li>
-      <li>Average Output current: 1.2A</li>
-      <li>Peak Output current: 3.2A</li>
-      <li>Standby control to save power</li>
-      <li>Built-in thermal shutdown circuit</li>
-    </td>
-  </tr>
-</table>
+---
 
+### 1.4 Differential assembly selection
 
-**Potential Improvements:**
+We used Lego differential gear assembly in our last year's robot. While this gave us adequate performance, there were few drawbacks to it
 
-- Explore motor driver that can output higher currents, if we upgrade existing motors to higher performance motors
+1) Gear damage: When the robot hit a wall during our testing, the plastic gears slipped causing a grinding sound. This slowly damages the gear teeth.  
+2) Backlash: When the robot makes micro adjustments during parking switching from forward to reverse, the motor rotates slightly before the wheels actually move. This makes software control of the robot inconsistent. If we move the motor a bit more, the robot sometimes hits the walls, if we make the motor move a bit less, it doesn't move.
 
-## Steering System
+Both these problems can be resolved with metal differential gears. To allow for precise control, we chose the largest possible gear ratio that could fit in the chassis. We chose a metal differential gear with a 38:13 ratio of ring gear to pinion gear. This gear ratio gives higher torque providing reliable transmission even at lower speeds. There is loss of top speed, but we do not need to race the car so that is fine.
 
-For our steering mechanism, we needed a design that was precise. Like all other aspects of our robot’s design, our first choice was to use a Lego based mechanism. Ackerman steering is a popular choice in automobiles, as the front inner wheel turns more than the front outer wheel, thereby reducing skid. However it was complicated to build it. We first tried the simpler parallel steering mechanism and it turned out to be pretty good for our robot, so we didn't consider Ackerman steering.
+| Feature | Plastic Differential (e.g., LEGO) | Metal Differential |
+| :---- | :---- | :---- |
+| **Backlash**  | High (Rough control at low speed during parking) | Low (Precise control at low speed during parking) |
+| **Friction** | Plastic-plastic \- higher friction (Prone to low-speed stutter) | Metal-metal \- lower friction (Smooth low-speed crawl) |
+| **Rigidity / Prone to damage** | Flexes under pressure(Grinding sound when robot stuck) | Rigid and stable |
 
-The steering could have been driven by any encoder based motor (such as a spike prime small motor) as a makeshift servo motor. The problem was, that while any Lego motor would have been both highly precise and easy to integrate, even the smallest motor was too bulky and required integration with motor driver.
+TODO: show 3D diagram side by side with real pic \- differential gearbox assembly opened showing gears \+ axle \+ wheel
 
-Therefore, we decided to use an off the shelf servo motor, which was not only small but can be driven directly by Raspberry Pi's output port. To integrate it with our Lego based design, we 3D printed a custom servo mount which could be attached with Lego screws to the front of the chassis directly behind the front wheel, while simultaneously hot gluing the servo horn to 3D printed component that couples the horn to the axle of the front wheels.
+---
 
-**Potential Improvements:**
+### 1.5 Wheel selection
 
-- Explore if Ackerman steering provides better maneuverability.
+We used lego spike prime medium wheels with 56mm diameter. These are narrow like bicycle wheels giving smoother turns. A bigger wheel would amplify the backlash causing imprecise movements during parking.
 
-### Servo Motor
+---
 
-Our steering system is centered around the SG90 servo motor, which provides precise angular control, making it highly suitable for steering applications where accuracy is essential. Unlike standard DC motors, the SG90 has a built-in feedback mechanism that allows it to hold a commanded angle reliably without additional sensors. Despite its compact size, it delivers sufficient torque to handle the demands of turning the steering mechanism, ensuring stability.
+### 1.6 Drive Motor selection
 
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/servo.jpeg" alt="Servo Motor" width="60%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>Specifications:</h3>
-      <li>Name: SG90</li>
-      <li>Operating voltage: 3.0V - 7.2V</li>
-      <li>Weight: 9g</li>
-    </td>
-  </tr>
-</table>
+We used a Lego EV3 medium motor in our last year's robot and its speed was the limiting factor for our robot. We were running the motor at 100% speed and couldn't go faster.   
+Old robot rpm at wheel
 
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/ServoMount.jpeg" alt="Servo Motor" width="60%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>Servo mount</h3>
-      <li>To connect the servo motor to our robot, we designed and 3D printed a custom Servo Mount</li>
-      <li>A diagram of our servo mount is shown to the left.</li>
-      <li>A 3D Printable file is provided in the models folder.</li>
-    </td>
-  </tr>
-</table>
+```
+rpm_wheel_old = rpm_motor_old / differential_gear_ratio_old
 
-
-**Challenges:**
-
-For a brief period, we used an MG90 servo motor instead of our current SG90 motor. An MG90 has metal gears instead of plastic gears, which we believed would make it more reliable. However, the MG90 gears broke in one of our test runs, and we reverted back to the SG90
-
-**Potential Improvements:**
-
-- 3D print the servo horn to directly connect to the chassis without gluing
-
-<p style="page-break-before: always;"></p>
-
-## Chassis
-
-When starting this project, we realized that the bulk of our effort would go into building autonomous driving software. As we wanted to spend more time on software, and had already spent a considerable amount of time using Lego hardware for our 2024 Robomission challenge, we **custom designed** the base chassis from elementary Lego parts and rest of the chassis with **3D printed parts**.
-
-This approach has many benefits, the primary one being ease of integration. Lego parts can easily be snapped on and off, making chassis development far easier and less time consuming. Making changes to a non-Lego chassis would have meant that each time we wanted to make a change to our chassis, we would have to make new 3D prints, increasing time, cost, waste and materials used.
-
-All sensors like the camera, ultrasonic sensors and TOF sensors are attached to the base chassis with 3D printed mounts. This provides robust attachment of the the sensors to the main body. The prototype was built with hot gluing these sensors to the body but this wasn't robust and would come off.
-
-| <img src="other/readmephotos/CameraMountBase.png" alt="CameraMountBase" style="zoom:25%;" /> | <img src="other/readmephotos/CameraMountArm.png" alt="CameraMountBase" style="zoom:25%;" /> |
-| ------------------------------------------------------------ | ------------------------------------------------------------ |
-| <img src="other/readmephotos/ServoMount.png" alt="ServoMount" style="zoom:25%;" /> | <img src="other/readmephotos/ServoHornMount.png" alt="ServoHornMount" style="zoom:25%;" /> |
-
-| <img src="other/readmephotos/SensorMount.png" alt="SensorMount" style="zoom:25%;" /> |
-| :----------------------------------------------------------: |
-
-**Potential Improvements:**
-
-- Despite being mounted on a thick 3D-printed mount, the camera vibrates when the robot is in motion, blurring the image. The mount could be coupled with vibration damping material.
-- Lightweight suspension can be added to the chassis to enhance stability.
-- The Raspberry Pi's cooling fan can be covered with a custom 3D printed cover to avoid dust and debris getting into the fan.
-- The current 3D printed parts are printed with 100% infill for robustness but it increases the weight. We could explore an optimum infill that gives the minimum strength at the lowest possible weight.
-
-## Code for mobility components
-
-### Motor Control
-
-Controls the drive motor speed and direction using PWM (pulse-width modulation) signals sent to the TB6612FNG motor driver.
-
-#### Initialization
-
-```python
-def initialize():
-    """Initializes the DC motor driver and PWM."""
-    global gpio_handle, motor_pwm
-    try:
-        gpio_handle = lgpio.gpiochip_open(0)
-        lgpio.gpio_claim_output(gpio_handle, config.AIN1_PIN)
-        lgpio.gpio_claim_output(gpio_handle, config.AIN2_PIN)
-        lgpio.gpio_claim_output(gpio_handle, config.STBY_PIN)
-        
-        motor_pwm = HardwarePWM(
-            pwm_channel=config.MOTOR_PWM_CHANNEL,
-            hz=config.MOTOR_PWM_FREQ,
-            chip=config.MOTOR_PWM_CHIP,
-        )
-        motor_pwm.start(0)
-        print("INFO: Motor Initialized.")
-        return True
-    except Exception as err:
-        print(f"FATAL: Motor failed to initialize: {err}")
-        return False
+rpm_wheel_old = 250 / (28 / 20) = 250 / 1.4 = 179
 ```
 
-**Explanation:** We set up the GPIO pins that control the motor direction (AIN1, AIN2) and standby mode (STBY). We also initialize the PWM signal that controls motor speed.
+We wanted the new robot to go at least 50% faster with enough headroom so we aimed for 100% higher rpm at wheel
 
-#### Motor Control Functions
+```
+rpm_wheel_new = rpm_motor_new / differential_gear_ratio_new
 
-```python
-def forward(speed):
-    """Drives the motor forward at a given speed."""
-    if gpio_handle:
-        lgpio.gpio_write(gpio_handle, config.STBY_PIN, 1)  # Enable motor
-        lgpio.gpio_write(gpio_handle, config.AIN1_PIN, 1)  # Forward direction
-        lgpio.gpio_write(gpio_handle, config.AIN2_PIN, 0)
-        _set_speed(speed)  # Set speed 0-100
+rpm_wheel_new = 2 * rpm_wheel_old = 2 * 179 = 358
 
-def reverse(speed):
-    """Drives the motor in reverse at a given speed."""
-    if gpio_handle:
-        lgpio.gpio_write(gpio_handle, config.STBY_PIN, 1)  # Enable motor
-        lgpio.gpio_write(gpio_handle, config.AIN1_PIN, 0)  # Reverse direction
-        lgpio.gpio_write(gpio_handle, config.AIN2_PIN, 1)
-        _set_speed(speed)
-
-def brake():
-    """Brakes the motor by shorting its terminals."""
-    if gpio_handle:
-        lgpio.gpio_write(gpio_handle, config.STBY_PIN, 1)
-        lgpio.gpio_write(gpio_handle, config.AIN1_PIN, 1)  # Both pins high = brake
-        lgpio.gpio_write(gpio_handle, config.AIN2_PIN, 1)
-        _set_speed(0)
+358 = rpm_motor_new / (38 / 13)
+rpm_motor_new = 358 * (38 / 13) = 358 * 2.92 = 1045
 ```
 
-**Explanation:** These functions control motor direction by setting the AIN1 and AIN2 pins. Forward sets AIN1=1 and AIN2=0. Reverse does the opposite. Brake sets both to 1, which stops the motor quickly.
+We explored different motors from [Pololu](https://www.pololu.com/product/4861) as they offer a wide range of gear ratios. We ran below Speed Torque calculations with some motors and shortlisted Pololu 4861 that provides 0.71 kg·cm torque @ 1800 rpm. This motor runs at 12V removing the need for a step down converter and associated efficiency losses.
+
+| Criteria | LEGO EV3 Medium Motor | Pololu 4861 |
+| :---- | :---- | :---- |
+| Power supply match | Needs buck converter (12 V → 9V), small conversion loss | Runs directly off 12 V LiPo, no converter required |
+| Mechanical reliability | Plastic gears — lower abuse tolerance, can slip under stall. Higher backlash | All-metal gearbox — higher tolerance for abuse. Lower backlash |
+| No load speed | 250 rpm | 1800 rpm |
+| Stall torque | 1.22 kg·cm | 0.71 kg·cm |
+| Rated stall current | 0.8 A | 1.8 A — within TB6612FNG's 3.2 A peak rating |
+
+The Pololu motor natively matches the power source and has better mechanical reliability.
+
+#### 1.6.1 Speed Torque calculations
+
+| Symbol | Meaning | Value |
+| :---- | :---- | :---- |
+| m | Robot mass | 0.8 kg |
+| g | Gravitational acceleration | 9.81 m/s² |
+| W | Robot weight \= m × g | 7.85 N |
+| D\_w , r\_w | Wheel diameter / radius | 0.056 m / 0.028 m |
+| N\_nl | Motor no-load speed at gearbox output (12 V) | 1800 RPM |
+| T\_stall\_gb | Stall torque at gearbox output (extrapolated) | 0.71 kg·cm \= 0.0696 N·m |
+| I\_stall | Stall current | 1.8 A |
+| G\_ext | External gear ratio (13:38 metal differential) | 38 / 13 \= 2.923 |
+| μ | Wheel-to-mat friction coefficient (assumed) | 0.6 (rubber-type wheel on flex banner) |
+| C\_rr | Rolling resistance coefficient (assumed) | 0.03 |
+| C\_rr,static | Higher than C\_rr due to stiction | 0.05 |
+| T\_cont\_gb | Recommended continuous torque at gearbox output | 25% of T\_stall\_gb (manufacturer guideline: keep current ≤ 25% of stall) |
+
+**No load speed**
+
+```
+v_nl = (π × D_w × N_nl) / (60 × G_ext)
+
+v_nl = (π × 0.056 × 1800) / (60 × 2.923) = 1.81 m/s
+```
+
+**A) Starting Torque v/s Stall Torque rating**
+
+Can the motor move the robot from a dead stop? The motor is in stall condition at the moment it starts and the stall torque should exceed the initial resistance(static friction) that the robot needs to begin moving.
+
+*Step 1: Breakaway resistance force, flat ground (total, both wheels)*
+
+```
+F_start = C_rr,static × W
+
+F_start = 0.05 × 7.85 = 0.392 N
+```
+
+*Step 2: Torque required at the ring gear*
+
+```
+T_req,ring = F_start × r_w
+
+T_req,ring = 0.392 × 0.028 = 0.0110 N·m = 0.112 kg·cm
+```
+
+*Step 3: Refer to gearbox output*
+
+```
+T_req,gb = T_req,ring / G_ext = 0.112 / 2.923 = 0.0383 kg·cm
+```
+
+*Step 4: Compare to available stall torque*
+
+```
+Margin_A = T_stall_gb / T_req,gb = 0.71 / 0.0383 = 18.5×
+```
+
+*Conclusion:* The robot will easily start from a dead stop with ease.
+
+**B) Running Torque v/s Continuous Torque rating**
+
+Is the torque required for continuous driving comfortably within motor's output to avoid constantly overloading the motor that could result in motor breakdown
+
+*Step 1: Rolling resistance force (total, both wheels)*
+
+```
+F_roll = C_rr × W
+
+F_roll = 0.03 × 7.85 = 0.236 N
+```
+
+*Step 2: Torque required at the ring gear*
+
+```
+T_req,ring = F_roll × r_w
+
+T_req,ring = 0.236 × 0.028 = 0.0066 N·m = 0.0673 kg·cm
+```
+
+*Step 3: Refer to gearbox output*
+
+```
+T_req,gb = T_req,ring / G_ext = 0.0673 / 2.923 = 0.0230 kg·cm
+```
+
+*Step 4: Continuous torque rating available*
+
+```
+T_cont,gb = 0.25 × T_stall_gb = 0.25 × 0.71 = 0.1775 kg·cm
+```
+
+*Step 5: Compare*
+
+```
+Margin_C1 = T_cont,gb / T_req,gb = 0.1775 / 0.0230 = 7.7×
+```
+
+*Conclusion:* Continuous running uses only 13% of the recommended continuous torque rating so the motor is running under very light load.
+
+**C) Running speed v/s No load speed**
+
+The Pololu 4861 datasheet ([https://www.pololu.com/file/0J1829/pololu-25d-metal-gearmotors-rev-2-0.pdf](https://www.pololu.com/file/0J1829/pololu-25d-metal-gearmotors-rev-2-0.pdf)) shows that torque and speed are approximately linearly related. 
+
+<img src="docs/diagrams/mobility/Polulu_datasheet.png" alt="Pololu Datasheet" width="600">
+
+Using the fraction of stall torque with the running torque from (b) 
+
+```
+N_gb = N_nl × (1 − T_req,gb / T_stall_gb)
+
+N_gb = 1800 × (1 − 0.0230/0.71) = 1800 × 0.9676 = 1741.7 RPM
+
+N_wheel = N_gb / G_ext = 1741.7 / 2.923 = 595.8 RPM
+
+v = π × D_w × N_wheel / 60 = π × 0.056 × 595.8 / 60 = 1.75 m/s
+```
+
+*Conclusion:* The running speed (1.75 m/s) should be very close to the no load speed (1.81 m/s).
+
+TODO: Add observed speed here. If adding a table, show no load, theoretically calculated load speed, and observed speed.
+
+**Assumptions**
+
+Our calculations assumed no loss at differential gear. However a differential gear would have efficiency of **η=85%** due to frictional losses. However its impact wouldn't be of concern to us as we have a very high margin.
+
+**Summary**
+
+| Check | Question answered | Torque req'd at gearbox (kg·cm) | Torque available (kg·cm) | Margin |
+| :---- | :---- | :---- | :---- | :---- |
+| A: Starting Torque v/s Stall Torque rating | Can it start moving from rest? | 0.0383 | 0.71 (stall) | 18.5× |
+| B: Running Torque v/s Continuous Torque rating | Can it sustain cruising without overheating? | 0.0230 | 0.1775 (25% cont.) | 7.7× |
+
+| Metric | Value |
+| :---- | :---- |
+| Top (no-load) speed | 1.81 m/s |
+| Expected cruising speed | 1.75 m/s — close to no-load, since running load is small |
+
+The Pololu motor has adequate torque margin to start the robot from rest, sustain cruising without overheating and to provide the max speed we could possibly use.
 
 ---
 
-### Servo Steering
+### 1.7 Steering Motor selection
 
-Controls the steering servo angle using PWM signals. The servo position determines the steering direction.
+For our last year's robot, we used an SG90 servo motor for front wheel steering for precise steering control. While it was adequate, we explored other alternatives.
 
-#### Initialization
+| SG90 | EMAX ES08A II |
+| :---- | :---- |
+| plastic gears \- lower durability against front wheel collisions | metal gears \- higher durability withstands front wheel collisions |
+| deadband drift \- steering drifts over time | tighter deadband \- precise steering positioning |
+| speed \- 0.10 sec/60° | speed \- 0.10 sec/60° |
+| torque \- 1.6 kgf·cm | torque \- 2.0 kgf·cm |
 
-```python
-def initialize():
-    """Initializes the servo motor PWM."""
-    global servo_pwm
-    
-    for attempt in range(1, 6):  # Try up to 5 times
-        try:
-            servo_pwm = HardwarePWM(
-                pwm_channel=config.SERVO_PWM_CHANNEL,
-                hz=config.SERVO_PWM_FREQ,
-                chip=config.SERVO_PWM_CHIP,
-            )
-            servo_pwm.start(0)
-            set_angle(0.0)  # Center the servo
-            time.sleep(0.5)
-            print("INFO: Servo Initialized.")
-            return True
-        except PermissionError as err:
-            print(f"WARNING: Servo PWM permission denied (attempt {attempt}/5): {err}")
-            time.sleep(0.1 * attempt)
-    
-    print("FATAL: Servo failed to initialize after 5 attempts")
-    return False
-```
-
-**Explanation:** We initialize the PWM signal for the servo. The servo needs a specific frequency (50 Hz) and pulse width to set its angle. We center it at 0 degrees during startup.
-
-#### Servo Angle Control
-
-```python
-def set_angle(input_angle: float):
-    """Sets the servo to a specific angle (-45 to +45 degrees)."""
-    if servo_pwm is None:
-        return
-    
-    # Clamp angle to safe limits
-    clamped_angle = max(-45, min(45, input_angle))
-    
-    # Convert angle to PWM duty cycle
-    # Servo expects 1-2ms pulse width at 50Hz frequency
-    pulse_width_ms = 1.5 + (clamped_angle / 90) * 0.5
-    duty_cycle = (pulse_width_ms / 20) * 100
-    
-    servo_pwm.change_duty_cycle(duty_cycle)
-```
-
-**Explanation:** Servo motors work by receiving a PWM signal with a specific pulse width. A 1.5ms pulse = center (0°), 1ms = full left (-90°), 2ms = full right (+90°). We calculate the duty cycle based on the desired angle.
-
-# Power and Sense Management
-
-Our robot uses a Raspberry Pi 5 to process data from several sensors. We use ultrasonic and TOF sensors for distance, an IMU for orientation, and a camera for autonomous driving. A Li-Po battery powers the entire system.
-
-## LiPo battery
-
-Our robot uses a Bonka 11.1V 2200mAh LiPo battery, commonly found in drones and quadcopters. We chose this battery because its compact form factor fits in the narrow space beneath the chassis. Mounting the heavy battery low in the robot lowers the center of mass, which improves stability.
-
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/LiPobattery.jpeg" alt="LiPo Battery" width="60%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>Specifications:</h3>
-      <li>Maximum Voltage: 12.6V </li>
-      <li>Nominal Voltage: 11.1V </li>
-      <li>Capacity: 2200mAh</li>
-      <li>Discharge Current: 35C</li>
-      <li>Weight: 175g</li>
-    </td>
-  </tr>
-</table>
-
-
+We did have one instance of SG90 breaking last year so we chose the EMAX servo motor primarily for higher durability and secondarily for similar or better steering precision.
 
 ---
-**Potential Improvements**
 
-- Implement a battery level indicator
-- Explore if a Lithium-Ion battery is available in the required form factor, as it
+### 1.8 3D printed parts
 
-    - Is safer
+TODO: Add a stack of old printed parts annotating with reasons for change where applicable
 
-    - Has more charge cycles
+TODO: a blown up CAD image of all 3D parts
 
-    - Doesn't require a complex charger that a LiPo requires
-    
-    - Can be easily removed and replaced with another charged battery
 ---
-## Raspberry Pi
 
-The heart of our robot is the Raspberry Pi 5 microcomputer. It processes inputs from our distance sensors, runs image processing algorithms on the live camera feed and controls the motors to drive the robot to achieve its desired goals.
+### 1.9 Assembly photos
 
-We chose this particular model as it seamlessly integrates with a camera, making it easier to use than similar computers or microcontrollers such as an Arduino or ESP32. Additionally, we also wanted to take advantage of the Raspberry Pi 5 being far more powerful than other processors, allowing us to use newer and improved image processing technologies that deliver more accurate results but may require greater computing power.
+TODO: Base plate, Top plate, left side view showing battery, bottom view showing differential
 
-**Potential Improvements**
+---
 
-- Use Arduinos and compatible cameras to make this robot much cheaper to design
+### 1.10 Vehicle photos
 
+TODO: All 6 side and isometric pics of vehicle
 
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/raspberrypi.png" alt="Raspberry Pi 5" width="100%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>Specifications:</h3>
-      <li>Name: Raspberry Pi 5 </li>
-      <li>RAM: 8GB</li>
-      <li>Pins: 40</li>
-      <li>Input Voltage: 5V</li>
-    </td>
-  </tr>
-</table>
+---
 
-## Voltage Converter
+### 1.11 Experiments
 
-Our battery provides 12V, but our Raspberry Pi requires 5V and our motor requires 9V. To supply these lower voltages safely, we used a XY-3606 step-down (buck) voltage converter.
+We ran some experiments to determine our robot precision. This data helps us calibrate robot speed for various scenarios like open challenge, obstacle challenge and parking section.
 
-**Potential Improvements**
+#### 1.11.1 Detection distance v/s speed
 
-- Use a linear converter to reduce costs
-- Use a buck converter that is more efficient and provides more power at different voltages. This ensures that all components running at all voltages can be used
+We ran a robot in a straight line until it found an obstacle 20 cm in front of it. This measures the latency of the ToF sensor by measuring the extra distance the robot goes before the sensor triggers 20cm detection.
 
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/VoltageConvertor.jpg" alt="Voltage Converter" width="70%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>Specifications:</h3>
-      <li>Name: XY-3606 </li>
-      <li>Working voltage: DC 9V–36V</li>
-      <li>Output voltage: 5.2V</li>
-    </td>
-  </tr>
-</table>
+TODO: Run below experiment and also plot graph
 
+| Sr. no. | v (cm/s) | Δ distance (cm) |
+| :---- | :---- | :---- |
+|  |  |  |
+|  |  |  |
+|  |  |  |
 
-## Printed Circuit Board (PCB)
+#### 1.11.2 Brake distance v/s speed
+
+We continued the previous test and the robot started breaking at the point the sensor triggered. This measures the time taken by the robot to come to a complete halt. This helps us determine how slowly the robot should move at critical points e.g. parking section.
+
+TODO: Run below experiment and also plot graph
+
+| Sr. no. | v (cm/s) | Δ distance (cm) |
+| :---- | :---- | :---- |
+|  |  |  |
+|  |  |  |
+|  |  |  |
+
+#### 1.11.3 Encoder precision and tuning
+
+We tuned the encoder to convert its pulses to the real distance the robot travels over 10m. We then ran the robot over multiple distances to verify if this linear formula was accurate.
+
+No. of pulses over 10 m distance \=  
+Distance per pulse \=
+
+| Sr. no. | Encoder measured distance (cm) | Observed distance practically (cm) | Δ distance (cm) |
+| :---- | :---- | :---- | :---- |
+|  |  |  |  |
+|  |  |  |  |
+|  |  |  |  |
+
+---
+
+### 1.12 Building instructions
+
+Link to main section system design
+
+---
+
+## 2. Power & Sensor Architecture
+
+A 11.1V 1500mAh 16.65 Wh LiPo battery powers all the electronics on our robot. It drives two power converters - a 25W converter provides 5.2V to the Raspberry Pi 5 and the Servo motor while the 15W converter provides upto 8V to the Drive motor. The RPi 5 further powers the camera and sensors via its 3.3V GPIO rail.
+
+<img src="docs/diagrams/powerNsense/power_arch_white.png" alt="Power and Sense Architecture" width="700">
+
+---
+
+### 2.1 Power Budget
+
+We referred to components documentation to find out their voltage and current specifications.
+
+| Devices on 5V power bus | Volts (V) | Idle Current (A) | Typical Current (A) |
+| :---- | :---- | :---- | :---- |
+| Raspberry Pi 5 | 5.0 | 0.600 | 0.750 |
+| Servo - EMAX ES08A II | 5.0 | 0.010 | 0.200 |
+| Camera module 3 wide | 5.0 | 0.250 | 0.280 |
+| BNO086 IMU | 3.3 | 0.008 | 0.012 |
+| VL53L4CD ToF sensor (x4) | 3.3 | 0.020 | 0.080 |
+| Total load on 5V power bus | 5.0 | 0.888 | 1.322 |
+
+| Devices on 8V power bus | Volts (V) | Idle (A) | Typical (A) |
+| :---- | :---- | :---- | :---- |
+| Motor driver - TB6612 FNG | 8.0 | 0.001 | 0.002 |
+| Motor - TT GM25 | 8.0 | 0.005 | 0.300 |
+| Total load on 8V power bus | 8.0 | 0.006 | 0.302 |
+
+\* Current values sourced from component datasheets and other sources.
+
+Using values from the above table, we did **calculation for the need of current and power for our robot**, considering all circuit components.
+
+| Calculation | Idle Current | Typical Current|
+| :---- | :---- | :---- |
+| **5V Bus** | | |
+| Output power = Voltage × Current | 5V × 0.888A = 4.44W | 5V × 1.322A = 6.61W |
+| Input power = Output power / Efficiency (95%) | 4.44W / 0.95 = 4.67W | 6.61W / 0.95 = 6.96W |
+| **8V Bus** | | |
+| Output power = Voltage × Current | 8V × 0.006A = 0.048W | 8V × 0.302A = 2.416W |
+| Input power = Output power / Efficiency (97.5%) | 0.048W / 0.975 = 0.05W | 2.416W / 0.975 = 2.48W |
+| **Battery Total** | | |
+| Power drawn = 5V input + 8V input | 4.67W + 0.05W = **4.72W** | 6.96W + 2.48W = **9.44W** |
+| Current drawn = Power / Battery voltage (11.1V) | 4.72W / 11.1V = **0.425A** | 9.44W / 11.1V = **0.850A** |
+
+---
+
+### 2.2 Power Strategy
+
+#### 2.2.1 Battery Runtime Estimation
+
+Battery specifications  
+Nominal voltage = 11.1V  
+Full charge voltage = 12.6V  
+Capacity             = 1500mAh  
+Discharge rating = 35C  
+Max discharge current = capacity * C rating  
+                                     = 1.5Ah * 35  
+                                     = 52.5A  
+Headroom v/s C rating = max discharge current / current drawn from battery  
+                                     = 52.5A / 0.850A  
+                                     = 61.76x (burst that the battery can handle)
+
+Total energy stored = capacity * nominal voltage  
+                                = 1.5Ah * 11.1V  
+                                = 16.65Wh
+
+Estimated runtime = Total energy / Power drawn from battery (typical)  
+                              = 16.65Wh / 9.44W  
+                              = 1.76 hours
+
+Applying a safety margin of 30% to avoid over discharging the battery, we comfortably get a runtime of over an hour for typical power consumption.
+Moreover, we have added a **Battery Level Indicator** which allows us to be aware of the battery voltage at all times and we can ensure its fully charged before taking any benchmarking runs. Also our chassis mount for battery is designed in such a way that its easy to change the battery and we can put in the spare battery when running continuously.
+
+#### 2.2.2 Voltage Converters
+
+We have provided two separate voltage converters
+
+1) The 25W/5V converter provides USB compatible output suited for RPi 5's USB power input.  
+   	RPi's operational power requirement = 6.96W  
+   	Converter's output power = 25W  
+   	This is **more than 3X the required power** to account for spikes.  
+2) The 15W/adjustable converter is adjusted to provide 6V output suited for a 6V drive motor.  
+   	Drive motor's operational power requirement = 2.48W  
+   	Converter's output power = 15W  
+   	This is **more than 5X the required power** to account for spikes.
+
+---
+
+### 2.3 Power Verification
+
+#### 2.3.1 Full Circuit Loop Measurement
+
+An ammeter was put in series in the LiPo battery path and the robot run on a raised platform to measure the typical operating current.
+
+| Condition | Measured current (A) | Theoretical current (A) |
+| :---- | :---- | :---- |
+| Idle operation | 0.350 to 0.420 (across multiple readings) | 0.425 |
+| Typical operation | 0.790 to 0.820 (across multiple readings) | 0.850 |
+
+**TODO: Insert multimeter photo showing measurement setup**
+
+#### 2.3.2 5V Power Bus — Onboard Telemetry
+
+We used pmic_read_adc diagnostic command from Raspberry Pi 5 to read real-time voltage and current measurements from its built-in Power Management IC. The telemetry total power almost matches the theoretically calculated power for RPi and sensors connected to it.
+
+**TODO: Add code link to pmic_read_adc script**
+
+![RPi 5 PMIC Telemetry Output](docs/diagrams/powerNsense/Telemetry.png)
+
+---
+
+### 2.4 Wiring Diagram and PCB
 
 In our first draft of the robot, there were many criss-crossing wires between many different components. A lack of clean arrangement for the wires made the robot very messy to handle. During practice runs, wires would routinely get loose, making it difficult to troubleshoot errors.
 
 To solve this, we designed a PCB which cleanly connected all of our components together, making the robot far cleaner and reliable.
 
 Here is a comparison showing our robot before and after the PCB
+**TODO: Check if we have before after pictures and embed a full wiring PCB diagram.**
 
-| Before                                                       | After                                                        |
-| ------------------------------------------------------------ | ------------------------------------------------------------ |
-| <img src="other/readmephotos/PrePCB.jpg" alt="Robot Before PCB" style="zoom:27%;" /> | <img src="v-photos/Top.jpeg" alt="Robot After PCB" style="zoom:33%;" /> |
+The complete wiring diagram below shows all power and signal connections between the battery, voltage converters, Raspberry Pi 5, motor driver, servo, camera, IMU, and ToF sensors.
 
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/PCB.jpeg"" alt="Voltage Converter" width="70%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>PCB</h3>
-      <li>This is our PCB image with all components mounted</li>
-      <li>The 'models/PCB' folder contains the files required to print this PCB</li>
-    </td>
-  </tr>
-</table>
-<p style="page-break-before: always;"></p>
+![Wiring Diagram](docs/diagrams/powerNsense/Wiring_Diagram.drawio.png)
 
-## Camera
-
-For image detection, we are using the Raspberry Pi Camera Module 3. This uses a CMOS sensor, the Sony IMX708. Apart from its ease of integration with the Raspberry Pi, the Camera module 3 has autofocus, wide-angle and low-light performance, all of which are very useful in a competition setting.
-
-We explored few other alternatives as well. The Raspberry Pi AI camera provides built in detection for many objects, but has a limited Field Of View which didn't work for our requirements. The Raspberry Pi HQ camera though bulky comes with a standard CS mount that allowed us to mount different fish eye lenses. A fish eye lens camera provides a much larger Field Of View (160° - 180°) even when mounted in the front on a straight mount at 10cm height. This allows us to cut off the field view above the black walls making the robot resilient to off field objects. However the image is distorted towards the edges and tuning the robot to detect objects proved difficult for us.
-
-
-
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/RPI Camera 3.jpeg" alt="RPI Camera" width="40%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>Specifications:</h3>
-      <li>Name: Camera Module 3 </li>
-      <li>Resolution: 11.9 megapixels</li>
-      <li>Horizontal/vertical: 4608 × 2592 pixels</li>
-      <li>Autofocus, Wide-angle and Low-light performance</li>
-    </td>
-  </tr>
-</table>
-
-
-**Potential Improvements**
-
-- Use an alternative wide angle AI camera to process data on the camera itself. This will reduce processing load on the Raspberry Pi.
-- Attempt to resolve tuning issues with fish eye camera to ignore off field objects.
-
-## IMU
-
-Our robot uses the BNO055 IMU (Inertial Measurement Unit) to help it maintain direction when moving straight, and to make turns more accurate. The BNO055 combines data from an accelerometer, gyroscope, and magnetometer to provide absolute orientation, which reduces drift and allows the robot to correct its heading in real time.
-
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/IMU.jpeg" alt="IMU" width="40%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>Specifications:</h3>
-      <li>I2C Address: 0x28 </li>
-      <li>Gyroscope: Range ±125°/s to ±2000°/s</li>
-      <li>Accelerometer: Range ±2g, ±4g, ±8g, ±16g</li>
-    </td>
-  </tr>
-</table>
-
-**Potential Improvements**
-
-- Move the IMU away from areas of magnetic interference
-- Use higher quality IMUs such as the BNO085
-
-## Distance Sensor
-
-Apart from the camera, our robot uses TOF based distance sensors VL53L1X / VL53L8CX and URM09 Ultrasonic sensor to gather inputs. The sensors are mounted on the front, back, left, and right of the robot respectively. The front and back sensors are used to avoid hitting the parking walls. The left and right sensors are used to detect the starting direction for obstacle challenge. They could potentially be used for a surprise rule that may be announced at the competition.
-
-**Reasons for using different sensors**
-
-- Ultrasonic sensors are not affected by strong lighting at competition arenas and are useful to detect objects at larger distance. This is useful for wall detection.
-- Some TOF sensors could potentially be affected by strong lighting at competition arenas, but are usually safe over short distances. This is useful for parking.
-  - The back sensor is attached to the edge of the rear chassis hence requires min 2cm range.
-  - The front sensor is attached to the inner cavity behind the front wheels hence can work with 4cm range.
-
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/DistanceSensor.png" alt="Distance Sensor" width="70%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>VL53L1X Specifications:</h3>
-      <li>Operating Voltage: 3.3V </li>
-      <li>Range: 4cm to 4m</li>
-      <li>Resolution: 1mm</li>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/VL53L8CX.jpg" alt="Distance Sensor" width="70%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>VL53L8CX Specifications:</h3>
-      <li>Operating Voltage: 3.2V to 5.5V </li>
-      <li>Range: 2cm to 4m</li>
-      <li>Resolution: 1mm</li>
-    </td>
-  </tr>  
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/SEN0304.jpg" alt="Distance Sensor" width="70%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>URM09 Specifications:</h3>
-      <li>Operating Voltage: 3.3V to 5.5V</li>
-      <li>Range: 2cm to 5m</li>
-      <li>Resolution: 1cm</li>
-    </td>
-  </tr>
-</table>
-
-
-
-**Alternatives considered**
-
-Along with the Ultrasonic and VL53L1X sensors, we also considered LiDAR sensors to help map the game field. In the end, though, we decided to pass on this, as LiDAR sensors are too expensive. Adding a single LiDAR sensor could have increased the robot's cost by nearly 40%. Additionally, at the short ranges relevant to this game field, our existing ultrasonic and ToF sensors already provide sufficient accuracy, so LiDAR would not have meaningfully improved the robot’s accuracy.
-
-**Potential Improvements**
-
-- Use a lidar sensor for a complete 2D image of the surroundings
-
-## Multiplexer
-
-All four of our distance sensors share the same I²C address. Our CJMCU TCA9548A multiplexer splits the  distance sensors into separate channels so only one device is active at a time. This gives each device a “virtual” unique address, letting them coexist without conflict.
-
-<table>
-  <tr>
-    <td width="50%" style="text-align: left;">
-      <img src="./other/readmephotos/Multiplexer.jpeg" alt="Distance Sensor" width="60%">
-    </td>
-    <td width="50%" style="text-align: left; vertical-align: top;">
-      <h3>Specifications:</h3>
-      <li>Model Number: CJMCU TCA9548A </li>
-      <li>No. of Channels: 8 </li>
-    </td>
-  </tr>
-</table>
-
-## Bringing it all together
-
-<img src="other/readmephotos/FullCircuit3.jpg" alt="Robot Circuit" width="600" />
-
-<p style="page-break-before: always;"></p>
-
-**A full wiring diagram is shown in the screenshot below, and available at models/PCB/~Untitled.kicad_sch**
-
-![WiringDiagram](other/readmephotos/WiringDiagram.png)
-
-## Code for sensors
-
-### IMU (Gyroscope) - BNO055
-
-Measures the robot's heading (direction) using a combination of gyroscope, accelerometer, and magnetometer sensors.
-
-#### Initialization
-
-```python
-def initialize():
-    """Initializes the BNO055 sensor."""
-    global sensor
-    
-    try:
-        i2c = board.I2C()
-        sensor = adafruit_bno055.BNO055_I2C(i2c)
-        sensor.mode = adafruit_bno055.NDOF_MODE  # 9-DOF mode
-        time.sleep(1)  # Let sensor boot up
-        
-        print(f"INFO: Gyro (BNO055) Initialized. Temp: {sensor.temperature}°C")
-        print(f"INFO: Calibration status: {sensor.calibration_status}")
-        return True
-    except Exception as e:
-        print(f"WARNING: Gyro disabled. Could not initialize: {e}")
-        sensor = None
-        return True
-```
-
-**Explanation:** We initialize the BNO055 on the I2C bus and set it to NDOF mode (9-Degree of Freedom), which uses all three sensors together for accurate heading measurement.
-
-#### Reading Heading
-
-```python
-def get_heading():
-    """Returns the current heading (yaw) in degrees."""
-    if sensor:
-        try:
-            heading, _, _ = sensor.euler  # Get yaw (heading) from Euler angles
-            if heading is not None:
-                return heading
-        except Exception:
-            return None
-    return None
-
-def get_initial_heading(num_readings=20):
-    """Gets an averaged, stable initial heading."""
-    if not sensor:
-        return 0.0
-    
-    print("INFO: Acquiring initial heading...")
-    readings = []
-    for _ in range(num_readings):
-        yaw = get_heading()
-        if yaw is not None:
-            readings.append(yaw)
-        time.sleep(0.05)
-    
-    if readings:
-        initial_heading = np.mean(readings)
-        print(f"INFO: Gyro zero point set to: {initial_heading:.2f} degrees.")
-        return initial_heading
-    return 0.0
-```
-
-**Explanation:** The BNO055 returns Euler angles (heading, roll, pitch). We extract the heading (yaw) which tells us which direction the robot is facing. We average multiple readings at startup to get a stable initial heading.
+**TODO: Add a simplified pin layout diagram showing how PWM and Encoder connect to RP1 hardware pins**
 
 ---
 
-### Camera - Raspberry Pi Camera Module 3
+### 2.5 Sensors
 
-Captures video frames for obstacle detection and color identification using computer vision.
+#### 2.5.1 Sensor Placement Summary
 
-#### Initialization
+| Sensor | Position | Height | Angle | Mounting Method | Justification |
+|---|---|---|---|---|---|
+| Camera Module 3 Wide | Rear-center, on pillar | 26 cm | 40 ° down | 3D-printed bracket on rear post | Forward view over chassis; avoids front blind spots; short CSI cable to RPi |
+| VL53L4CD #1 | Front | 5.5 cm | 0° (horizontal, forward) | Recessed inside chassis body | Detects front parking wall at short range |
+| VL53L4CD #2 | Rear | 6.7 cm | 180° (horizontal, backward) | Recessed inside chassis body | Detects rear parking wall at short range |
+| VL53L4CD #3 | Left side | 5.5 cm | 90° left | Recessed inside chassis body | Left wall distance for lane positioning |
+| VL53L4CD #4 | Right side | 5.5 cm | 90° right | Recessed inside chassis body | Right wall distance for lane positioning |
+| BNO086 IMU | Center chassis | 11.6 cm | Flat  | PCB-mounted, close to center of gravity | Minimum vibration; accurate heading readings |
 
-```python
-def initialize():
-    """Initializes the Picamera2."""
-    global picam2
-    try:
-        picam2 = Picamera2()
-        cam_config = picam2.create_preview_configuration(
-            main={
-                "format": "RGB888",
-                "size": (2304, 1296),  # High resolution for processing
-            },
-            lores={
-                "size": (640, 360),    # Low resolution for fast processing
-                "format": "RGB888"
-            },
-            controls={
-                "ExposureTime": 8000,  # Exposure time in microseconds
-                "FrameRate": 56,       # Frames per second
-            }
-        )
-        picam2.configure(cam_config)
-        picam2.start()
-        time.sleep(1.0)
-        print("INFO: Camera Initialized.")
-        return True
-    except Exception as e:
-        print(f"FATAL: Camera failed to initialize: {e}")
-        return False
+
+<img src="docs/diagrams/powerNsense/sensor_fov_coverage.png" alt="Sensor Placement" width="600">
+
+---
+
+#### 2.5.2 Camera
+
+**Specification Comparison**
+
+| Specification | Raspberry Pi Camera Module 3 Wide | Raspberry Pi HQ Camera + 180° Fish Eye lens |
+| :---- | :---- | :---- |
+| Resolution | 11.9 MP | 12.3 MP |
+| Focusing | Auto | Manual |
+| Field of View (FOV) | 120° Diagonal (102° Horizontal) | 180° Diagonal (180° Horizontal) |
+| HDR support | Up to 3 MP, 30 fps | No |
+| Aspect ratio | 16:9 (wider, optimized for videos) | 4:3 (squarish, optimized for still pictures) |
+
+**Why We Chose Camera Module 3 Wide**
+
+- The Camera Module 3 Wide provides auto focus which keeps moving targets sharp.
+- The 120° FOV is sufficiently wide and at the same time gives zero edge distortion.
+- The HDR would be useful for low light conditions if encountered.
+- In the HQ Camera, objects towards the edges become curved and stretched, causing occasional failures in object contour detection. The distortion can be corrected, but the process is computationally intensive, reducing the control loop speed and slows down reaction time.
+- In the HQ Camera, objects towards the edges seem compressed and smaller, causing contour area to drop below the detection threshold.
+- The HQ camera was too heavy to be mounted at the rear top. Mounting it in the front lower center still covers the field due to its higher FOV, but it reduces the perception of depth as when mounted high, further objects appear higher up in the image but when mounted in front, all objects appear at a similar height.
+
+**Experimentation**
+
+**TODO: Show edge distorted pics from both cameras with traffic signs at edges, in a FPV image. Show side-by-side comparison of detection accuracy at frame edges.**
+
+**Placement**
+
+1) Mount the camera on the pillar
+2) Adjust the camera angle so that
+   1) The front edge of the robot is visible in the camera. This is essential to avoid blind spots in the front.
+   2) With the robot at the edge of a square section, it should be able to see at least till the middle traffic pillar to avoid last minute sudden steering to avoid the obstacle.
+
+**TODO: Show a picture depicting camera placement and visible coverage area from robot's perspective**
+
+---
+
+#### 2.5.3 Distance Sensor
+
+**Specification Comparison**
+
+| Specification | VL53L4CD | VL53L1X | VL53L8CX |
+| :---- | :---- | :---- | :---- |
+| **Zone Architecture** | Single Zone | Single Zone *(Programmable ROI)* | **Multi-Zone (4x4 or 8x8 grid)** |
+| **Maximum Range** | Up to 1.3 meters (1300 mm) | **Up to 4.0 meters (4000 mm)** | **Up to 4.0 meters (4000 mm)** |
+| **Minimum Range** | **Down to 1 mm** | ~40 mm | ~20 mm |
+| **Field of View (FoV)** | 18° Diagonal | 15° to 27° (Adjustable via ROI) | **65° Diagonal** (Wide angle) |
+| **Max Sampling Rate** | **Up to 100 Hz** | Up to 50 Hz | Up to 60 Hz |
+| **Ambient Light Immunity** | Moderate | Standard | **Excellent** (Uses histogram processing) |
+| **Primary Focus** | Ultra-short range precision & speed | Mid-to-Long range point sensing | Scene mapping, multi-target tracking |
+
+**TODO: Add ambient light immunity numbers from VL53L4CD datasheet**
+
+**Why We Chose VL53L4CD**
+
+- Our robot uses distance sensors for parallel parking — it must detect parking walls at very short range to avoid collision.
+- We need high precision and accuracy at short ranges (down to 1mm minimum range).
+- This model has a high 100 Hz update rate, providing faster reaction times compared to VL53L1X (50 Hz) and VL53L8CX (60 Hz).
+- Its only disadvantage is its max range is 1.3m unlike others, but that is sufficient for our purpose since we only need to detect walls within parking distance.
+
+**Experimentation**
+
+We mounted all 3 sensors and ran a distance detection test.
+
+**TODO: Table with distance detection test for all 3 sensors at different speeds, if running in robot, or motionless test**
+
+**Placement**
+
+Even though the VL53L4CD's datasheet mentions a minimum range of 1mm, its ranging error is higher at short distances of < 20mm. To avoid this issue altogether, we have mounted the sensor recessed inside the robot body on all sides, as much as we physically could. This ensures that the closest distance it needs to measure is more than 15 to 20 mm.
+
+**TODO: Show a photo or a 3D diagram of recessed sensor mount**
+
+---
+
+#### 2.5.4 IMU
+
+**Specification Comparison**
+
+| Specification / Feature | BNO055 | BNO086 |
+| :---- | :---- | :---- |
+| **Heading Drift** | High (drifts significantly; loses calibration by the 3rd lap) | Very low drift of 0.5° per minute with dynamic calibration |
+| **Dedicated "Game Rotation Vector"** | No | **Yes** (6-DOF: Gyro + Accel) |
+| **Hardware Tare (Zeroing)** | No *(Must manually calculate offset)* | **Yes** *(Native firmware command)* |
+| **Calibration Architecture** | Continuous Background | **Initial Calibration + Runtime Stillness calibration** |
+
+**Why We Chose BNO086**
+
+- **Accuracy:** Very low drift of 0.5° per minute means the robot can make accurate parking maneuvers even in the 3rd lap.
+- **Magnetic Immunity:** The Game Rotation Vector disables the magnetometer. This prevents the robot's heading from "jumping" when parking next to metal walls.
+- **Alignment Ease:** Can issue a Tare command once the car is straight in the lane, instantly resetting heading to zero without manual offset calculation.
+- **Field Adaptability:** BNO086 lets the host device tell the sensor its exact motion state to improve sensor accuracy by calibrating it for stillness before parking.
+
+**Experimentation**
+
+**TODO: Run both old and new robots for 3 - 5 full circles and see accuracy on a 90 degree turn. May need to calibrate new robot. Record heading drift comparison data.**
+
+**Placement**
+
+IMU is best placed at the center of the robot. We have tried to place it as close to the center as possible given the chassis and PCB limitations.
+
+---
+
+### 2.6 Microcontroller — Raspberry Pi 5 as Single Controller
+
+We used Raspberry Pi 5 as the master brain for our robot. It single handedly manages the navigation loop and using the following important features we have eliminated the need for a co-processor.
+
+* **Used RP1 Southbridge Chip as Hardware Co-Processor to Avoid OS Delays:** A standard Linux OS constantly pauses programs to switch between threads, which can cause skipped encoder pulses or stuttering motor signals. We solved this by offloading our low-level tasks to the Pi 5's built-in RP1 chip, which handles them at the hardware level.
+
+* **Used RP1's Native Hardware PWM Channels for Stable Motor Control:** We connected our motor drivers directly to the RP1's built-in PWM channels. Because these signals are generated by dedicated hardware, they stay perfectly stable and jitter-free for smooth speed control without relying on the busy main CPU.
+
+* **Zero Dropped Encoder Pulses:** We wired our wheel encoders into the RP1's Programmable I/O (PIO) blocks. These are independent hardware counters that run completely outside the main CPU, meaning they track every single pulse in the background with microsecond precision.
+
+This design gave us the following **benefits**
+
+* **Less Wiring and No Communication Lag:** By running everything on a single Raspberry Pi 5 instead of adding a secondary board like an ESP32, we simplified our electronics and saved space. This completely eliminated the data lag that usually happens when two different systems try to talk to each other.
+
+* **Accurate Tracking Under Heavy Load:** Because the PIO silicon continuously counts and stores pulses in hardware buffers, we never lose track of our distance. Even when the main processor is heavily loaded with intense image processing tasks, the robot's navigation loop can just read the exact counts whenever it needs them.
+
+**TODO: Add a simplified pin layout diagram showing how PWM and Encoder connect to RP1 hardware pins**
+
+---
+
+### 2.7 Calibration Procedures (Recommended — Not Yet Written)
+
+This section should document how each sensor is calibrated before a race.
+
+#### 2.7.1 Camera HSV Threshold Calibration
+
+*What to include: Step-by-step process to calibrate color detection thresholds for red and green traffic signs under venue lighting. Show the tool/script used, sample HSV values, and how values change across lighting conditions.*
+
+#### 2.7.2 IMU Calibration
+
+*What to include: Steps to achieve full calibration of BNO086 (Game Rotation Vector mode). How the Tare command is used. How to verify heading accuracy before a race. Time required for calibration.*
+
+#### 2.7.3 Distance Sensor Calibration
+
+*What to include: Offset calibration procedure for VL53L4CD at known distances. How recessed mounting affects readings. Verification that readings are accurate at 15-200mm range.*
+
+---
+
+### 2.8 Failure Point Analysis (Recommended — Not Yet Written)
+
+This section should identify what can go wrong and what we do about it.
+
+*What to include: A table listing failure scenarios, their probability, severity, and mitigation. For example:*
+
+- *What happens if venue lighting is very different from practice lighting? (Camera detection fails)*
+- *What happens if battery voltage drops during a race? (Motor slows, sensor readings drift)*
+- *What happens if a ToF sensor gets occluded by dust or debris?*
+- *What happens if the IMU drifts mid-race?*
+- *What happens if the motor draws a spike and causes voltage sag on the 5V rail?*
+
+---
+
+### 2.9 Iteration Evidence (Recommended — Not Yet Written)
+
+This section should show how the power/sensor design changed over time based on testing.
+
+*What to include:*
+
+- *Camera mount evolution: If the camera position was changed (height, angle, front vs rear), show before/after with test results. Example: "We tested two camera positions. The first position caused glare from overhead lights, so we moved the camera 3 cm higher and tilted it by 10 degrees downward, which reduced misdetection by 40 percent."*
+- *Sensor selection changes: If you initially tried a different sensor and switched, document why with data.*
+- *PCB or wiring changes: If the wiring layout evolved, show the earlier version and what problem it caused.*
+- *Before/after performance comparison table showing improvement.*
+
+---
+
+### 2.10 Sensor Placement Geometry (Recommended — Not Yet Written)
+
+This section should use math and field dimensions to justify where each sensor is placed.
+
+*What to include:*
+
+- *Camera FOV calculation: At the mounted height and angle, how much of the track is visible? Calculate coverage width at different distances. Show that the camera can see pillars early enough to react.*
+- *ToF sensor coverage: Show the sensing cone/beam at the mounted position. Prove that it covers the parking wall detection zone.*
+- *A top-down diagram of the robot with sensor FOV cones overlaid on the track dimensions (track width, section length, pillar positions).*
+
+---
+
+## 3. Software Architecture & Obstacle Strategy
+
+The WRO Future Engineers competition has two challenge rounds. Our software architecture handles both using common sensor and motor modules, with the obstacle challenge code being a superset of the open challenge.
+
+| Mode | Entry Point | Purpose |
+|------|-------------|---------|
+| **Open Challenge** | `src/open_challenge/main.py` | Three full laps on an empty track |
+| **Obstacle Challenge** | `src/obstacle_challenge/main_v4.py` | Three laps obeying red/green traffic signs + parallel parking |
+
+Both modes share the same hardware-abstraction modules (`src/sensors/*`, `src/motors/*`) and follow the same architectural template — a multi-threaded sense/think/act loop running at ~50 fps on the Raspberry Pi 5. The obstacle code adds pillar-aware steering and parking on top of the same wall-following base.
+
+**The arena:** A 3 x 3 m mat with movable inner walls, orange and blue floor lines marking each section boundary, and (in obstacle mode) red and green traffic sign pillars that must be passed on a fixed side — keep right from red, keep left from green. A magenta parking block marks the parking corridor where the robot must parallel-park after 3 laps.
+
+---
+
+### 3.1 Design Philosophy
+
+We chose a **camera-first approach** for obstacle detection, a **multi-threaded architecture** for responsiveness, and **proportional control everywhere** for smooth driving.
+
+- **Why camera-first:** The WRO track has colored pillars (red and green) that the robot must pass on specific sides. Only a camera can detect color at a distance. ToF sensors tell us how far walls are, but cannot tell us pillar color.
+- **Why multi-threaded:** Reading the camera, IMU, and ToF sensors sequentially would slow the loop to ~15 fps. By reading them in parallel threads, the main loop gets fresh data every frame without waiting.
+- **Why single RPi 5:** Instead of using a separate microcontroller for motor control, we use the RPi 5's RP1 hardware PWM and PIO blocks. This eliminates communication lag between two boards (see Power & Sensor Architecture §6 for details).
+- **Why proportional control (not lane-switching):** Our earlier code in WRO 2025 used discrete lane-switching — "if red pillar, move to right lane." This was brittle because gyro drift accumulates over 3 laps, and what the robot thought was "right lane" gradually drifted sideways. Our current code drives everything off camera-derived geometric error with proportional gains. Steering changes smoothly with the visual error, adapts continuously instead of waiting for a state change, and works regardless of where exactly a pillar is positioned.
+
+#### 3.1.1 Why We Rejected YOLO / Neural Networks
+
+We considered training a YOLO classifier for shadow-robust pillar detection. We decided against it because:
+- Annotation cost — even a few hundred labeled frames is several hours of work across lighting conditions
+- Inference speed — YOLO on Pi 5 CPU will not hit our 50+ fps budget without adding a Hailo/Coral AI HAT (extra hardware, cost, power)
+
+Instead we rely on tight HSV ranges, carefully placed ROIs, and the priority state machine — so classifier-grade discrimination is rarely needed.
+
+---
+
+### 3.2 System Architecture
+
+#### 3.2.1 Threading Model
+
+Our software runs 4 background threads so the main navigation loop never waits on hardware. Each thread continuously reads one sensor and the main loop grabs the latest value whenever it needs it.
+
+<img src="docs/diagrams/software/software_system_architecture.drawio.png" alt="System Architecture — Threading Model" width="1000">
+
+*Figure 2: Full system architecture showing all sensor threads feeding the main navigation loop, which commands the servo and motor. The VideoWriter thread records annotated frames for post-run analysis without blocking the control path.*
+
+#### 3.2.2 Code Module Map
+
 ```
-
-**Explanation:** We set up the camera with two resolutions: high resolution (2304×1296) for detailed processing and low resolution (640×360) for fast real-time processing. We also set exposure time and frame rate for consistent image quality.
-
-#### Capturing Frames
-
-```python
-def capture_frame():
-    """Captures and returns a single frame from the camera."""
-    if picam2:
-        frame = picam2.capture_array("lores")  # Get low-res frame for speed
-        return frame
-    return None
-```
-
-**Explanation:** We capture frames from the low-resolution stream for fast processing. This lets us run obstacle detection at 30 FPS without slowing down the robot.
-
-### Distance Sensors - VL53L1X
-
-Measures distance to walls and obstacles using time-of-flight (ToF) technology. Four sensors are mounted on the front, back, left, and right.
-
-#### Initialization
-
-```python
-def initialise():
-    """Initializes the I2C bus, multiplexer, and all distance sensors."""
-    global _i2c_main, _mux, _sensors, _sensor_types
-    
-    try:
-        _i2c_main = busio.I2C(board.SCL, board.SDA)
-    except Exception as e:
-        print(f"FATAL: Could not initialize I2C bus. Error: {e}")
-        return False
-    
-    try:
-        _mux = adafruit_tca9548a.TCA9548A(_i2c_main, address=0x70)
-        print("INFO: TCA9548A Mux found at address 0x70.")
-    except ValueError:
-        print("WARNING: TCA9548A Mux not found.")
-        _mux = None
-    
-    # Probe each channel for sensors
-    if _mux:
-        print("INFO: Probing for sensors on mux channels...")
-        for i in range(8):
-            channel_bus = _mux[i]
-            
-            try:
-                vl53_sensor = adafruit_vl53l1x.VL53L1X(channel_bus)
-                vl53_sensor.distance_mode = 1
-                vl53_sensor.timing_budget = 50
-                vl53_sensor.start_ranging()
-                _sensors[i] = vl53_sensor
-                _sensor_types[i] = 'VL53L1X'
-                print(f"  - SUCCESS: VL53L1X found on channel {i}.")
-            except (ValueError, OSError):
-                print(f"  - INFO: No sensor found on channel {i}.")
-    
-    print("INFO: Sensor initialization complete.")
-    return True
-```
-
-**Explanation:** We initialize the I2C bus and the TCA9548A multiplexer. The multiplexer lets us connect 4 sensors with the same I2C address by switching between channels. We probe each channel and initialize any VL53L1X sensors we find.
-
-#### Reading Distance
-
-```python
-def get_distance(channel):
-    """Reads the distance from a sensor on a specific channel."""
-    if channel not in _sensors:
-        return None
-    
-    sensor = _sensors[channel]
-    
-    try:
-        if sensor.data_ready:  # Check if new data is available
-            distance_cm = sensor.distance
-            sensor.clear_interrupt()
-            return distance_cm * 10.0 if distance_cm is not None else None
-        return None  # No new data yet
-    except (OSError, IOError):
-        print(f"I/O Error on channel {channel}. Sensor may be disconnected.")
-        return None
-```
-
-**Explanation:** We check if the sensor has new data ready. If it does, we read the distance in centimeters and convert it to millimeters. If no new data is ready, we return None immediately without blocking.
-
-# Obstacle Management
-
-## Open Challenge Navigation Algorithm
-
-Navigate 3 laps using camera-based wall detection steering straight in the straight sections. Steer according to the driving section in the corner section. Count turns using orange lines. Stop after 12 turns.
-
-### How it works
-
-1. Detect black walls using HSV color masks
-2. Calculate left vs right wall area
-3. Steer toward bigger wall (proportional steering)
-4. Detect orange lines for turn counting
-5. Execute sharp turns when close wall detected
-6. Stop after 12 turns
-
-### Flowchart
-
-<img src="other/flowchart/open_challenge.png" alt="open_challenge.png" width="400" />
-
-### Steering
-
-- Calculate difference between two wall areas
-- If one side wall disappears, means we are in a turn, turn sharply towards the other side
-- Otherwise turn with regular Kp=0.0005
-
-#### Code
-
-```python
-left_pixel_size = sum(obj['area'] for obj in detected_walls if 'left' in obj['type'])
-right_pixel_size = sum(obj['area'] for obj in detected_walls if 'right' in obj['type'])
-
-# If one side wall disappears, turn sharply towards the other side
-if left_pixel_size < 100 and right_pixel_size > 100:
-    right_pixel_size += 25000
-elif right_pixel_size < 100 and left_pixel_size > 100:
-    left_pixel_size += 25000
-              
-angle = ((left_pixel_size - right_pixel_size) * 0.0005)
-```
-
-### Turn Counting
-- Detect orange lines in specific ROI
-- Keep history of last 4 frames
-- Increment counter on no line → line transition
-- Use 50-frame cooldown to prevent double-counting
-
-#### Code
-
-```python
-orange_detection_history = deque([False] * 4, maxlen=4)
-cooldown_frames = 0
-orange_detected_this_frame = bool(detections['detected_orange'])
-orange_detection_history.append(orange_detected_this_frame)
-
-if cooldown_frames > 0:
-    cooldown_frames -= 1
-elif not orange_detection_history[-4] and all(list(orange_detection_history)[1:]):
-    turn_counter += 1
-    cooldown_frames = 50
-```
-
-### Sharp Turn Detection
-- If close wall area > 3000 pixels: execute sharp turn
-- Angle = ±35 degrees
-- Prevents collision
-
-#### Code
-
-```python
-close_black_area = sum(obj['area'] for obj in detections.get('detected_close_black', []))
-if close_black_area > 3000:
-    if left_pixel_size < right_pixel_size:
-        angle = -35
-    else:
-        angle = 35
-```
-
-### Potential improvements in Open Navigation Algorithm
-
-- Instead of driving in the center of the lane, drive towards the inner wall which could reduce time further. This requires careful tuning of the turns to avoid hitting the walls.
-
-## Obstacle Challenge Navigation Algorithm
-
-Navigate 3 laps while avoiding colored blocks. Drive left of the green block and right of the red block. Detect the driving direction automatically. Count turns using orange lines. Avoid the magenta parking blocks in all laps. Execute parallel parking just before the vehicle approaches the 13th orange line.
-
-### How it works
-
-1. Detect driving direction (clockwise vs counter-clockwise)
-2. Perform initial maneuver (85° turn with scanning)
-3. Navigate main loop with block avoidance
-4. Count turns using orange/blue lines
-5. Execute parking at turn 13
-
-### Flowchart
-
-<img src="other/flowchart/obstacle_challenge.png" alt="obstacle_challenge" width="700" />
-
-### Driving Direction Detection
-
-1. Compare left vs right distance sensor readings
-2. If left < right: clockwise
-3. If right < left: counter-clockwise
-
-#### Code
-
-```python
-dist_left = sensor_thread.get_readings()['distance_left']
-dist_right = sensor_thread.get_readings()['distance_right']
-
-if dist_left is not None and dist_right is not None:
-    if dist_left < dist_right:
-        driving_direction = "clockwise"
-    else:
-        driving_direction = "counter-clockwise"
-```
-
-### Initial maneuver
-
-This is the logic for counter clockwise. The logic for clockwise would be mirrored
-
-1. Head out of the parking in slanted orientation
-2. scan for blocks (1 second)
-3. If red block: reverse and take a right turn
-4. If green block: drive forward and take a right turn
-5. If no block: drive slanted 1s
-6. Return to main loop
-
-#### Flowchart
-
-<img src="other/flowchart/initial_maneuver.png" alt="initial_maneuver" width="700" />
-
-#### Code
-
-```python
-SCAN_TRIGGER_ANGLE_DEG = 25.0
-TOTAL_TURN_ANGLE_DEG = 85.0
-
-motor.forward(MANEUVER_SPEED)
-servo.set_angle_unlimited(initial_turn_servo)
-
-while get_angular_difference((INITIAL_HEADING+SCAN_TRIGGER_ANGLE_DEG)%360, 
-                             imu_thread.get_heading()) > 10:
-    time.sleep(0.01)
-
-motor.brake()
-# Scan for blocks
-detected_block_color = None
-scan_start_time = time.monotonic()
-
-while time.monotonic() - scan_start_time < 1.0:
-    frame, frame_counter = camera_thread.get_frame()
-    if frame is None: continue
-    detections = process_video_frame(frame)
-    main_blocks = [b for b in detections.get('detected_blocks', []) if b['type'] == 'block']
-    
-    if main_blocks and main_blocks[0]['area'] > 1000:
-        detected_block_color = main_blocks[0]['color']
-        break
-```
-
-### **Color Detection**
-
-Detect 6 different colors to identify walls, blocks, turn lines, and parking boundaries. Each color serves a specific purpose in navigation and obstacle avoidance.
-
-1. Convert frame to HSV color space
-2. Apply Gaussian blur
-3. Create masks for each color
-4. Apply ROI masks (region of interest)
-5. Find contours (outlines)
-6. Filter by minimum area
-7. Calculate centroid (center point)
-
-#### Flowchart
-
-<img src="other/flowchart/color_detection.png" alt="color_detection" style="zoom:33%;" />
-
-#### Code
-
-```python
-def process_video_frame(frame):
-    hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    
-    mask_red1 = cv2.inRange(hsv_frame, [0, 150, 80], [10, 255, 255])
-    mask_red2 = cv2.inRange(hsv_frame, [175, 150, 80], [180, 255, 255])
-    mask_red = cv2.bitwise_or(mask_red1, mask_red2)
-    
-    mask_green = cv2.inRange(hsv_frame, [36, 50, 70], [89, 255, 255])
-    mask_orange = cv2.inRange(hsv_frame, [6, 70, 20], [26, 255, 255])
-    mask_magenta = cv2.inRange(hsv_frame, [158, 73, 64], [173, 255, 223])
-    mask_blue = cv2.inRange(hsv_frame, [94, 45, 58], [140, 226, 185])
-    
-    # Apply ROI masks and find contours
-    # ... contour detection logic
-```
-
-### Regions of Interest
-
-**Why multiple ROIs?**
-
-- Faster processing (less data)
-- More accurate (fewer false detections)
-- Better performance (40 FPS maintained)
-
-#### 7 ROI Masks
-
-1. **Left Wall ROI** - Detect left wall for steering
-2. **Right Wall ROI** - Detect right wall for steering
-3. **Inner Left Wall ROI** - Detect inner walls
-4. **Inner Right Wall ROI** - Detect inner walls
-5. **Main Block ROI** - Detect red/green blocks ahead
-6. **Close Block ROI** - Detect blocks very close (emergency)
-7. **Line ROI** - Detect orange/blue lines for turns
-
-### Block avoidance
-
-Detect colored blocks (red and green) and execute appropriate maneuvers to avoid them. Handle both emergency situations (very close blocks) and normal avoidance (blocks ahead).
-
-**Close Blocks (Emergency Reverse):**
-
-- Very close to robot
-- Execute emergency maneuver: reverse, turn servo, drive forward
-
-**Main Blocks (Steering Avoidance):**
-- Ahead of robot but not too close
-- Calculate steering to pass correctly:
-  - Red: pass from right side
-  - Green: pass from left side
-
-#### Flowchart
-
-<img src="other/flowchart/block_avoidance.png" alt="block_avoidance" width="700" />
-
-#### Code
-
-```python
-if detected_blocks:
-    is_close_block = False
-    for block in detected_blocks:
-        if block['type'] == 'close_block':
-            is_close_block = True
-            if block['color'] == 'red':
-                angle = -25
-            elif block['color'] == 'green':
-                angle = 30
-            servo.set_angle(angle)
-            motor.reverse(60)
-            time.sleep(0.5)
-            motor.forward(60)
-            servo.set_angle(-angle)
-            time.sleep(0.3)
-            motor.forward(MOTOR_SPEED)
-            break
-    
-    if not is_close_block:
-        block = detected_blocks[0]
-        block_color = block['color']
-        block_x, block_y = block['centroid']
-        
-        if block_color == 'red':
-            target = 150
-            angle = ((block_x - (320 - target)) * 0.09) + 1
-        elif block_color == 'green':
-            target = 150
-            angle = ((block_x - (320 + target)) * 0.1) + 1
-```
-
-### Parking logic
-
-Execute parallel parking maneuver in two directions (clockwise and counter-clockwise). Use wall following and magenta block detection to position robot precisely at the parking start point. Then execute a parking maneuver to park parallely between parking boundaries.
-
-1. Drive forward until front sensor close to wall
-2. Reverse until back sensor close to wall
-3. Drive forward taking a left turn entering the parking section
-4. Line following mode by tracking black wall on left side at fixed pixel
-5. Stop at the second magenta block
-6. Park parallelly with the help of IMU and servo
-
-#### Sketch
-
-<img src="other/flowchart/parking.jpeg" alt="parking" width="500" />
-
-
-
-### Threading Architecture
-
-Threading allows the robot to process multiple tasks simultaneously:
-- Capture camera frames
-- Read gyro heading
-- Read distance sensors
-- Write video to file
-- Control motors
-
-#### 4 Threads
-
-**CameraThread:**
-
-- Continuously captures frames (~30 FPS)
-- Stores latest frame in memory
-- Main loop reads this frame
-
-**ImuThread:**
-- Continuously reads gyro heading (~100 Hz)
-- Stores latest heading in memory
-- Main loop reads this heading
-
-**SensorThread:**
-- Continuously reads distance sensors (~50 Hz)
-- Stores latest readings in memory
-- Main loop reads these readings
-
-**VideoWriterThread:**
-- Continuously writes frames to MP4
-- Receives frames from main loop
-- Writes to disk in background
-
-#### Thread Synchronization
-Use locks (mutexes) to prevent simultaneous access to shared data. Only one thread can access data at a time.
-
-### Potential improvements in Obstacle Navigation Algorithm
-
-- Experiment with LAB color detection if it resolves some of the color detection problems we face with HSV
-- Use Machine Learning to train a model for navigating around parking blocks within the walls and use this model to drive the robot.
-- Use Machine Learning to train a model for parallel parking and use it to park the robot
-- Use encoder (instead of time based driving) to park more accurately during parallel parking.
-
-# Engineering Factors
-
-## Design evolution
-
-We started building the robot in mid of January 2025 and here is a timeline of our robot evolution over the last 10 months!
-
-1. We designed our own robot chassis with differential gear axle and steering
-
-   | <img src="other/evolutionphotos/1.1.jpg" style="zoom: 44%;" /> | <img src="other/evolutionphotos/1.2.jpg" style="zoom:33%;" /> |
-   | ------------------------------------------------------------ | ------------------------------------------------------------ |
-
-2. First prototype of motor attachment with vertical orientation secured by zip ties
-
-   | <img src="other/evolutionphotos/2.jpg" alt="2" width="500" /> |
-   | :----------------------------------------------------------: |
-
-   <p style="page-break-before: always;"></p>
-
-3. 3D printed assembly to attach servo motor to steering
-
-   | <img src="other/evolutionphotos/3.jpeg" alt="3" width="500" /> |
-   | :----------------------------------------------------------: |
-
-4. Mounted Raspberry Pi5 on a cardboad sheet, battery, power converter, axle motor, motor driver and servo motor for steering
-
-   | <img src="other/evolutionphotos/4.jpg" alt="4" width="500" /> |
-   | :----------------------------------------------------------: |
-
-   <p style="page-break-before: always;"></p>
-
-5. Adding a camera so that our robot can see!
-
-   | <img src="other/evolutionphotos/5.jpg" alt="5" width="500" /> |
-   | :----------------------------------------------------------: |
-
-6. Moving the components to a lego base plate to make it more stable
-
-   | <img src="other/evolutionphotos/6.jpg" alt="6" style="zoom:15%;" width="500" /> |
-   | :----------------------------------------------------------: |
-
-   <p style="page-break-before: always;"></p>
-
-7. Attaching the lego base plate to the robot chassis along with distance sensors
-
-   | <img src="other/evolutionphotos/7.jpg" alt="7" style="zoom:15%;" width="500"/> |
-   | :----------------------------------------------------------: |
-
-8. All components connected with wires and bread board power rail for electrical prototyping
-
-   | <img src="other/evolutionphotos/8.jpg" alt="8" style="zoom:15%;" width="500"/> |
-   | :----------------------------------------------------------: |
-
-   <p style="page-break-before: always;"></p>
-
-9. A jungle of wires!
-
-   | <img src="other/evolutionphotos/9.1.jpg" alt="9.1" style="zoom:40%;" /> | <img src="other/evolutionphotos/9.2.jpg" alt="9.2" style="zoom:50%;" /> |
-   | ------------------------------------------------------------ | ------------------------------------------------------------ |
-
-10. Tied the wires neatly and upgraded the sensors
-
-    | <img src="other/evolutionphotos/10.jpg" alt="10" width="500" /> |      |
-    | :----------------------------------------------------------: | ---- |
-
-    <p style="page-break-before: always;"></p>
-
-11. Created a custom PCB to solve the wire mess and to make the connections reliable
-
-    | <img src="other/evolutionphotos/11.1.png" alt="11.1" style="zoom:20%;" /> | <img src="other/evolutionphotos/11.2.JPG" alt="11.2" style="zoom:20%;" /> |
-    | ------------------------------------------------------------ | ------------------------------------------------------------ |
-    | <img src="other/evolutionphotos/11.3.JPG" alt="11.3" style="zoom:25%;" /> | <img src="other/evolutionphotos/11.4.jpg" alt="11.4" style="zoom:15%;" /> |
-
-12. Moved to a custom PCB
-
-    | <img src="other/evolutionphotos/12.1.jpg" alt="12.1" style="zoom:60%;" /> | <img src="other/evolutionphotos/12.2.jpg" alt="12.2" style="zoom:40%;" /> |
-    | ------------------------------------------------------------ | ------------------------------------------------------------ |
-
-    <p style="page-break-before: always;"></p>
-
-13. Aligned the battery so that it doesn't protrude outside the robot
-
-    | <img src="other/evolutionphotos/13.jpg" alt="13" width="500" /> |
-    | :----------------------------------------------------------: |
-
-
-
-<p style="page-break-before: always;"></p>
-
-## From Nationals to Internationals!
-
-- Changed the driving logic from basic object color detection to consider X axis position of the object, resulting in human like driving
--  Used camera to drive between the walls instead of relying on sensors.
--  Designed custom 3D printed mounts for camera, sensors and servo horn.
-
-| <img src="other/evolutionphotos/14.jpg" alt="10" style="zoom:20%;" /> | <img src="other/evolutionphotos/15.jpg" alt="10" style="zoom:12%;" /> |
-| ------------------------------------------------------------ | ------------------------------------------------------------ |
-| Changed the wheels and designed a custom 3D printed camera mount. Moved the camera to vehicle rear to improve FOV. | Designed a custom 3D printed sensor mount for stable mounting of distance sensors. Designed a 3D printed horn coupling for servo motor. |
-
-# Robot construction guide
-
-## 1: Print the 3D parts
-- The STL part files for the mounts for servo motor, servo horn, camera base, camera arm and sensors are in the `models/chassis` folder. Recommended settings
-  - Material: PLA
-  - Infill: 100%
-
-<img src="other/readmephotos/3Dmounts.png" alt="3Dmounts" style="zoom:40%;" />
-
-## 2: Assemble the steering and drive train
-- Create the steering assembly using the Lego parts in the photos
-- Attach the two rear wheels with a differential gear assembly using Lego gears and axle
-- Attach the Lego EV3 medium motor with Lego pins to the chassis
-- The Lego motor gears should mesh with the differential gear
-- Attach the front wheels
-
-| <img src="other/readmephotos/lego_1_iso.png" alt="lego_1_iso" style="zoom:35%;" /> | <img src="other/readmephotos/lego_2_front.png" alt="lego_2_front" style="zoom:35%;" /> | <img src="other/readmephotos/lego_3_iso.png" alt="lego_3_iso" style="zoom:35%;" /> |
-| :----------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-
-
-
-## 3: Attach the 3D mounts
-- Mount the servo on the 3D printed servo motor mount
-- Attach the servo horn to the steering with 3D printed servo horn mount
-- Attach the servo mount to the chassis using Lego pins
-- Attach the Camera base mount to the rear part of the chassis
-- Attach the Camera arm mount to the base mount using screws
-- Use zip ties if necessary
-
-<img src="other/readmephotos/ChassisWith3dMount.jpg" alt="ChassisWith3dMount" width="600" />
-
-## 4: Fabricate the PCB
-- Fabricate the PCB from the KiCAD files in the `models/PCB` folder using KiCAD (https://www.kicad.org/)
-## 5: Soldering the electronics and gradual safe startup
-- Solder all the headers to the PCB
-- Solder the power modules
-- Attach the battery and verify if Raspberry Pi5 boots up
-- Solder the startup switch and LED and verify if it can be programmed using a test program
-- Attach the motor driver module to the header pins and verify if motors can be controlled using a test program
-- Attach the multiplexer module to the header pins and verify if sensors can be read using a test program
-- Attach the IMU module to the header pins and verify if orientation values can be read using a test program
-- Attach the Raspberry Pi5 wide angle camera
-
-<img src="other/readmephotos/FullCircuit3.jpg" alt="FullCircuit3" width="600" />
-
-## 6: Download the code
-- Connect the Raspberry Pi5 to a monitor, keyboard and mouse
-- Install python dependencies
-  - `pip3 install adafruit-circuitpython-bno055`
-  - `pip3 install adafruit-circuitpython-tca9548a`
-  - `pip3 install adafruit-circuitpython-vl53l1x`
-- Download the code from the `src` folder to the Raspberry Pi5
-- Run the code!
-  - `/src/open_challenge/main.py` for Open challenge
-  - `/src/obstacle_challenge/main_v3.py` for Obstacle challenge
-## 7: Robot stability
-- Run the robot and hopefully should run great!
-- If the gears make a grinding noise, it is likely due to the lego components not tightly coupled. Use zip ties to ensure the chassis beams are tightly connected.
-
-# Major challenges faced
-
-### Sensor
-
-One major challenge we faced was in working with the VL53L8CX ToF sensor. We have placed it on the back of our robot to aid in parking, but it was extremely unreliable and onerous to work with during testing. The sensor lacked a dedicated Python library (only providing a C-based library), and refused to communicate through our I²C multiplexer. These limitations made integration unexpectedly difficult for us.
-
-To connect this sensor, we first created our own Python version of the C library. Then, we moved the sensor to a secondary I²C bus to bypass the multiplexer and eliminate communication conflicts. 
-
-The sensor failed roughly once in every twenty readings. We wanted to make the sensor more reliable. To solve, this, we went deep into the technical documentation of the sensor and realised that the Raspberry Pi ports were configured as pull down instead of pull ups. Since this fix the sensor has never failed.
-
-### Camera
-
-Another major challenge arose when we tried to use a fish-eye lens in place of our camera for image detection. We wanted to use a fish-eye lens, as it had a wider Field Of View (195 degrees) than our Raspberry Pi Camera Module 3 (120 degrees)
-
-Unfortunately, this didn’t work out. The fish-eye camera has a circular lens, which means all images we received were distorted and circular. This made it difficult to calculate their area, which hindered accuracy. Oftentimes, blocks would be detected either too early or too late. While we could have attempted to add circular ROIs, this would have added significant complexity to the bot and would have required extensive tuning.
-
-# How we used Github
-
-Our team used Github to store all of our code such that it is accessible to all team members and to those who wish to use this repository in the future. We have made frequent commits to this repository, and this repository stands as testament to our efforts, and the process of design as a whole
-
-### The Structure of This Repository
-
-* `t-photos` contains 2 photos of the team (an official one and one funny photo with all team members)
-* `v-photos` contains 6 photos of the vehicle (from every side, from top and bottom)
-* `video` contains the video.md file with the link to a video where driving demonstration exists
-* `schemes` contains several schematic diagrams of the electronic components, chassis, circuit diagram and 3D part images
-* `src` contains code of control software for all components which were programmed to participate in the competition
-* `models` is for the design files for models used for 3D printing and PCB manufacturing
-* `other` is for other files which can be used to understand how to prepare the vehicle for the competition.
-
-<p style="page-break-before: always;"></p>
-
-### Source code organization
-
-```python
 src/
 ├── motors/
-│   ├── motor.py          # DC motor control
-│   ├── servo.py          # Servo steering control
-│   └── test_pwm.py       # PWM testing
+│   ├── motor.py          # TB6612FNG drive motor: forward/reverse/brake + RPM closed-loop
+│   └── servo.py          # Hardware PWM steering via RP1 (GPIO18)
 ├── sensors/
-│   ├── camera.py         # Camera module interface
-│   ├── distance.py       # Distance sensor reading
-│   ├── bno055.py         # IMU/Gyro sensor
-│   ├── color_tuning.py   # Color detection tuning
-│   └── vl53l1x.py        # ToF sensor driver
+│   ├── camera.py         # Picamera2 wrapper: capture frames at 640×360
+│   ├── bno086.py         # BNO086 IMU: heading via SPI
+│   ├── distance.py       # 4× VL53L4CD ToF via I2C with XSHUT multiplexing
+│   └── encoder.py        # PIO quadrature encoder for wheel distance/RPM
 ├── open_challenge/
-│   ├── main.py           # Open challenge algorithm
-│   └── config.py         # Configuration parameters
+│   ├── config.py         # HSV + ROI constants for open challenge
+│   └── main.py           # Open Challenge entry point
 └── obstacle_challenge/
-    ├── main_v3.py        # Obstacle challenge algorithm
-    ├── config.py         # Configuration parameters
-    └── nationals/        # National competition version
+    ├── main_v4.py        # Obstacle Challenge entry point + all decision logic
+    ├── config.py         # HSV + ROI constants for obstacle challenge
+    └── drive_straight_tune_target.py  # Calibration tool for target-line angles
 ```
 
-### 
+| Module | What It Does |
+|--------|-------------|
+| `motors/motor.py` | Controls drive motor via TB6612FNG. Provides `forward()`, `reverse()`, `brake()`, and a closed-loop `start_rpm_control(target_rpm, direction)` for parking |
+| `motors/servo.py` | Steering via hardware PWM on RP1. `set_angle()` (clamped ±40°) for normal driving, `set_angle_unlimited()` (±65°) for parking |
+| `sensors/camera.py` | Initializes Picamera2, captures 640×360 frames. Uses a Condition variable so the main loop blocks until a new frame is ready (never processes the same frame twice) |
+| `sensors/bno086.py` | Reads heading from BNO086 at ~100 Hz. Uses Game Rotation Vector mode (no magnetometer — immune to metal walls) |
+| `sensors/distance.py` | Reads 4 VL53L4CD sensors via XSHUT pin multiplexing. Returns nullable distances (consumers always check for None) |
+| `sensors/encoder.py` | Quadrature encoder via RP1 PIO hardware. Counts pulses in dedicated silicon — zero CPU cost, zero dropped counts even under heavy load |
+| `obstacle_challenge/main_v4.py` | The main brain. Runs the sense/think/act loop at ~50 fps. Contains the priority state machine, all steering algorithms, turn counting, and parking routines |
 
+---
 
-# Bill of Materials
+### 3.3 Open Challenge — `src/open_challenge/main.py`
 
-| Component | Make and Model | Price | Quantity | Total Price | Component Purchase Link |
-|-------------------|--------------------------------|-------|----------|-------------|------------------------|
-| Single Board Computer | Raspberry Pi 5 (8GB) | 8291 | 1 | 8291 | https://robu.in/product/raspberry-pi-5-model-8gb/ |
-| Camera Module | Raspberry Pi Camera Module 3 | 3551 | 1 | 3551 | https://www.silverlineelectronics.in/products/copy-of-test-1 |
-| IMU Sensor | BNO055 9-DOF Intelligent Sensor | 2001 | 1 | 2001 | https://robu.in/product/df-robot-febno055-intelligent-9-axis-sensor-rmion-bno055-intelligent-9-axis-sensor-breakout/ |
-| Distance Sensor | VL53L1X ToF Distance Sensor (4-400cm range) | 668 | 1 | 668 | https://robocraze.com/products/vl53l1x-tof-distance-sensor-breakout-with-4-meter-range-7semi |
-| Distance Sensor | VL53L8CX ToF Distance Sensor (2-400cm range) | 1892 | 1 | 1892 | https://www.fabtolab.com/pololu-3419-vl53l8cx-time-of-flight-8-8-zone-distance-sensor-carrier-voltage-regulators-400cm-max |
-| Distance Sensor | URM09 Ultrasonic Distance Sensor | 1150 | 2 | 2300 | https://wiki.dfrobot.com/URM09_Ultrasonic_Sensor_(Gravity-I2C)_(V1.0)_SKU_SEN0304 |
-| I2C Multiplexer | CJMCU TCA9548A 8-Channel I2C Multiplexer | 75 | 1 | 75 | https://robu.in/product/cjmcu-tca9548a-i2c-8-channel-multiple-extensions-development-board/ |
-| Servo Motor | TowerPro SG90 9g Mini Servo | 94 | 1 | 94 | https://robu.in/product/towerpro-sg90-9g-mini-servo-9-gram/ |
-| Drive Motor | LEGO EV3 Medium Motor | 1500 | 1 | 1500 | https://www.brickowl.com/catalog/lego-mindstorms-ev3-medium-motor-99455 |
-| Motor Driver | TB6612FNG Dual Motor Driver Module | 161 | 1 | 161 | https://robu.in/product/motor-driver-tb6612fng-module-performance-ultra-small-volume-3-pi-matching-performance-ultra-l298n/ |
-| Battery | Bonka 11.1V 2200mAh 35C LiPo Battery | 1959 | 1 | 1959 | https://www.flyrobo.in/11.1v-2200mah-35c-3s1p-bonka-lipo-battery-bonka-high-capacity-lipo-battery |
-| Voltage Converter | XY-3606 24V/12V to 5V 5A Power Module | 160 | 1 | 160 | https://robu.in/product/24v-12v-to-5v-5a-power-module-dc-dc-xy-3606-power-converter/ |
-| Mechanical Components | LEGO Mindstorms EV3 (some parts)| 2000 | 1 | 2000 | https://www.brickowl.com/catalog/lego-mindstorms-ev3-set-31313 |
-| Differential Gear | LEGO Differential Gear | 150 | 1 | 150 | https://www.brickowl.com/catalog/lego-differential-gear-casing-with-bevel-gear-on-end-with-open-center-62821 |
-| Custom PCB | Custom Designed PCB | 6579 | 1 | 6579 | https://www.pcbpower.com/ |
-| 3D Printed Parts | Servo mounts, Sensor mount, Camera mounts | 200 | 5 | 1000 |  |
-| Total |  |  |  | 32381 | INR |
+The open challenge uses only the WALL FOLLOW and CORNER TURN behaviours from our architecture. With no traffic signs on the track, the robot drives three laps using the wall-following controller to stay centered, detects corners via the close-black ROI, and counts orange lines to know when 3 laps are complete.
+
+The flow is 
+
+1. **Initialize** — start camera and IMU threads, wait for button press, lock starting heading
+2. **Drive** — motor at full speed
+3. **Every frame (~60 fps):**
+   - **Sense** — capture frame, detect walls on left/right and orange floor lines
+   - **Decide** — balance wall areas to stay centered; if wall ahead, force a hard turn
+   - **Act** — apply smoothed steering angle; count orange lines for lap tracking
+4. **Stop** — after 12 orange lines (= 3 laps) and heading aligned with start → coast 0.8 s → brake
+
+<img src="docs/diagrams/software/open_challenge_flow.drawio.png" alt="Open Challenge Program Flow" width="900">
+
+*Open Challenge program flow — the robot initializes, then repeats a sense → decide → act loop every frame until 3 laps are complete.*
+
+The same direction detection, turn counting, and performance optimizations described in later sections apply to both modes. The obstacle challenge code is a superset — it adds pillar-aware steering (§3.4.5) and parking (§3.4.8) on top of this same wall-following base.
+
+---
+
+### 3.4 Obstacle Challenge — State Machine & Algorithms
+
+The following sections describe the obstacle challenge, which builds on the open challenge core by adding a priority state machine for pillar avoidance and a parking routine.
+
+**State Machine**
+
+We implement a **flat priority state machine** that is evaluated fresh every frame. We chose this design because it makes the robot's behavior fully predictable from a single frame's sensor data — if you know what the camera and sensors see right now, you know exactly what the robot will do next.
+
+<img src="docs/diagrams/software/navigation_state_machine.drawio.png" alt="Navigation State Machine" width="900">
+
+#### 3.4.1 States & Priority Order
+
+| Priority | State | What the Robot Does | Entry Condition | 
+|----------|-------|--------------------|-----------------| 
+ — | **INITIAL MANEUVER** | Detect direction, leave parking zone, and navigate past the first traffic sign | Race start (button press)|
+| P0 | **PROCESS NEXT FRAME** | Capture a new camera frame, run the vision pipeline, and evaluate which priority state to enter | After INITIAL MANEUVER completes; re-entered every loop iteration |
+| P1 | **AVOID HEADON** | Hard steer to ±35° to where there's more space | Close-black area exceeds 3000px threshold  | 
+| P2 | **PASS TRAFFIC SIGN** | Target-line geometry steers the robot to keep right from red pillars and left from green pillars | Pillar detected in main camera frame |
+| P3 | **CORNER TURN** | Forces a hard steer to turn into the corner |When one outer ROI drops below 100px | 
+| P4 | **WALL FOLLOW** | PD controller balances left/right wall areas to keep robot centered in corridor | Default state when no higher-priority trigger fires |
+| — | **PARKING** | 6-step parallel park using gyro + ToF + camera | Turn counter reaches 13 (3 laps complete) | 
+
+When multiple triggers are true in the same frame, the highest priority wins. All states return to PROCESS NEXT FRAME after completion, except PARKING which leads to STOP.
+
+#### 3.4.2 INITIAL MANEUVER — Details
+
+The INITIAL MANEUVER state runs once at the start of the race and handles three tasks in sequence:
+
+**1. Direction Detection (camera-based):**
+At startup, the robot determines whether the track is clockwise or counter-clockwise using the camera for first 10 frames:
+- Left wall area > Right wall area → outer wall is on left → **clockwise**
+- Right wall area > Left wall area → outer wall is on right → **counter-clockwise**
+
+**2. Leave the Parking Zone:**
+The robot starts inside the parking corridor against the outer wall. It must exit this corridor before the main navigation loop can begin. The robot undergoes a sequence of tuned steps to exit the parking in controlled manner.
+
+**3. Navigate Past the First Traffic Sign:**
+The first pillar can be directly in the robot path, after exiting the parking. To manage these situations robot has a pre-tuned instructions to pass the traffic sign as per its color and driving direction. Then the main loop takes over to generically handle traffic signs for next 3 laps.
+
+---
+
+#### 3.4.3 PROCESS NEXT FRAME -Computer Vision Pipeline
+
+The images below show what the robot's vision system does to each camera frame — from raw input to final detection output:
+
+<table>
+  <colgroup>
+    <!-- Step 1-2 Columns -->
+    <col style="width: 8%;">  <!-- Step -->
+    <col style="width: 22%;"> <!-- What Happens (wraps tightly) -->
+    <col style="width: 20%;"> <!-- Visual (larger share) -->
+    <!-- Step 3-4 Columns -->
+    <col style="width: 8%;">  <!-- Step -->
+    <col style="width: 22%;"> <!-- What Happens (wraps tightly) -->
+    <col style="width: 20%;"> <!-- Visual (larger share) -->
+  </colgroup>
+  <thead>
+    <tr>
+      <th>Step</th>
+      <th>What Happens</th>
+      <th>Visual</th>
+      <th>Step</th>
+      <th>What Happens</th>
+      <th>Visual</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>1. Raw Frame</strong></td>
+      <td>Camera captures 640×360 image of the track</td>
+      <td>
+        <img src="docs/diagrams/software/pipeline/01_original.png" alt="Raw Frame" style="width: 100%; max-width: 100%; height: auto; display: block;">
+      </td>
+      <td><strong>2. Convert to HSV</strong></td>
+      <td>Colour space that separates hue from brightness — makes colour detection lighting-robust</td>
+      <td>
+        <img src="docs/diagrams/software/pipeline/02_hsv.png" alt="HSV Conversion" style="width: 100%; max-width: 100%; height: auto; display: block;">
+      </td>
+    </tr>
+    <tr>
+      <td><strong>3. Colour Masks</strong></td>
+      <td>Each colour gets its own binary mask (white = detected). Walls, pillars, and lines are isolated</td>
+      <td>
+        <div style="display: flex; gap: 4px;">
+          <img src="docs/diagrams/software/pipeline/03_mask_black.png" alt="Black Mask" style="width: 50%; height: auto;">
+          <img src="docs/diagrams/software/pipeline/03_mask_green.png" alt="Green Mask" style="width: 50%; height: auto;">
+        </div>
+      </td>
+      <td><strong>4. Detect & Annotate</strong></td>
+      <td>Find contours in each mask → report position, area, and colour to the steering logic</td>
+      <td>
+        <img src="docs/diagrams/software/pipeline/05_final_annotated.png" alt="Annotated Output" style="width: 100%; max-width: 100%; height: auto; display: block;">
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+*The pipeline runs every frame at ~50 fps. Only pixels inside predefined ROI zones are processed — the rest is ignored for speed.*
+
+**ROI Zones**
+
+<table>
+  <thead>
+    <tr>
+      <th>Sensor View / Image</th>
+      <th>ROI</th>
+      <th>Purpose</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <!-- This cell spans all 8 data rows horizontally next to them -->
+      <td rowspan="8" style="vertical-align: middle; text-align: center;">
+        <img src="docs/diagrams/software/02_roi_overlay.png" alt="Camera ROI Zones" width="800">
+      </td>
+      <td>Left wall</td>
+      <td>Detect left wall for wall-following</td>
+    </tr>
+    <tr>
+      <td>Right wall</td>
+      <td>Detect right wall for wall-following</td>
+    </tr>
+    <tr>
+      <td>Inner left</td>
+      <td>Detect close left wall to make sharp turn</td>
+    </tr>
+    <tr>
+      <td>Inner right</td>
+      <td>Detect close right wall to make sharp turn</td>
+    </tr>
+    <tr>
+      <td>Line detection</td>
+      <td>Detect orange/blue floor lines for turn counting</td>
+    </tr>
+    <tr>
+      <td>Full frame (blocks)</td>
+      <td>Detect red/green/magenta pillars</td>
+    </tr>
+    <tr>
+      <td>Close block</td>
+      <td>Detect pillars that are dangerously close</td>
+    </tr>
+    <tr>
+      <td>Close black</td>
+      <td>Detect walls directly ahead</td>
+    </tr>
+  </tbody>
+</table>
+
+#### 3.4.4 Avoid HeadOn 
+If the total area in the close-black ROI exceeds 3000px, a wall is exactly in front. We hard steer to ±35° toward whichever side has more space. This is the only place the wall law ignores its own proportional output.
+
+#### 3.4.5 PASS TRAFFIC SIGN - Target-Line Geometry
+
+**Goal:** Steer the robot to keep right from red pillars and keep left from green pillars.
+
+**How it works:**
+
+We define a virtual target line from a corner of the frame to the top center. The robot steers to bring the actual line towards the target line so the pillar stays on the correct side.
+
+<table>
+  <tr>
+    <td><img src="docs/diagrams/software/target_line_geometery.png" alt="Target-Line Geometry Diagram" width="600"></td>
+    <td>
+      <strong>Per-frame Steering angle calculation:</strong>
+<pre><code>current_angle = atan2(block_x - origin_x, origin_y - block_y)  // θ = tan_inv(Δx/Δy)
+steering_angle = (current_angle - IDEAL_ANGLE) * Kp
+
+where
+IDEAL_ANGLE(red) = +42.5 degrees  // tuned for red pillar
+IDEAL_ANGLE(green) = -40.5 degrees  // tuned for green pillar
+Kp = 1.5  // proportional constant</code></pre>
+    </td>
+  </tr>
+</table>
+
+**Evaluation of multiple algorithms**
+Our previous year's robot used a **fixed vertical line** as the target line and actual line. If you notice the camera image, the straight walls are seen in camera as inclined lines which means the straight path of robot visually appears as inclined lines due to the depth of vision.
+Fixed line causes the delta between the target and actual to increase as the robot approaches the pillar. As the robot approached closer to the pillar, it sharply steered closer towards the pillar or sharply steered away from the pillar depending on the color of the pillar. We had to handle multiple edge cases which was a hacky approach.
+Inclined line using angle calculation for **Target line geometry** causes the delta between target and actual to remain almost constant even when the robot approaches the pillar. The robot now steers smoothly like a real world driver would avoid an obstacle. The code is cleaner as there aren't any hacky approaches now making it reliable.
+**TODO Recheck with Devansh**
+We built a **calibration tool** (`drive_straight_tune_target.py`) that drives the robot straight past a pillar while tracking its centroid frame-by-frame. The path the centroid traces is **not vertical** — because of the camera's forward tilt, a fixed pillar drifts horizontally across the frame as it gets closer. The angle-based law accounts for this drift naturally, making the robot pass cleanly at every range.
+
+**TODO** make images of edge cases and show in a table
+
+**Edge Cases**
+**Inner-wall guard:** When `wall_inner_right > 3000` (or left), the block-following angle is clipped to a one-sided range so steering can only turn further *away* from the wall, never into it. This prevents wall contact when passing a pillar near a corner.
+
+**Magenta-coordinated path:** When a magenta parking block is visible at roughly the same y as a pillar, the steering target becomes the midpoint between them — targetting the gap between the parking block and the traffic pillar.
+
+**Close Block Avoidance:** If a pillar gets dangerously close (in the "close block" ROI), normal steering cannot avoid it. We do a hard reverse maneuver.
+
+#### 3.4.6 Wall Following — PD Controller
+
+**Goal:** When no pillars are visible, keep the robot centered between the left and right walls.
+
+**How it works:**
+
+We use **four ROIs, not two.** Each side of the frame is split into an outer band and an inner band:
+- **Outer ROIs** (x: 0..135 and 505..640) sit near frame edges — they feed the wall-balancing law as a simple area difference
+- **Inner ROIs** (x: 140..240 and 400..500) sit closer to frame center — they detect a wall that is dead ahead and very close
+
+**Why inner ROIs matter:** When the robot rounds a corner, the far wall slides out of view. If only outer ROIs existed, the area difference would go to zero and the robot would drive straight into the corner wall. The inner ROI catches the close wall and triggers a forced turn before contact.
+
+**Formula:**
+```
+left_area = wall_left_outer + wall_inner_left
+right_area = wall_right_outer + wall_inner_right
+wall_error = left_area - right_area
+angle = wall_error * Kp + wall_derivative * Kd + bias
+
+Where:
+  Kp = 0.0006
+  Kd = 0.0003
+  bias = +1 (constant offset)
+```
+
+#### 3.4.7 Corner Turns and Lap Count Logic 
+
+**Corner Turn**
+
+When one outer ROI drops below 100px while the opposite side still sees a wall, the robot is entering a corner. We amplify the remaining wall area (2x + 25000) to force a harder turn into the corner instead of understeering.
+
+**Lap Count Logic**
+
+Count orange floor lines to know when 3 laps (12 turns) are complete.
+
+**How it works:**
+- Each frame, check if orange is detected in the line ROI
+- Store last 4 detections in a queue: `[oldest, ..., newest]`
+- Count a turn ONLY when pattern is `[False, True, True, True]` — a fresh rising edge that persisted for 3 frames
+- After counting, apply 50-frame cooldown (prevent double-counting the same line)
+
+**Why did we do this?** At high speed, a single orange line stays in the ROI for ~10 frames. Without the 4-frame rising-edge check and cooldown, one line could be counted multiple times.
+
+#### 3.4.8 Parking Algorithm
+
+After completing 3 laps (12 turns), the robot enters the parking sequence. We have two versions: `parking()` for clockwise and `parking2()` for counter-clockwise tracks. The robot uses the IMU for precise turns and small segments of straight driving during parking manuevers.
+
+**Parking Phases (Clockwise Example)**
+
+<img src="docs/diagrams/software/parking_sequence.png" alt="Parking Sequence Phases" width="1400">
+
+| Phase | Action | End Condition |
+|-------|--------|---------------|
+| 1 | Drive forward till orange line | Encoder distance reached (14 cm) |
+| 2 | Reverse at -60° steering, heading → INITIAL+90° | Back ToF < 130mm (near outer wall) |
+| 3 | Drive forward along wall, camera-based wall-following (Kp=0.8), count magenta pillars | 2nd magenta pillar passed + 0.62s coast |
+| 4 | Steer into parking at +55°, heading → INITIAL+100° | Back ToF < 160mm |
+| 5 | Forward/reverse manuever to align parallel | Back ToF ≤ 95mm AND heading ≈ INITIAL±180° |
+
+**Parking Sensors Used**
+
+- **Back ToF:** Knows when robot is close to rear wall of parking slot
+- **Center ToF:** Monitors distance to wall during corridor driving
+- **IMU heading:** Controls all steering angles precisely
+- **Camera:** Follows black wall edge during Phase 3, counts magenta pillar passes
+
+**TODO: Record parking success rate over 20 attempts**
+
+#### 3.4.9 Close-Block Emergency Evasion
+
+**Goal:** If a pillar gets dangerously close (in the "close block" ROI), normal steering cannot avoid it. We do a hard reverse maneuver.
+
+**How it works:**
+1. Detect pillar in close ROI (y=225..235, area > 15 pixels)
+2. Turn hard away: Red → -25°, Green → +30°, Magenta → ±25-30° based on direction
+3. Reverse at speed 60 for 0.5 seconds
+4. Go forward with opposite steering for 0.3 seconds
+5. Resume normal navigation
+
+**Safety gate for magenta:** Magenta close-blocks are only treated as evasion targets after 5 seconds from race start. Early magenta near the camera is the parking corridor entrance — we don't want to dodge that.
+
+#### 3.4.10 Gyro Steering — P Controller
+
+**Goal:** Use the IMU heading to maintain a straight line or execute precise turns.
+
+**How it works:**
+```
+heading_error = target_heading - current_heading
+steering = heading_error × Kp
+
+Where:
+  Kp = 0.85 (normal driving)
+  Kp = 1.0 to 2.0 (parking maneuvers)
+```
+
+The gyro handles 360° wrap-around: if the error is > 180°, it wraps to the shorter direction.
+
+Used for:
+- Keeping straight during initial maneuver
+- 90° turns at corners
+- All parking phases (precise angle targets)
+
+#### 3.4.11 Turn Counting
+
+**Goal:** Count orange floor lines to know when 3 laps (12 turns) are complete.
+
+**How it works:**
+- Each frame, check if orange is detected in the line ROI
+- Store last 4 detections in a queue: `[oldest, ..., newest]`
+- Count a turn ONLY when pattern is `[False, True, True, True]` — a fresh rising edge that persisted for 3 frames
+- After counting, apply 50-frame cooldown (prevent double-counting the same line)
+
+**Why debounce?** At high speed, a single orange line stays in the ROI for ~10 frames. Without the 4-frame rising-edge check and cooldown, one line could be counted multiple times.
+
+---
+
+### 3.5 Edge Cases
+
+| Edge Case | What Could Go Wrong | How We Handle It |
+|-----------|--------------------|-----------------| 
+| Two pillars visible at once | Robot confused about which to follow | Take the first detected block (sorted by position) |
+| Pillar at frame edge | Partial detection, wrong centroid | Minimum area filter rejects partial blobs |
+| Orange reflection on wall | False turn count | 4-frame debounce + 50-frame cooldown |
+| IMU fails to initialize | No heading data → no gyro steering | Code still runs with wall-following only |
+| ToF sensor returns None | Division error or wrong wall calc | Always check `if reading is not None` before use |
+| Same frame processed twice | Double-command motors | Skip frame if frame_counter unchanged |
+| Magenta near start | False close-block evasion | 5-second time gate before magenta evasion activates |
+| Inner wall very close during block follow | Pillar steering pushes into wall | Angle clipped: red+inner_right → clip to [-45, -10]; green+inner_left → clip to [15, 45] |
+| Close black wall ahead (no blocks) | Crash into front wall | If close_black_area > 3000 → force ±35° turn based on direction |
+| Block disappears mid-avoidance | Sudden speed change | Grace frames: hold last block speed for 5 frames after block disappears |
+| Wheel stall (blocked/stuck) | Robot stops moving | RPM controller detects zero RPM → stall recovery |
+| Orange/blue line visible but no walls | Corner entry with no wall reference | Force ±35° steering based on track direction |
+| Power brown-out resets IMU | Heading jumps by random amount | We only read heading deltas via `get_angular_difference` — invariant to 360° wrap, gives sane result after glitch |
+| Video writer can't keep up | Main loop blocks on disk | Drop-newest queue (maxsize=2): lose annotation frames, never control frames |
+| Two walls converge in corner | Close-black fires during block follow | Priority order: visible block consumes the frame *before* close-black runs |
+| Gyro drift over 3 laps | Crab-walks into wall on straights | All gyro setpoints are relative to INITIAL_HEADING — never absolute compass headings |
+
+---
+
+### 3.6 Parameter Tuning
+
+#### 3.6.1 All Control Parameters
+
+| Parameter | Value | What It Controls |
+|-----------|-------|-----------------|
+| MOTOR_SPEED | 65 | Forward driving speed (PWM %) |
+| WALL_KP | 0.0006 | Wall-following proportional gain |
+| WALL_KD | 0.0003 | Wall-following derivative gain |
+| Block gain | 1.5 | Target-line steering multiplier |
+| Gyro Kp (cruise) | 0.85 | Heading correction strength |
+| Gyro Kp (parking) | 1.0–2.0 | Tighter heading control for parking |
+| RPM Kp | 0.20 | Speed proportional gain |
+| RPM Ki | 0.50 | Speed integral gain |
+| RPM ramp limit | 25/frame | Max RPM increase per frame |
+| Orange cooldown | 50 frames | Frames to wait between turn counts |
+| Orange history | 4 frames | Debounce window for turn detection |
+| Close block evasion angle (red) | -25° | Hard turn for close red pillar |
+| Close block evasion angle (green) | +30° | Hard turn for close green pillar |
+| Steering clamp (normal) | ±40° | Maximum servo angle during driving |
+| Steering clamp (parking) | ±60° | Maximum servo angle during parking |
+| Speed reduction range | 85%–60% | Speed mapped to pillar distance |
+| Corner boost threshold | 700 mm | Side distance that triggers corner boost |
+| Wall bias | +1° | Constant offset added to wall-following |
+
+#### 3.6.2 Tuning Process
+
+**HSV Threshold Tuning**
+
+We use `src/sensors/color_tuning.py` — a live trackbar-based HSV picker:
+1. Power up robot on the actual mat under actual lighting
+2. Run the tool — a window shows H/S/V sliders per color
+3. Pan the robot across the mat so each pillar and line passes through the camera at real angles
+4. Adjust bounds until the mask for each target is contiguous and black everywhere else
+5. Copy final values into the `HSV_RANGES` dict in `main_v4.py`
+
+**Key rule for BLACK tuning:** Keep S (saturation) low, not V. If you let S go wide, the dark blue mat and dark sides of red pillars get classified as wall — causing phantom walls in mid-corridor.
+
+**Target-Line Angle Calibration**
+
+`drive_straight_tune_target.py` drives the robot straight past a pillar under gyro hold, tracking the pillar centroid frame-by-frame. It fits a least-squares line through those centroids. The resulting diagonal — not vertical — path is the correct target for the block-following law. If the camera mount changes, re-run this tool and update `RED_TARGET_X` / `GREEN_TARGET_X` constants.
+
+**Gain Tuning Approach**
+
+| Parameter | How We Tuned It |
+|---|---|
+| MOTOR_SPEED (100%) | Started at 80%, increased by 5% steps. At each step re-checked if gains still held stable. Final value is the edge of what the controller can hold. |
+| Wall-law gain (0.0006) | Started at 0.0001; doubled until tracking was tight; reduced 30% for safety margin |
+| Block-law gain (1.5) | Hand-tuned on 6-pillar mock track — chosen so chassis exits each pillar with ~5cm clearance |
+| Slew-rate clamp (10 deg/frame) | Smallest value that prevents jerky motion without slowing corner response |
+| Parking distances (160mm, 65mm) | Trial and error on actual parking lot — drove routine, watched result, adjusted, repeated |
+
+---
+
+### 3.7 RPM Control — PI Controller with Feed-Forward
+
+**Goal:** Maintain consistent wheel speed regardless of load (turns, inclines, battery sag).
+
+**How it works:**
+- Motor encoder counts pulses via RP1 PIO
+- Actual RPM is compared to target RPM
+- PI controller adjusts PWM duty cycle
+
+```
+Target RPM = 0.85 * MAX_WHEEL_RPM (normal driving)
+Kp = 0.20
+Ki = 0.50
+Ramp limit = 25 RPM increase per frame (prevents wheel spin)
+```
+
+**Speed modulation near obstacles:** When a pillar is visible, the target speed is reduced proportionally to how close the pillar is. Pillar at top of frame (far) → 85% speed. Pillar at bottom (close) → 60% speed.
+
+#### 3.7.1 Why PIO for the Encoder
+
+The wheel encoder is a quadrature pair driven through the **PIO block** on the RPi 5's RP1 I/O controller. PIO is a small, deterministic state-machine engine sitting next to the main CPU — it handles encoder pulses entirely in hardware while the CPU does nothing.
+
+**Why this matters:** Linux is not a real-time OS. The scheduler can preempt our Python loop for tens of milliseconds. If we counted encoder edges from Python, every preemption gap would silently drop counts and reported distance would drift. The PIO state machine sits *outside* the Linux scheduler — it ticks off RP1's own clock, cannot be preempted, and **never misses a count** regardless of CPU load.
+
+Two modes of operation:
+- `motor.move(distance_cm)` — PID loop that ramps speed up, then decelerates as encoder approaches target distance
+- `motor.start_rpm_control(target_rpm, direction)` — holds a target wheel speed (used by parking routines)
+
+#### 3.7.2 Control Loop Diagram
+
+<img src="docs/diagrams/software/rpm_control_loop.drawio.png" alt="RPM Control Loop — Encoder and Motor Interaction with RPi 5" width="1000">
+
+*Figure: Closed-loop RPM control showing the PI controller running on the RPi 5 CPU, with the RP1 PIO block handling encoder counting in hardware. The feed-forward path sets the initial PWM, and the PI corrects for load disturbances.*
+
+---
+
+### 3.8 Testing Results
+
+**TODO: This section needs actual test data from practice runs.**
+
+#### 3.8.1 Open Challenge Success Rate
+
+| Metric | Value |
+|--------|-------|
+| Total test runs | TODO |
+| Successful completions (3 laps) | TODO |
+| Success rate | TODO% |
+| Average lap time | TODO s |
+
+#### 3.8.2 Obstacle Challenge Success Rate
+
+| Metric | Value |
+|--------|-------|
+| Total test runs | TODO |
+| Successful completions (3 laps) | TODO |
+| Pillar hits per run (average) | TODO |
+| Wrong-side passes per run | TODO |
+| Success rate (clean laps) | TODO% |
+
+#### 3.8.3 Parking Success Rate
+
+| Metric | Value |
+|--------|-------|
+| Total parking attempts | TODO |
+| Successful parallel parks | TODO |
+| Success rate | TODO% |
+| Average parking time | TODO s |
+
+---
+
+### 3.9 Performance Optimizations
+
+These design choices keep the loop running at 50+ fps on a Raspberry Pi 5:
+
+| Optimization | What It Does | Why It Matters |
+|---|---|---|
+| Frame slice before conversion | Crop to y=100..290 before BGR-to-HSV | Saves ~30% of cvtColor cost — top/bottom rows produce only false positives |
+| Pre-computed ROI bitmasks | All ROI rectangles become uint8 masks at startup | No per-frame allocation — saves ~0.4ms/frame, ~5000 allocations over a 3-minute run |
+| Directional blur (1x7) | Vertical-only Gaussian instead of 2D kernel | Half the cost of isotropic blur; also the correct blur for rolling-shutter noise |
+| countNonZero early-out | Check if mask is empty before findContours | Most color masks are empty most of the time — skips expensive contour work |
+| Operate on lores stream | Perception runs on 640x360, not full 2304x1296 | 10x fewer pixels to process per frame |
+| Condition variable for camera | Main thread blocks until new frame arrives | Never busy-polls, never processes the same frame twice |
+| servo.set_angle only on change | Skip hardware write if angle hasn't changed | Eliminates unnecessary syscalls and prevents steering jitter |
+| Drop-newest annotation queue | Annotated MP4 thread uses maxsize=2 queue | If encoder lags, we lose annotation frames, never control frames |
+| Separate annotate and encode threads | Drawing contours (CPU) split from disk write (I/O) | Neither blocks the other |
+| RPM ramp limiter | Max +25 RPM/frame speed increase | Prevents wheel slip without adding latency |
+| Constants at import time | All ROI rectangles, HSV bounds, angles computed once | Zero per-frame recomputation |
+| Slew-rate clamp (±10 deg/frame) | Caps how much steering changes per frame | Prevents jerky motion from perception noise |
+
+The general principle: **do the cheap reject as early as possible, and avoid every byte of work on data you don't actually need.**
+
+---
+
+### 3.10 Recommended Sections — Not Yet Written
+
+#### 3.10.1 Annotated Camera Frame Analysis
+
+*What to include: Step-by-step image processing with actual frames: raw → HSV → masks → contours → final decision overlay. Show what the robot "sees" at key moments: approaching a red pillar, approaching a green pillar, entering a corner, during parking.*
+
+#### 3.10.2 PID Tuning Visualization
+
+*What to include: Plot the robot's steering angle over time at different PD gains. Show underdamped (oscillating between walls), overdamped (slow to respond at corners), and final tuned response.*
+
+#### 3.10.3 Run Logging and Debug
+
+Every run writes a self-contained folder with:
+- Annotated MP4 (ROIs, contours, target lines, FPS, turn counter, computed angle)
+- Full stdout/stderr log (state transitions, ToF readings, heading deltas)
+
+This allows post-run analysis without re-running on the track.
+
+---
+
+## 4. Systems Thinking & Engineering Decisions
+
+*This section has not yet been written.*
+
+Per the WRO FE 2026 Documentation Golden Reference, this section should cover:
+- Explicit constraint identification (size, weight, power, processing, time, budget)
+- At least 3–4 documented tradeoffs in "we chose X instead of Y because [data]" format
+- 2–3 mechanical/electrical/software design iterations with before/after evidence
+- A risk and failure-mode table with mitigations
+- A subsystem interaction map showing how mobility, power, sensors, software, and frame depend on each other
+
+---
+
+## 5. Reproducibility & GitHub Quality
+
+> Rubric target (Advanced/6): *"The robot is fully reproducible from the documentation. GitHub has clear project structure, meaningful commit messages, documented testing workflow and versioning or release notes."*
+
+---
+
+### 5.1 Repository Structure & Module Map
+
+This section replaces a generic folder tree with a description of what each file/module actually does, so a reader can navigate the repository without opening every file. This is the evidence the rubric asks for under "GitHub structure and clarity" and "file organization."
+
+```
+Greenbotics/
+├── src/
+│   ├── open_challenge/
+│   ├── obstacle_challenge/
+│   ├── motors/
+│   ├── sensors/
+│   ├── requirements.txt
+│   └── README.md
+├── docs/
+├── models/
+├── schemes/
+├── matlab/
+├── other/
+├── v-photos/
+├── t-photos/
+├── video/
+├── README.md
+├── CHANGELOG.md
+├── LICENSE
+└── .gitignore
+```
+
+**`src/open_challenge/` — Open Challenge logic**
+
+| File | Purpose |
+|---|---|
+| `main.py` | Entry point for the Open Challenge. Camera-based wall following using HSV color masks, proportional steering, orange-line turn counting, sharp-turn collision avoidance. Stops after 12 turns (3 laps). |
+| `config.py` | Tunable parameters for the Open Challenge: HSV thresholds, steering gains, speed settings. |
+
+**`src/obstacle_challenge/` — Obstacle Challenge logic**
+
+| File | Purpose |
+|---|---|
+| `main.py` | Entry point for the Obstacle Challenge. Detects driving direction (clockwise/counter-clockwise) from distance sensors, performs the initial maneuver, avoids red/green traffic signs, counts turns, and executes parallel parking on the final approach. |
+| `config.py` | Tunable parameters: HSV thresholds for signs/lines, steering gains, parking sequence constants. |
+
+**`src/motors/` — Actuation**
+
+| File | Purpose |
+|---|---|
+| `motor.py` | Drive motor control via TB6612FNG driver — PWM speed control, forward/reverse/brake. |
+| `servo.py` | Steering servo control via hardware PWM — angle-to-pulse-width conversion, safety clamping. |
+| `turning_radius.py` | Turning radius calculations used for steering angle limits and parking geometry. |
+
+**`src/sensors/` — Perception**
+
+| File | Purpose |
+|---|---|
+| `camera.py` | Raspberry Pi Camera Module 3 interface (Picamera2) — dual-resolution capture (high-res processing, low-res fast loop). |
+| `distance.py` | Distance sensor abstraction layer used by the main challenge loops. |
+| `encoder.py` | Wheel encoder reading via PIO (RP1) for speed/distance feedback. |
+| `bno055.py` | BNO055 IMU driver (I2C) — orientation/heading for straight-line correction and turn detection. |
+| `bno086.py` / `bno086_spi.py` | BNO086 IMU driver variants (I2C and SPI) — alternative/upgraded IMU option. |
+| `vl53l1x.py` | VL53L1X ToF distance sensor driver, read through the TCA9548A I2C multiplexer. |
+| `vl53l4cd.py` | VL53L4CD ToF distance sensor driver (direct I2C, no multiplexer dependency). |
+| `vl53l8cx_python.py` | Python ctypes bindings to the vendored VL53L8CX ULD/SPI shared libraries (`libvl53l8cx_uld.so`, `libvl53l8cx_spi.so`) and the SPI platform shim (`vl53l8cx_spi_platform.c`, `build_spi_platform.sh`). |
+| `i2c_bus.py` | Shared I2C bus handle used across sensor drivers to avoid bus contention. |
+| `color_tuning.py` / `color_annotate_tuner.py` | Interactive tools for tuning HSV color thresholds against live camera frames. |
+| `calibrate_bno.py` | Calibration routine for the BNO08x IMU family. |
+| `color_samples/*.npy` | Saved HSV sample sets (RED, GREEN, BLUE, ORANGE, BLACK) used as reference during color tuning. |
+
+**`docs/` — Engineering documentation**
+
+| File | Purpose |
+|---|---|
+| `MobilityManagementFinal.md` | Source document for Section 1 — chassis, drivetrain, steering design and justification. |
+| `PowerAndSenseFinal.md` | Source document for Section 2 — power budget, sensor selection and placement, wiring. |
+| `SoftwareArchitectureFinal.md` | Source document for Section 3 — state machine, algorithms, obstacle/parking strategy. |
+| `GitHub_Rproducibility_final.md` | Source document for this section. |
+| `GitHub_cleanupSteps.md` | Repository housekeeping checklist — not part of scored documentation. |
+| `diagrams/` | Supporting diagrams referenced throughout this README (mobility, power/sense, software, parking). |
+| `Engineering_Journal/` | Placeholder — see [5.7](#57-engineering-journal). |
+
+**`models/`, `schemes/`, `matlab/`, `other/` — Hardware & reference assets**
+
+| Folder | Purpose |
+|---|---|
+| `models/chassis/` | 3D-printable STL files (servo mount, servo horn mount, camera mounts, sensor mount) and Lego BrickLink chassis files. |
+| `models/PCB/` | KiCad schematic, PCB layout, and Gerber-adjacent files for the custom PCB. |
+| `schemes/` | Wiring diagram, chassis renders (top/front/iso/bottom views), mount reference images. |
+| `matlab/` | MATLAB prototype (`open_challenge.m`) used during early algorithm exploration — kept as a reference of the design process, not part of the deployed robot code. |
+| `other/readmephotos/`, `lddphotos/`, `flowchart/`, `evolutionphotos/` | Supporting images for the main README: component photos, LEGO Digital Designer renders, algorithm flowcharts, and the build's version history in photos. |
+
+**Vehicle & team evidence**
+
+| Folder | Purpose |
+|---|---|
+| `v-photos/` | Vehicle photos: Top, Bottom, Front, Back, Left, Right — satisfies the "photos from every side" mandatory requirement. |
+| `t-photos/` | Team photo(s). |
+| `video/video.md` | Links to Open Challenge and Obstacle Challenge performance videos (YouTube). |
+
+---
+
+### 5.2 Robot Build Instructions
+
+*(Sourced from the project's own README "Robot construction guide" section — see [Section 1.12](#112-building-instructions) and Steps 1–7 embedded in that section.)*
+
+**Step 1: Print the 3D parts**
+- STL files for servo motor mount, servo horn mount, camera base, camera arm, and sensor mounts are in `models/chassis/`.
+- Recommended print settings: **Material: PLA, Infill: 100%**
+
+**Step 2: Assemble the steering and drive train**
+- Build the steering assembly using the Lego parts as shown in `schemes/`.
+- Attach the two rear wheels with a differential gear assembly using Lego gears and axle.
+- Attach the Lego EV3 medium motor with Lego pins to the chassis; the motor gears must mesh with the differential gear.
+- Attach the front wheels.
+
+**Step 3: Attach the 3D-printed mounts**
+- Mount the servo on the 3D-printed servo motor mount.
+- Attach the servo horn to the steering assembly with the 3D-printed servo horn mount.
+- Attach the servo mount to the chassis using Lego pins.
+- Attach the camera base mount to the rear of the chassis, and the camera arm mount to the base using screws.
+- Use zip ties where needed for extra stability.
+
+**Step 4: Fabricate the PCB**
+- Fabricate the PCB from the KiCad files in `models/PCB/` using [KiCad](https://www.kicad.org/).
+
+**Step 5: Solder the electronics (gradual, safe startup order)**
+1. Solder all headers to the PCB.
+2. Solder the power modules.
+3. Attach the battery and verify the Raspberry Pi 5 boots.
+4. Solder the startup switch and LED; verify with a simple test program.
+5. Attach the motor driver module; verify motor control with a test program.
+6. Attach the multiplexer module; verify sensor readings with a test program.
+7. Attach the IMU module; verify orientation readings with a test program.
+8. Attach the Raspberry Pi 5 wide-angle camera.
+
+**Step 6: Install the software** — see [5.3](#53-software-setup--running-the-robot) below.
+
+**Step 7: Verify robot stability**
+- Run the robot — it should move smoothly.
+- If gears make a grinding noise, this is usually caused by Lego components not being tightly coupled. Use zip ties to secure chassis beams firmly.
+
+---
+
+### 5.3 Software Setup & Running the Robot
+
+#### 5.3.1 Flash and configure Raspberry Pi OS
+
+- Install Raspberry Pi OS (Bookworm, 64-bit) on the Raspberry Pi 5.
+- Connect to Wi-Fi and confirm internet access, then update the system:
+  ```bash
+  sudo apt update
+  sudo apt upgrade
+  ```
+
+#### 5.3.2 Install Git and connect to GitHub
+
+```bash
+sudo apt install -y git
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
+```
+
+Generate an SSH key and register it with GitHub (recommended over HTTPS for push access):
+```bash
+ssh-keygen -t ed25519 -C "you@example.com"
+cat ~/.ssh/id_ed25519.pub
+```
+Add the printed key at [github.com/settings/keys](https://github.com/settings/keys), then clone:
+```bash
+git clone git@github.com:<your-org>/greenbotics-wro-fe-2026.git
+cd greenbotics-wro-fe-2026
+```
+
+#### 5.3.3 Install system-level dependencies
+
+```bash
+sudo apt install -y \
+  python3 python3-pip python3-venv \
+  python3-opencv python3-numpy \
+  python3-gpiozero python3-libcamera python3-picamera2 python3-lgpio \
+  i2c-tools
+```
+
+#### 5.3.4 Create a virtual environment with system package access
+
+Picamera2 and libcamera are installed as system (apt) packages and are not reliably installable via pip alone, so the virtual environment must be created with `--system-site-packages` to see them:
+
+```bash
+python3 -m venv .venv --system-site-packages
+source .venv/bin/activate
+```
+
+#### 5.3.5 Install pinned Python dependencies
+
+```bash
+pip3 install -r src/requirements.txt
+```
+
+> **Known compatibility issue:** Picamera2 depends on an older `numpy` build than the one OpenCV installs by default. If you see camera/numpy errors after installing `opencv-python`, reinstall numpy to the pinned version in `requirements.txt`:
+> ```bash
+> pip3 install --force-reinstall numpy==1.26.4
+> ```
+
+#### 5.3.6 (Optional) VS Code setup for development
+
+```bash
+sudo apt install -y code
+```
+Open the cloned folder in VS Code, install the Python extension (Ctrl+Shift+X → "Python" by Microsoft), then select the virtual environment interpreter: `Ctrl+Shift+P` → **Python: Select Interpreter** → choose `.venv/bin/python`.
+
+#### 5.3.7 Run the code
+
+```bash
+cd /path/to/greenbotics-wro-fe-2026
+
+# Open Challenge
+python3 -m src.open_challenge.main
+
+# Obstacle Challenge
+python3 -m src.obstacle_challenge.main
+```
+
+Ensure all hardware is wired per Section 2 and `schemes/` before running.
+
+---
+
+### 5.4 Testing Workflow
+
+**Open Challenge test procedure**
+1. Place robot in the starting section on a standard track (borders at 1000mm or 600mm).
+2. Run `python3 -m src.open_challenge.main`.
+3. Confirm: 3 laps completed, correct direction, no wall contact, stop in finish section.
+4. Repeat for a batch of runs (recommend 20) and log: lap time, wall contacts, completion (Y/N).
+
+**Obstacle Challenge test procedure**
+1. Place 6 traffic signs (red/green) in a valid randomized configuration.
+2. Run `python3 -m src.obstacle_challenge.main`.
+3. Confirm: correct avoidance (red = pass left, green = pass right), no pillar contact, 3 laps completed, parking attempted.
+4. Repeat for a batch of runs (recommend 20) and log: correct avoidances (out of 6), contacts, lap completion, parking success.
+
+**Pass/Fail criteria**
+
+| Result | Criteria |
+|---|---|
+| PASS | All pillars avoided correctly, 3 laps completed, no contacts |
+| PARTIAL | 1–2 incorrect avoidances or 1 contact |
+| FAIL | >2 incorrect avoidances, multiple contacts, or incomplete laps |
+
+*(Insert actual logged results here — mean lap time, success rate over N runs — once a test batch has been run and summarized.)*
+
+---
+
+### 5.5 CHANGELOG Template
+
+```markdown
+# Changelog
+
+## [Unreleased]
+- main_v5 in development (obstacle challenge)
+
+## [v3.0] - YYYY-MM-DD — Final Submission
+### Added
+### Changed
+### Fixed
+
+## [v2.0] - YYYY-MM-DD — Internationals Prep
+### Added
+### Changed
+### Fixed
+
+## [v1.0] - YYYY-MM-DD — Nationals
+### Added
+### Known Issues
+```
+
+---
+
+### 5.6 Commit & Versioning Practice
+
+- Use descriptive commit messages, e.g. `fix(steering): correct PID overshoot at sharp corners`, not `update` or `fix`.
+- Mandatory deadline commits (per rules): 1st ≥2 months before competition (≥20% of code), 2nd ≥1 month before (~60% complete), 3rd ≥2 weeks before (100% complete — this is what's scored).
+- Tag milestone commits as releases (`v1.0`, `v2.0`, `v3.0`) matching the CHANGELOG entries above.
+
+---
+
+### 5.7 Engineering Journal
+
+The Engineering Journal will be produced as an **export of this README**, reformatted for narrative/PDF presentation (title page, section numbering, page breaks — this document already uses `page-break-before` styling in places to build on).
+
+Placeholder folder reserved at `docs/Engineering_Journal/` — will hold `Engineering_Journal.pdf` and its source `.md` once exported.
+
+---
+
+### 5.8 Reproducibility Self-Check
+
+- [ ] Another team can identify every required part from the BOM in this README
+- [ ] Another team can follow [Section 5.2](#52-robot-build-instructions) to assemble the mechanical build
+- [ ] Another team can follow [Section 5.3](#53-software-setup--running-the-robot) to install software and run both challenges from a clean Raspberry Pi
+- [ ] `src/requirements.txt` versions match what was actually tested
+- [ ] Testing workflow results are logged with real numbers, not placeholders, before the scored commit
+- [ ] CHANGELOG has at least 3 dated version entries before the scored commit
+
+---
+
+*End of Document | Team Greenbotics | WRO Future Engineers 2026*

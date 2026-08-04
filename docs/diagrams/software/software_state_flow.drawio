@@ -1,0 +1,88 @@
+<mxfile host="app.diagrams.net" agent="Kiro">
+  <diagram name="Navigation State Flow" id="state-flow">
+    <mxGraphModel dx="1167" dy="537" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;align=center;verticalAlign=middle;fontSize=14;" value="&lt;b&gt;Navigation State Flow — Obstacle Challenge&lt;/b&gt;" vertex="1">
+          <mxGeometry height="30" width="350" x="350" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="start" parent="1" style="ellipse;fillColor=#d5e8d4;strokeColor=#82b366;strokeWidth=2;" value="" vertex="1">
+          <mxGeometry height="40" width="40" x="505" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="dir_detect" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;" value="&lt;b&gt;Direction Detection&lt;/b&gt;&lt;br&gt;Compare left vs right wall&lt;br&gt;(10 frames)" vertex="1">
+          <mxGeometry height="55" width="170" x="440" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="init_man" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;" value="&lt;b&gt;Initial Maneuver&lt;/b&gt;&lt;br&gt;Exit parking &amp;amp; avoid first block" vertex="1">
+          <mxGeometry height="50" width="170" x="440" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="main_loop_box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;dashed=1;" value="" vertex="1">
+          <mxGeometry height="250" width="750" x="150" y="355" as="geometry" />
+        </mxCell>
+        <mxCell id="main_loop_label" parent="1" style="text;html=1;align=center;fontSize=18;fontColor=#333333;" value="&lt;b&gt;MAIN NAVIGATION LOOP&lt;/b&gt; (runs every frame at ~60 fps)" vertex="1">
+          <mxGeometry height="30" width="350" x="357" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="close_block" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;" value="&lt;b&gt;Priority 1&lt;/b&gt;&lt;br&gt;&lt;b&gt;CLOSE BLOCK EVASION&lt;/b&gt;&lt;br&gt;&lt;br&gt;Pillar in close ROI&lt;br&gt;→ Reverse 0.5s&lt;br&gt;→ Counter-steer 0.3s" vertex="1">
+          <mxGeometry height="117" width="190" x="180" y="423" as="geometry" />
+        </mxCell>
+        <mxCell id="block_follow" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;" value="&lt;b&gt;Priority 2&lt;/b&gt;&lt;br&gt;&lt;b&gt;BLOCK AVOIDANCE&lt;/b&gt;&lt;br&gt;&lt;br&gt;Pillar visible in frame&lt;br&gt;→ Target-line geometry&lt;br&gt;→ Slow down near pillar" vertex="1">
+          <mxGeometry height="100" width="190" x="413" y="475" as="geometry" />
+        </mxCell>
+        <mxCell id="wall_follow" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;" value="&lt;b&gt;Priority 3&lt;/b&gt;&lt;br&gt;&lt;b&gt;WALL FOLLOWING&lt;/b&gt;&lt;br&gt;&lt;br&gt;No pillars visible&lt;br&gt;→ PD controller&lt;br&gt;→ Center between walls" vertex="1">
+          <mxGeometry height="107" width="190" x="672" y="433" as="geometry" />
+        </mxCell>
+        <mxCell id="wb5Ot_VNxLCkUhQ0itVF-2" edge="1" parent="1" source="turn_check" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="main_loop_box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="80.07" y="710" />
+              <mxPoint x="80.07" y="335.07" />
+              <mxPoint x="525" y="335.07" />
+            </Array>
+            <mxPoint x="110" y="300" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="turn_check" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;" value="&lt;b&gt;12 turns&lt;br&gt;completed?&lt;/b&gt;" vertex="1">
+          <mxGeometry height="80" width="130" x="460" y="671" as="geometry" />
+        </mxCell>
+        <mxCell id="parking" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" value="&lt;b&gt;PARKING&lt;/b&gt;&lt;br&gt;5-phase parallel park&lt;br&gt;(gyro + ToF guided)" vertex="1">
+          <mxGeometry height="55" width="170" x="650" y="684.5" as="geometry" />
+        </mxCell>
+        <mxCell id="stop" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1;" value="&lt;b&gt;STOP&lt;/b&gt;" vertex="1">
+          <mxGeometry height="40" width="60" x="706" y="762" as="geometry" />
+        </mxCell>
+        <mxCell id="loop_back" parent="1" style="text;html=1;fontSize=12;fontStyle=2;" value="No → next frame" vertex="1">
+          <mxGeometry height="20" width="90" x="340" y="684.5" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" edge="1" parent="1" source="start" style="rounded=1;strokeWidth=2;" target="dir_detect">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" edge="1" parent="1" source="dir_detect" style="rounded=1;strokeWidth=2;" target="init_man">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" edge="1" parent="1" source="init_man" style="rounded=1;strokeWidth=2;" target="main_loop_box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" edge="1" parent="1" source="main_loop_box" style="rounded=1;strokeWidth=2;" target="turn_check">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a5" edge="1" parent="1" source="turn_check" style="rounded=1;strokeWidth=2;strokeColor=#6c8ebf;fontSize=12;" target="parking" value="Yes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a6" edge="1" parent="1" source="parking" style="rounded=1;strokeWidth=2;" target="stop">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1" edge="1" parent="1" source="main_loop_label" style="rounded=1;strokeWidth=1;dashed=1;strokeColor=#b85450;fontSize=12;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="close_block" value="if close">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="550" y="390" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2" edge="1" parent="1" source="main_loop_label" style="rounded=1;strokeWidth=1;dashed=1;strokeColor=#9673a6;fontSize=12;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="block_follow" value="elif block">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p3" edge="1" parent="1" source="main_loop_label" style="rounded=1;strokeWidth=1;dashed=1;strokeColor=#82b366;fontSize=12;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="wall_follow" value="else">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
