@@ -5,6 +5,13 @@ import math
 from src.obstacle_challenge import config
 from src.sensors.encoder import IncrementalEncoder
 import board
+import logging
+
+# Part of the "robot" logger tree set up by the challenge mains (see
+# main_v5.setup_logging). Nothing is configured here: if no handler is installed --
+# e.g. motor.py run standalone -- logging falls back to stderr at WARNING, so the
+# library stays silent-by-default instead of printing over whoever imported it.
+log = logging.getLogger("robot.motor")
 
 
 gpio_handle = None
@@ -96,7 +103,7 @@ def initialize():
 
         standby()
     except Exception as err:
-        print(f"FATAL: Motor failed to initialize GPIO: {err}")
+        log.error("Motor failed to initialize GPIO: %s", err)
         return False
 
     last_error = None
@@ -112,24 +119,22 @@ def initialize():
             global encoder
             try:
                 encoder = IncrementalEncoder(board.D20)
-                print("INFO: Encoder Initialized.")
+                log.info("Encoder initialized.")
             except Exception as e:
-                print(f"WARNING: Encoder failed to initialize: {e}")
+                log.warning("Encoder failed to initialize: %s", e)
 
-            print("INFO: Motor Initialized.")
+            log.info("Motor initialized.")
             return True
         except PermissionError as err:
             last_error = err
-            print(
-                f"WARNING: Motor PWM permission denied (attempt {attempt}/{_MAX_PWM_RETRIES}): {err}"
-            )
+            log.warning("Motor PWM permission denied (attempt %d/%d): %s", attempt, _MAX_PWM_RETRIES, err)
             time.sleep(_PWM_RETRY_DELAY * attempt)
         except Exception as err:
             last_error = err
-            print(f"FATAL: Motor failed to initialize: {err}")
+            log.error("Motor failed to initialize: %s", err)
             time.sleep(_PWM_RETRY_DELAY * attempt)
 
-    print(f"FATAL: Motor failed to initialize after {_MAX_PWM_RETRIES} attempts: {last_error}")
+    log.error("Motor failed to initialize after %d attempts: %s", _MAX_PWM_RETRIES, last_error)
     return False
 
 
@@ -182,7 +187,7 @@ def move(distance_cm, max_speed=70, min_speed=40, accel_dist_cm=2, kp=3.0, ki=0.
     Uses PID control for accurate deceleration, while keeping acceleration ramp.
     """
     if not encoder:
-        print("ERROR: Encoder not initialized. Cannot use move().")
+        log.error("Encoder not initialized. Cannot use move().")
         return
 
     target_mm = abs(distance_cm * 10)
@@ -242,7 +247,42 @@ def move(distance_cm, max_speed=70, min_speed=40, accel_dist_cm=2, kp=3.0, ki=0.
         time.sleep(0.01)
 
     brake()
-    print(f"move({distance_cm} cm) complete.")
+    log.debug("move(%s cm) complete.", distance_cm)
+
+
+def encoder_position():
+    """Raw encoder count, or None if the encoder never came up.
+
+    Callers that want distance should snapshot this before a move and pass the
+    delta to counts_to_cm() rather than doing the arithmetic themselves -- the
+    counts-per-rev and the polarity sign both live in this module."""
+    if not encoder:
+        return None
+    return encoder.position
+
+
+def counts_to_cm(counts, direction="forward"):
+    """Convert signed encoder counts to cm travelled IN `direction`.
+
+    The sign is relative to the commanded direction: a wheel still coasting the
+    wrong way (residual momentum at the start of a reverse move) returns a
+    NEGATIVE distance rather than a positive one, so a caller integrating
+    progress doesn't mistake backsliding for travel."""
+    if not encoder:
+        return None
+    dir_cmd = 1.0 if direction == "forward" else -1.0
+    circ_mm = math.pi * encoder.wheel_diameter_mm
+    return counts * dir_cmd * _ENC_FORWARD_SIGN / encoder.counts_per_rev * circ_mm / 10.0
+
+
+def cm_per_minute_at(rpm):
+    """Ground speed (cm/min) the wheel covers at `rpm` wheel-rpm.
+
+    Used to derive a sane timeout for a distance move: if the wheel slips or
+    stalls, a distance loop would otherwise never exit."""
+    if not encoder:
+        return None
+    return rpm * math.pi * encoder.wheel_diameter_mm / 10.0
 
 
 def reset_rpm_control():
@@ -328,7 +368,7 @@ def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
     reset_rpm_control()) when done.
     """
     if not encoder:
-        print("ERROR: Encoder not initialized. Cannot use set_speed_rpm().")
+        log.error("Encoder not initialized. Cannot use set_speed_rpm().")
         return None
 
     target_rpm = max(0.0, min(MAX_WHEEL_RPM, target_rpm))
@@ -495,7 +535,8 @@ def _rpm_loop(stop_event, period, kwargs):
             # hardware truth, and a mismatch means a control path computed a
             # command without writing it.
             applied = _rpm_state.get("applied") or "none yet"
-            print(f"[RPM Loop] Target: {target:.1f} RPM ({direction}) | Measured: {measured:.1f} RPM | Duty: {duty:.1f}% | Applied: {applied} | BrokeFree: {broke_free}")
+            log.debug("rpm target=%.1f (%s) measured=%.1f duty=%.1f%% applied=%s broke_free=%s",
+                      target, direction, measured, duty, applied, broke_free)
             
         time.sleep(period)
     brake()
@@ -511,7 +552,7 @@ def start_rpm_control(target_rpm, direction="forward", hz=50, **kwargs):
     """
     global _rpm_thread, _rpm_stop_event, _rpm_target, _rpm_dir
     if not encoder:
-        print("ERROR: Encoder not initialized. Cannot start RPM control.")
+        log.error("Encoder not initialized. Cannot start RPM control.")
         return False
     if _rpm_thread and _rpm_thread.is_alive():
         set_rpm_target(target_rpm, direction)
@@ -576,7 +617,7 @@ def drive_distance(distance_cm, rpm=50.0, direction="forward", cap=75.0,
 
     Returns the distance actually travelled (cm)."""
     if not encoder:
-        print("ERROR: Encoder not initialized. Cannot use drive_distance().")
+        log.error("Encoder not initialized. Cannot use drive_distance().")
         return None
 
     target_mm = abs(distance_cm) * 10.0
@@ -619,14 +660,14 @@ def drive_distance(distance_cm, rpm=50.0, direction="forward", cap=75.0,
         brake()
 
     final_mm = (encoder.position - start_pos) * counts_to_mm
-    print(f"drive_distance({distance_cm} cm @ {rpm} rpm) -> stopped at {final_mm / 10:.1f} cm")
+    log.debug("drive_distance(%s cm @ %s rpm) -> stopped at %.1f cm", distance_cm, rpm, final_mm / 10)
     return final_mm / 10.0
 
 
 def cleanup():
     """Stops the motor and releases GPIO resources (safe to call twice)."""
     global gpio_handle, motor_pwm
-    print("--- Cleaning up Motor ---")
+    log.info("Cleaning up motor...")
     # Stop the background RPM thread first so it can't issue a gpio_write on the
     # handle we're about to close (which would raise lgpio 'unknown handle').
     stop_rpm_control()
@@ -654,6 +695,13 @@ def cleanup():
 
 
 if __name__ == "__main__":
+    # Standalone diagnostic: nothing has configured the "robot" tree, so install a
+    # console handler here or the log.* calls above would be swallowed.
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s.%(msecs)03d %(levelname)-5s %(name)-13s %(message)s",
+        datefmt="%H:%M:%S",
+    )
     print("--- Motor RPM Test ---")
     if not initialize():
         print("Motor test failed during initialization.")
