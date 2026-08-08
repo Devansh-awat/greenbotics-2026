@@ -1,67 +1,94 @@
-# Greenbotics Control Software (`src`)
+# Software Code Walkthrough (`src`)
 
-This folder contains all Python code that runs on the Raspberry Pi 5 to control the Greenbotics robot for the WRO Future Engineers 2025 Open and Obstacle challenges. This code is split into smaller modules for sensors, motors and high-level challenge logic.
+This is a code walkthrough for the Python code that runs on the Raspberry Pi 5. It covers hardware interfaces, program flow, and core algorithm logic.
 
-## Layout
+See the main [Main Readme - 5.3](../README.md#53-software-setup--running-the-robot) for install steps and detailed design aspects in main [ - 3](Main Readme../README.md#3-software-architecture--obstacle-strategy)
 
-- `open_challenge/` – high-level logic for the Open Challenge (`main.py`).
-- `obstacle_challenge/` – high-level logic for the Obstacle Challenge(`main_v3.py`).
-- `sensors/` – drivers/wrappers for the IMU (BNO055), distance sensors (VL53L1X / VL53L8CX / URM09) and camera (Picamera2 + OpenCV).
-- `motors/` – drive motor and steering (servo) control.
+## 1. Hardware Interfaces
 
-## Python dependencies
+Each hardware component has its own driver module. All of them talk to RP1 (GPIO, PWM, I2C, SPI) directly, so the robot needs no separate microcontroller.
 
-The control software uses the following third‑party Python libraries:
+**Servo steering** (`motors/servo.py`) uses hardware PWM via RP1. Every angle gets clamped to safe limits before it reaches the servo:
 
-- `numpy` – numerical processing for vision and sensor fusion.
-- `opencv-python` / `python3-opencv` – image processing and computer vision.
-- `gpiozero` and `lgpio` – GPIO access and motor driver control.
-- `rpi-hardware-pwm` – hardware PWM for the drive motor and steering servo.
-- `picamera2` and `libcamera` – camera access on Raspberry Pi.
-- `adafruit-blinka` – provides `board`/`busio` for CircuitPython drivers on Linux SBCs.
-- `adafruit-circuitpython-bno055` – IMU (orientation) sensor driver.
-- `adafruit-circuitpython-tca9548a` – I2C multiplexer driver.
-- `adafruit-circuitpython-vl53l1x` – VL53L1X ToF distance sensor driver.
-- `adafruit-circuitpython-busdevice` – shared I2C device helpers.
-- `adafruit-circuitpython-neopixel-spi` – SPI NeoPixel (WS2812-compatible) LED control used via `neopixel_spi`.
+```python
+servo_pwm = HardwarePWM(pwm_channel=config.SERVO_PWM_CHANNEL,
+                         hz=config.SERVO_PWM_FREQ, chip=config.SERVO_PWM_CHIP)
 
-Standard-library modules such as `time`, `threading`, `ctypes`, `json`, `traceback`, etc. are also used but do not require separate installation.
-
-## How to install dependencies (Raspberry Pi OS)
-
-On a Raspberry Pi (recommended environment), first install the system-level packages:
-
-```bash
-sudo apt update
-sudo apt install -y \
-  python3 python3-pip python3-opencv python3-numpy \
-  python3-gpiozero python3-libcamera python3-picamera2 python3-lgpio
+def set_angle(input_angle: float):
+    adjusted_angle = input_angle + config.SERVO_CENTER_OFFSET
+    clamped_input = max(config.INPUT_ANGLE_MIN_SERVO,
+                         min(config.INPUT_ANGLE_MAX_SERVO, adjusted_angle))
+    # ...maps clamped_input to the calibrated PWM output range
 ```
 
-Then install the Python libraries that are typically provided via `pip`:
+**Drive motor** (`motors/motor.py`) uses hardware PWM for speed and GPIO pins for direction. The wheel encoder reads through RP1's PIO block:
 
-```bash
-pip3 install \
-  numpy opencv-python gpiozero lgpio rpi-hardware-pwm \
-  adafruit-blinka adafruit-circuitpython-bno055 \
-  adafruit-circuitpython-tca9548a adafruit-circuitpython-vl53l1x \
-  adafruit-circuitpython-busdevice adafruit-circuitpython-neopixel-spi
+```python
+motor_pwm = HardwarePWM(pwm_channel=config.MOTOR_PWM_CHANNEL,
+                         hz=config.MOTOR_PWM_FREQ, chip=config.MOTOR_PWM_CHIP)
+encoder = IncrementalEncoder(board.D20)   # PIO-backed, counts pulses in hardware
+
+def _set_speed(speed):
+    motor_pwm.change_duty_cycle(max(0, min(100, speed)))
 ```
 
-On non-Raspberry-Pi Linux systems, you can generally install the same Python packages with `pip3`, but `picamera2`/`libcamera` support and GPIO access may require additional board-specific setup.
+**Distance sensors** (`sensors/distance.py`) bring up 4 VL53L4CD sensors one at a time on the same I2C bus. Each sensor's XSHUT pin holds it in reset until its turn, so every sensor gets a unique address:
 
-## Running the control software
-
-From the repository root, run the main programs using the `src` package:
-
-```bash
-cd /path/to/greenbotics
-
-# Obstacle Challenge
-python3 -m src.obstacle_challenge.main_v3
-
-# Open Challenge
-python3 -m src.open_challenge.main
+```python
+for channel in SENSOR_CHANNELS:
+    _xshut_devices[channel] = DigitalOutputDevice(channel, initial_value=False)  # hold all low
+# then _bring_up() releases one XSHUT at a time and re-addresses that sensor
 ```
 
-Make sure all hardware is wired as described in the top-level `README.md` and that the commands above are executed on the robot’s Raspberry Pi.
+**Encoder PIO program** (`sensors/encoder.py`) loads a small assembly program onto RP1 that counts quadrature pulses in hardware. This keeps every pulse count accurate no matter how busy the CPU gets — see [Main Readme 3.7.1](../README.md#371-why-pio-for-the-encoder) for the full explanation.
+
+## 2. Program Flow
+
+Both challenges run a sense → decide → act loop. The main README has the flowcharts for this:
+- Open Challenge flow: [Main Readme 3.3, Open Challenge section](../README.md#33-open-challenge--srcopen_challengemainpy)
+- Obstacle Challenge state machine: [Main Readme 3.4 , Obstacle Challenge section](../README.md#34-obstacle-challenge--state-machine--algorithms)
+- Threading model: [Main Readme 3.2.1 , System Architecture](../README.md#321-threading-model)
+
+Here are some important code snippets explaining the core algorithms we have used: 
+
+**Priority state machine** runs fresh every frame inside the main loop, and the highest priority match wins. The main README has the full state table in [Main Readme 3.4.1](../README.md#341-states--priority-order):
+
+```python
+if close_black_area > 3000:
+    # P1: AVOID HEADON — hard steer away from wall dead ahead
+elif detected_blocks:
+    # P2: PASS TRAFFIC SIGN — target-line geometry steers around pillar
+elif wall_inner_left < 100 or wall_inner_right < 100:
+    # P3: CORNER TURN — amplify remaining wall area to force the turn
+else:
+    # P4: WALL FOLLOW — PD controller keeps robot centered
+```
+
+**Target-line steering** passes a pillar on the correct side using an angle-based law, tuned separately for red and green:
+
+```python
+current_angle = math.atan2(block_x - origin_x, origin_y - block_y)
+steering_angle = (current_angle - IDEAL_ANGLE) * Kp
+# IDEAL_ANGLE = +42.5° for red, -40.5° for green ; Kp = 1.5
+```
+
+**Gyro steering** (`steer_with_gyro`) holds a straight line or executes precise turns during parking:
+
+```python
+def steer_with_gyro(current_heading, target_heading, Kp=0.85):
+    heading_error = get_angular_difference(target_heading, current_heading)
+    return heading_error * Kp
+```
+
+**Turn counting** uses a debounced rising-edge check on the orange line detector, so one line crossing at high speed only counts once:
+
+```python
+orange_detection_history.append(orange_detected_this_frame)   # last 4 frames
+if not orange_detection_history[-4] and all(list(orange_detection_history)[1:]):
+    turn_counter += 1
+    cooldown_frames = ORANGE_COOLDOWN_FRAMES   # 50-frame cooldown
+```
+
+[Main Readme 3.4.8](../README.md#348-parking-algorithm) covers the parking sequence, edge cases, and parameter tuning in full detail.
+
+
