@@ -10,7 +10,7 @@ import time
 import numpy as np
 
 from src.motors import motor, servo
-from src.obstacle_challenge.logsetup import log
+from src.logs.setup import log
 from src.obstacle_challenge.tuning import GYRO_KD, GYRO_KP
 
 # Set by main_v5 via bind(); see maneuvers.py for why this is injected rather than

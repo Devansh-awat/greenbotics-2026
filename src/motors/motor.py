@@ -21,9 +21,9 @@ _MAX_PWM_RETRIES = 5
 _PWM_RETRY_DELAY = 0.1
 
 # --- Closed-loop WHEEL-RPM control ---
-# Max wheel speed: 1330 rpm output shaft * 13/38 external gear = 455 wheel rpm.
+# Max wheel speed: 1800 rpm output shaft (Pololu 4861 @ 12V) * 13/38 external gear = 616 wheel rpm.
 # set_speed_rpm() / start_rpm_control() take a WHEEL rpm in 0..MAX_WHEEL_RPM.
-MAX_WHEEL_RPM = 1330.0 * 13.0 / 38.0  # 455.0
+MAX_WHEEL_RPM = 1800.0 * 13.0 / 38.0  # ~615.8
 # Minimum loop interval (s) before a fresh RPM measurement is trusted. Below this
 # the encoder delta is too small/noisy, so we skip the update.
 _RPM_MIN_DT = 0.02
@@ -51,24 +51,28 @@ _ENC_FORWARD_SIGN = 1.0
 # and eases it back to hold the target rpm. PI gains are duty-% per wheel-rpm.
 _RPM_CONTINUOUS_MIN = 40.0   # wheel rpm at/above which we hold rpm with closed-loop duty
 _RPM_STALL_RPM = 5.0         # below this MEASURED rpm the wheel counts as "not moving yet"
-_RPM_KP_DUTY = 0.20          # proportional duty-% per wheel-rpm of error (bumped from 0.15
-                              # 2026-07-26 for faster tracking of a fluctuating target; needs
-                              # on-hardware bench validation, see test_rpm_10.py)
-_RPM_KI_DUTY = 0.50          # integral duty-% per (wheel-rpm * s) of error (bumped from 0.40,
-                              # same caveat - watch for the oscillation failure mode described
-                              # above (stall/re-stall chatter) if pushed further)
-_RPM_KICK_DUTY = 60.0        # break-free duty the wheel starts at while stalled
-_RPM_STALL_RAMP = 115.0      # while stalled, ramp duty up this fast (%/s): kick->cap in ~0.35s
+_RPM_KP_DUTY = 0.15          # proportional duty-% per wheel-rpm of error (reduced from 0.20
+                              # 2026-08-05 for the new motor which responds faster per unit
+                              # duty -- 0.20 caused overshoot at low targets like 40/80 rpm)
+_RPM_KI_DUTY = 0.35          # integral duty-% per (wheel-rpm * s) of error (reduced from 0.50
+                              # 2026-08-05 for the new motor: the old 0.50 wound up too fast
+                              # during stall at low targets, causing overshoot on break-free)
+_RPM_KICK_DUTY = 48.0        # break-free duty the wheel starts at while stalled (reduced from
+                              # 60.0: new motor runs 300 rpm at only ~52% duty, so 60% massively
+                              # over-drives it at low targets)
+_RPM_STALL_RAMP = 80.0       # while stalled, ramp duty up this fast (%/s): kick->cap in ~0.65s
+                              # (reduced from 115.0: slower ramp lets the encoder report movement
+                              # before duty overshoots -- 48+80*0.04=51.2% in one step vs old
+                              # 60+115*0.04=64.6%)
 _RPM_CAP = 100.0             # max duty (%) the loop may command
 # Feed-forward estimate of the duty (%) needed to just HOLD a moving wheel at a
-# given target: duty ~= static + gain * wheel_rpm. Calibrated off the known
-# ~40 wheel-rpm @ ~33% duty operating point (30 + 0.12*40 = 34.8). Used to reseed
-# the PI integrator the instant the wheel breaks free, so the (much higher)
-# break-free duty doesn't get carried into the hold and overshoot the target -
-# see the stall->move hand-off in set_speed_rpm().
-_RPM_FF_STATIC = 30.0        # duty (%) a moving wheel needs near 0 rpm (static/coulomb friction)
-_RPM_FF_GAIN = 0.12          # extra duty (%) per wheel-rpm to hold speed
-_RPM_EMA_ALPHA = 0.3          # smoothing for the reported (not control-loop) measured rpm
+# given target: duty ~= static + gain * wheel_rpm. Calibrated from the new motor's
+# 2026-08-05 log data with corrected CPR (617.35 counts/rev):
+# ff(40) = 14 + 0.145*40 = 19.8%, ff(80) = 14 + 0.145*80 = 25.6%, ff(300) = 14 + 0.145*300 = 57.5%.
+# Used to reseed the PI integrator the instant the wheel breaks free.
+_RPM_FF_STATIC = 14.0        # duty (%) a moving wheel needs near 0 rpm (static/coulomb friction)
+_RPM_FF_GAIN = 0.145         # extra duty (%) per wheel-rpm to hold speed (re-calibrated for 617.35 CPR)
+_RPM_EMA_ALPHA = 0.45         # smoothing factor for control loop & reported RPM (suppresses 20ms encoder jitter)
 # Persistent controller state, shared across successive set_speed_rpm() calls.
 _rpm_state = {
     "start_pos": None,    # encoder position when control began
@@ -422,6 +426,7 @@ def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
     # tuning off the log misleading - it looked like targets were never
     # reached even once the wheel had settled near them.
     _rpm_state["ema_rpm"] += _RPM_EMA_ALPHA * (meas_rpm - _rpm_state["ema_rpm"])
+    ctrl_rpm = _rpm_state["ema_rpm"]
 
     deficit = _rpm_state["target_pos"] - actual
     deadband = deadband_rev * cpr
@@ -433,54 +438,31 @@ def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
         _rpm_state["broke_free"] = False
     elif target_rpm >= _RPM_CONTINUOUS_MIN:
         # Continuous regime, two phases:
-        err = target_rpm - meas_rpm
-        if meas_rpm < _RPM_STALL_RPM:
-            # Stalled (not moving yet): start at the break-free kick and ramp the
-            # duty quickly toward the cap so it breaks free even under a heavy
-            # steering load. Feedback-driven, so this stops the instant it moves.
-            # NOTE: broke_free is NOT cleared here. Under sustained heavy load
-            # (e.g. reversing at full steering lock) the wheel can dip back
-            # under the stall threshold and re-enter this branch mid-move; if
-            # broke_free were reset to False, the next crossing back into the
-            # "moving" branch below would reseed duty down to the light-load
-            # ff_hold estimate, which is too low to sustain the wheel against
-            # that load, so it stalls again immediately -- a self-inflicted
-            # oscillation between ~35% and ~60-90% duty that can chatter for
-            # many seconds (observed 2026-07-25: 40 rpm target reverse turn
-            # at 55 deg lock, measured rpm stuck oscillating around 4-6 for
-            # ~7s). Leaving broke_free True after the first break-free means
-            # a re-stall just keeps ramping from its current (already-working)
-            # duty instead of getting reseeded back down.
-            _rpm_state["duty"] = min(cap, max(_rpm_state["duty"], kick_duty) + stall_ramp * dt)
+        err = target_rpm - ctrl_rpm
+        if ctrl_rpm < _RPM_STALL_RPM:
+            # Stalled (not moving yet or temporary low-speed sample):
+            # Re-arm broke_free so re-seeding to ff_hold happens when motor moves again.
+            _rpm_state["broke_free"] = False
+            ff_hold = ff_static + ff_gain * target_rpm
+            max_stall_duty = min(cap, ff_hold + 12.0)
+            start_kick = min(kick_duty, ff_hold + 15.0)
+            _rpm_state["duty"] = min(max_stall_duty, max(_rpm_state["duty"], start_kick) + stall_ramp * dt)
+
             out = max(0.0, min(cap, _rpm_state["duty"]))
-            # MUST command the motor here too. This used to live (dedented) after
-            # the if/else so it covered both branches; when it was moved inside
-            # the `else` the stall ramp became dead code -- the duty was computed
-            # and logged but never written to the driver, so a wheel that dipped
-            # below _RPM_STALL_RPM just held whatever was last commanded. Coming
-            # out of a brake() that means the motor stays SHORTED while the log
-            # prints "Duty: 100.0%", and it can only recover if something
-            # externally spins the wheel back above the threshold.
             _apply_drive(motor_func, out, direction)
         else:
-            # First step after breaking free: the ramped break-free duty (60..cap)
-            # is usually well above the duty needed to merely HOLD the target,
-            # especially under light load (e.g. wheels near-straight after the
-            # camera wall-follow). Carrying it into the integrator makes the wheel
-            # overshoot the target for the ~1-2 s the PI takes to bleed it back
-            # down. So seed the integrator with a feed-forward hold estimate the
-            # instant it starts moving, and it settles at the target immediately.
-            # One-shot (broke_free): if a heavy load re-stalls the wheel and it
-            # breaks free again we keep its higher duty rather than re-clamping,
-            # so it doesn't chatter between the ramp and this seed.
+            # First step after breaking free: seed integrator with feed-forward hold
             if not _rpm_state["broke_free"]:
                 ff_hold = ff_static + ff_gain * target_rpm
                 _rpm_state["duty"] = min(_rpm_state["duty"], ff_hold)
                 _rpm_state["broke_free"] = True
             # Moving: PI trim on the rpm error eases the duty up/down to hold target.
-            # If decelerating (err < 0), bleed accumulated duty 3x faster to eliminate overshoot lag
-            if err < 0:
+            # Only apply 3x fast bleed for significant overshoot (err < -15.0) to avoid
+            # asymmetric draining from minor quantization fluctuations at low speeds.
+            if err < -15.0:
                 _rpm_state["duty"] = max(0.0, _rpm_state["duty"] + 3.0 * ki_duty * err * dt)
+            elif err < 0:
+                _rpm_state["duty"] = max(0.0, _rpm_state["duty"] + ki_duty * err * dt)
             else:
                 _rpm_state["duty"] = max(0.0, min(cap, _rpm_state["duty"] + ki_duty * err * dt))
 

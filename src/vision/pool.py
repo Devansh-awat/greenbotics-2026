@@ -16,9 +16,9 @@ from multiprocessing import shared_memory
 import cv2
 import numpy as np
 
-from src.obstacle_challenge.logsetup import vlog, _reset_child_logging
+from src.logs.setup import vlog, _reset_child_logging
 from src.obstacle_challenge.tuning import *
-from src.obstacle_challenge.vision import (
+from src.vision.pipeline import (
     MASK_NAMES, build_arena_mask, compute_colour_masks,
 )
 

@@ -60,9 +60,10 @@ STBY_PIN = 6
 # The motor's two leads are reversed relative to the TB6612's A01/A02 outputs,
 # and they're soldered to the PCB so they can't be swapped back. Inverting here
 # makes forward() drive the robot forwards.
-MOTOR_DIR_INVERT = True
+# Changed to False to reverse the direction as requested (motor went backward when told forward).
+MOTOR_DIR_INVERT = False
 MOTOR_PWM_PIN = 19
-MOTOR_PWM_FREQ = 10000
+MOTOR_PWM_FREQ = 1000
 MOTOR_PWM_CHIP = 0
 MOTOR_PWM_CHANNEL = 3
 SERVO_GPIO = 18
