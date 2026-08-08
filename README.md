@@ -29,16 +29,30 @@ WRO rules do not allow a differential drive robot. This steers us towards a real
 |  | All Wheel Drive | Front Wheel Drive | Rear Wheel Drive |
 | :---- | :---- | :---- | :---- |
 |  Driving power | All wheels | Front wheels | Rear wheels |
-| Physical complexity | Transfer rotational force to a wheel that is changing its angles w.r.t chassis | Transfer rotational force to a wheel that is changing its angles w.r.t chassis | Simpler design. Rear axis \- rotational force Front axis \- turning force |
+| Physical complexity | Transfer rotational force to a wheel that is changing its angles with respect to chassis | Transfer rotational force to a wheel that is changing its angles with respect to chassis | Simpler design. Rear axis \- rotational force Front axis \- turning force |
 | Mechanical complexity | Drive motor mounted on steering mechanism. Requires powerful servo due to extra weight | Drive motor mounted on steering mechanism. Requires powerful servo due to extra weight | **Separates mechanical responsibilities.** Steering and Drive motors mounted on separate axis |
 | Highlights | Off roading, steep inclines, muddy road | Pulling over obstacles  | Smooth roads, better turns |
 
 We chose RWD for its simpler design and smoother turns.   
 
-**Differential gear**  
-The rear wheels have a differential gear to prevent inner wheels from skidding when turning. As shown in the diagram below, during turns, the outer wheel covers more distance(wo) than inner wheels (wi). In absence of differential gear, the inner wheels would skid.
+<table>
+  <thead>
+    <tr>
+      <th>Differential Gear</th>
+      <th>Diagram</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>The rear wheels have a differential gear to prevent inner wheels from skidding when turning. As shown in the diagram below, during turns, the outer wheel covers more distance(wo) than inner wheels (wi). In absence of differential gear, the inner wheels would skid.
+      </td>
+      <td >
+       <img src="docs/diagrams/mobility/Differential_gear.png" alt="Differential Gear" width="400">
+      </td>
+    </tr>
+  </tbody>
+ </table>   
 
-<img src="docs/diagrams/mobility/Differential_gear.png" alt="Differential Gear" width="200">
 
 ---
 
@@ -95,7 +109,7 @@ Both these problems can be resolved with metal differential gears. To allow for 
 | :---- | :---- | :---- |
 | **Backlash**  | High (Rough control at low speed during parking) | Low (Precise control at low speed during parking) |
 | **Friction** | Plastic-plastic \- higher friction (Prone to low-speed stutter) | Metal-metal \- lower friction (Smooth low-speed crawl) |
-| **Rigidity / Prone to damage** | Flexes under pressure(Grinding sound when robot stuck) | Rigid and stable |
+| **Rigidity / Prone to damage** | Teeth Chip away after continued usage | Rigid and stable |
 
 TODO: show 3D diagram side by side with real pic \- differential gearbox assembly opened showing gears \+ axle \+ wheel
 
@@ -104,6 +118,7 @@ TODO: show 3D diagram side by side with real pic \- differential gearbox assembl
 ### 1.5 Wheel selection
 
 We used lego spike prime medium wheels with 56mm diameter. These are narrow like bicycle wheels giving smoother turns. A bigger wheel would amplify the backlash causing imprecise movements during parking.
+##TODO Complete this section also mention we tried 3 D printing it ..also mention the width of the wheel
 
 ---
 
@@ -364,13 +379,24 @@ Distance per pulse \=
 
 Link to main section system design
 
+—————————————————UPDATES——————————————————
+
+
+Detection distance accuracy v/s distance experiment
+The accuracy of the ToF sensor reduces as the distance reduces with a possible blind spot. Show this in a table. We refined our design by placing our sensors inside of the robot chassis to account for the measured blind spot.
+
+Parking accuracy experiment
+The parking slot is 1.5x the robot length. The turning radius of the robot is proportional to the wheel base. Our wheel base is the tightest required to accommodate the required drive components. However every car has a projection and a bumper outside the wheel base. We ran 5 runs with different bumper sizes to choose the one which provides most reliable parking.
+
+
+
 ---
 
 ## 2. Power & Sensor Architecture
 
 A 11.1V 1500mAh 16.65 Wh LiPo battery powers all the electronics on our robot. It drives two power converters - a 25W converter provides 5.2V to the Raspberry Pi 5 and the Servo motor while the 15W converter provides upto 8V to the Drive motor. The RPi 5 further powers the camera and sensors via its 3.3V GPIO rail.
 
-<img src="docs/diagrams/powerNsense/power_arch_white.png" alt="Power and Sense Architecture" width="700">
+<img src="docs/diagrams/powerNsense/power_arch.drawio.png" alt="Power and Sense Architecture" width="700">
 
 ---
 
@@ -387,11 +413,11 @@ We referred to components documentation to find out their voltage and current sp
 | VL53L4CD ToF sensor (x4) | 3.3 | 0.020 | 0.080 |
 | Total load on 5V power bus | 5.0 | 0.888 | 1.322 |
 
-| Devices on 8V power bus | Volts (V) | Idle (A) | Typical (A) |
+| Devices on 11V power bus | Volts (V) | Idle (A) | Typical (A) |
 | :---- | :---- | :---- | :---- |
-| Motor driver - TB6612 FNG | 8.0 | 0.001 | 0.002 |
-| Motor - TT GM25 | 8.0 | 0.005 | 0.300 |
-| Total load on 8V power bus | 8.0 | 0.006 | 0.302 |
+| Motor driver - TB6612 FNG (Logic/VCC) | 5.0 | 0.001 | 0.002 |
+| Motor - Pololu 4861 | 11.1 | 0.000 | 0.400 |
+| Total load on 11V power bus | 11.1 | 0.001 | 0.402 |
 
 \* Current values sourced from component datasheets and other sources.
 
@@ -402,20 +428,21 @@ Using values from the above table, we did **calculation for the need of current 
 | **5V Bus** | | |
 | Output power = Voltage × Current | 5V × 0.888A = 4.44W | 5V × 1.322A = 6.61W |
 | Input power = Output power / Efficiency (95%) | 4.44W / 0.95 = 4.67W | 6.61W / 0.95 = 6.96W |
-| **8V Bus** | | |
-| Output power = Voltage × Current | 8V × 0.006A = 0.048W | 8V × 0.302A = 2.416W |
-| Input power = Output power / Efficiency (97.5%) | 0.048W / 0.975 = 0.05W | 2.416W / 0.975 = 2.48W |
+| **11V Bus** | | |
+| Output power = Voltage × Current | 11.1V × 0.001A = 0.011W | 11.1V × 0.402A = 4.462W |
+| Input power = Output power / Efficiency (97.5%) | 0.011W / 0.975 = 0.011W | 4.462W / 0.975 = 4.577W |
 | **Battery Total** | | |
-| Power drawn = 5V input + 8V input | 4.67W + 0.05W = **4.72W** | 6.96W + 2.48W = **9.44W** |
-| Current drawn = Power / Battery voltage (11.1V) | 4.72W / 11.1V = **0.425A** | 9.44W / 11.1V = **0.850A** |
+| Power drawn = 5V input + 12V input | 4.67 W + 0.011W = **4.68W** | 6.96W + 4.577W = **11.537** |
+| Current drawn = Power / Battery voltage (11.1V) | 4.68W / 11.1V = **0.422A** | 11.537W / 11.1V = **1.039A** |
 
 ---
 
 ### 2.2 Power Strategy
 
 #### 2.2.1 Battery Runtime Estimation
-
-Battery specifications  
+ 
+```
+Battery specifications 
 Nominal voltage = 11.1V  
 Full charge voltage = 12.6V  
 Capacity             = 1500mAh  
@@ -424,32 +451,28 @@ Max discharge current = capacity * C rating
                                      = 1.5Ah * 35  
                                      = 52.5A  
 Headroom v/s C rating = max discharge current / current drawn from battery  
-                                     = 52.5A / 0.850A  
-                                     = 61.76x (burst that the battery can handle)
+                                     = 52.5A / 1.039A  
+                                     = 50.53 x (burst that the battery can handle)
 
 Total energy stored = capacity * nominal voltage  
                                 = 1.5Ah * 11.1V  
                                 = 16.65Wh
 
 Estimated runtime = Total energy / Power drawn from battery (typical)  
-                              = 16.65Wh / 9.44W  
-                              = 1.76 hours
-
+                              = 16.65Wh / 11.537W  
+                              = 1.44 hours
+```
 Applying a safety margin of 30% to avoid over discharging the battery, we comfortably get a runtime of over an hour for typical power consumption.
-Moreover, we have added a **Battery Level Indicator** which allows us to be aware of the battery voltage at all times and we can ensure its fully charged before taking any benchmarking runs. Also our chassis mount for battery is designed in such a way that its easy to change the battery and we can put in the spare battery when running continuously.
+Moreover, we have added a **Battery Level Indicator** which allows us to be aware of the battery voltage at all times and we can ensure its fully charged before taking any benchmarking runs. 
 
-#### 2.2.2 Voltage Converters
+#### 2.2.2 Voltage Converter
 
-We have provided two separate voltage converters
+The 25W/5V converter provides USB compatible output suited for RPi 5's USB power input.  
+```
+RPi's operational power requirement = 6.96W     	Converter's output power = 25W  
+```
+This is **more than 3X the required power** to account for spikes.  
 
-1) The 25W/5V converter provides USB compatible output suited for RPi 5's USB power input.  
-   	RPi's operational power requirement = 6.96W  
-   	Converter's output power = 25W  
-   	This is **more than 3X the required power** to account for spikes.  
-2) The 15W/adjustable converter is adjusted to provide 6V output suited for a 6V drive motor.  
-   	Drive motor's operational power requirement = 2.48W  
-   	Converter's output power = 15W  
-   	This is **more than 5X the required power** to account for spikes.
 
 ---
 
@@ -457,14 +480,14 @@ We have provided two separate voltage converters
 
 #### 2.3.1 Full Circuit Loop Measurement
 
-An ammeter was put in series in the LiPo battery path and the robot run on a raised platform to measure the typical operating current.
+A multimeter was put in series in the LiPo battery path and the robot run on a raised platform to measure the typical operating current.
 
 | Condition | Measured current (A) | Theoretical current (A) |
 | :---- | :---- | :---- |
-| Idle operation | 0.350 to 0.420 (across multiple readings) | 0.425 |
-| Typical operation | 0.790 to 0.820 (across multiple readings) | 0.850 |
+| Idle operation | 0.350 to 0.420 (across multiple readings) | 0.422 |
+| Typical operation | 0.780 to 0.990 (across multiple readings) | 1.039 |
 
-**TODO: Insert multimeter photo showing measurement setup**
+![MultiMeter Output](docs/diagrams/powerNsense/IMG_1251.jpeg)
 
 #### 2.3.2 5V Power Bus — Onboard Telemetry
 
@@ -487,7 +510,7 @@ Here is a comparison showing our robot before and after the PCB
 
 The complete wiring diagram below shows all power and signal connections between the battery, voltage converters, Raspberry Pi 5, motor driver, servo, camera, IMU, and ToF sensors.
 
-![Wiring Diagram](docs/diagrams/powerNsense/Wiring_Diagram.drawio.png)
+<img src="docs/diagrams/powerNsense/Wiring_Diagram.drawio.png" alt="Wiring Diagram" width="1000">
 
 **TODO: Add a simplified pin layout diagram showing how PWM and Encoder connect to RP1 hardware pins**
 
@@ -1268,15 +1291,12 @@ The general principle: **do the cheap reject as early as possible, and avoid eve
 
 ### 3.10 Recommended Sections — Not Yet Written
 
-#### 3.10.1 Annotated Camera Frame Analysis
 
-*What to include: Step-by-step image processing with actual frames: raw → HSV → masks → contours → final decision overlay. Show what the robot "sees" at key moments: approaching a red pillar, approaching a green pillar, entering a corner, during parking.*
-
-#### 3.10.2 PID Tuning Visualization
+#### 3.10.1 PID Tuning Visualization
 
 *What to include: Plot the robot's steering angle over time at different PD gains. Show underdamped (oscillating between walls), overdamped (slow to respond at corners), and final tuned response.*
 
-#### 3.10.3 Run Logging and Debug
+#### 3.10.2 Run Logging and Debug
 
 Every run writes a self-contained folder with:
 - Annotated MP4 (ROIs, contours, target lines, FPS, turn counter, computed angle)
