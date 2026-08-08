@@ -10,46 +10,58 @@ This directory contains the following schematic diagrams
 
 ![CircuitDiagram](CircuitDiagram.png)
 
-- Motor Connection Diagram
+- Bearing to wheel shaft
 
-![MotorConnectionDiagram](MotorConnectionDiagram.jpeg)
-
-- Camera arm mount
-
-![CameraMountArm](CameraMountArm.png)
+![BearingToWheelShaft](BearingToWheelShaft.png)
  
-- Camera base mount
+- Bottom chasis
 
-![CameraMountBase](CameraMountBase.png)
+![BottomChasis](BottomChasis.png)
  
-- Sensor mount
+- Camera mount
 
-![SensorMount](SensorMount.png)
+![CameraMount](CameraMount.png)
 
-- Servo motor mount
+- Diiferential Mount Top
+
+![DiiferentialMountTop](DiiferentialMountTop.png)
+
+- Motor Shaft
+
+![MotorShaft](MotorShaft.png)
+
+- Servo Mount
 
 ![ServoMount](ServoMount.png)
 
-- Servo horn mount
+- Top Chasis
 
-![ServoHornMount](ServoHornMount.png)
+![TopChasis](TopChasis.png)
 
-- Chassis step 1 (top)
+- TPU Bumper
 
-![Chassis_1_top](Chassis_1_top.png)
+![TPUBumper](TPUBumper.png)
 
-- Chassis step 1 (bottom)
+- Variable ServoHorn
 
-![Chassis_1_bottom](Chassis_1_bottom.png)
+![VariableServoHorn](VariableServoHorn.png)
 
-- Chassis step 1 (iso)
+- Wheel Stabilizer
 
-![Chassis_1_iso](Chassis_1_iso.png)
+![WheelStabilizer](WheelStabilizer.png)
 
-- Chassis step 2 (front)
+- Chassis step 1
 
-![Chassis_2_front](Chassis_2_front.png)
+![Chassis_Step1](Step1.png)
 
-- Chassis step 3 (iso)
+- Chassis step 2
 
-![Chassis_3_iso](Chassis_3_iso.png)
+![Chassis_Step2](Step2.png)
+
+- Chassis step 3
+
+![Chassis_Step3](Step3.png)
+
+- Chassis step 4 (final)
+
+![Chassis_Step4](WRO2026Chasisv1.1.png)
