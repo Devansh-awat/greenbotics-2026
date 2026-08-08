@@ -1,4 +1,4 @@
-"""Logging setup for the obstacle challenge.
+"""Logging setup, shared by both challenges and the drivers.
 
 One logger tree, `robot.*`, shared by the challenge code and the drivers
 (`robot.motor` is set up inside src/motors/motor.py). Everything goes through a
@@ -7,7 +7,7 @@ I/O -- a QueueListener thread does the formatting and writing.
 
 To add your own logging, pick the logger whose area you are in and call it:
 
-    from src.obstacle_challenge.logsetup import log, vlog
+    from src.logs.setup import log, vlog
     log.info("turn %d done, heading %.1f", turn_counter, heading)
 
 Use `%s`-style lazy args, not f-strings: the formatting then only happens if the

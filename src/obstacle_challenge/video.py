@@ -11,7 +11,7 @@ from multiprocessing import shared_memory
 import cv2
 import numpy as np
 
-from src.obstacle_challenge.logsetup import wlog, _reset_child_logging
+from src.logs.setup import wlog, _reset_child_logging
 from src.obstacle_challenge.tuning import (
     CAMERA_FPS, FRAME_HEIGHT, FRAME_WIDTH, VIDEO_EVERY_N, VIDEO_FPS,
     VIDEO_QUEUE_SLOTS,

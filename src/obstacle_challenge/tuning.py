@@ -7,6 +7,8 @@ control modules, so every name defined here is part of the public surface.
 
 import cv2
 import numpy as np
+from src.motors import motor
+
 # ---------------------------------------------------------------------------
 # Tuning constants
 # ---------------------------------------------------------------------------
@@ -15,6 +17,14 @@ import numpy as np
 # ORANGE_COOLDOWN_FRAMES = 45
 
 MOTOR_SPEED = 65
+MIN_RPM = 320.0
+MAX_RPM = 0.80 * motor.MAX_WHEEL_RPM
+MAX_ACCEL_PER_FRAME = 10.0
+MAX_DECEL_PER_FRAME = 200.0
+INITIAL_RPM = 50.0
+USE_VARIABLE_SPEED = True  # Set to True to re-enable variable speed based on steering & block height
+BLOCK_TARGET_GRACE_FRAMES = 12
+
 ORANGE_COOLDOWN_FRAMES = 50
 
 #MOTOR_SPEED = 92

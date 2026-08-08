@@ -28,9 +28,9 @@ from src.obstacle_challenge.control import (
     drive_distance_with_gyro, drive_straight_with_gyro, get_angular_difference,
     steer_with_gyro,
 )
-from src.obstacle_challenge.logsetup import Throttle, _fmt, log, plog
+from src.logs.setup import Throttle, _fmt, log, plog
 from src.obstacle_challenge.tuning import *
-from src.obstacle_challenge.vision import annotate_video_frame, process_video_frame
+from src.vision.pipeline import annotate_video_frame, process_video_frame
 
 # --- Injected by main_v5.bind_runtime() -------------------------------------
 # None of these can be imported: they are live objects created after the hardware
@@ -241,7 +241,7 @@ def parking():
 
     motor.stop_rpm_control()
     time.sleep(0.3)
-    motor.start_rpm_control(40, "forward")
+    motor.start_rpm_control(60, "forward")
     while get_angular_difference((INITIAL_HEADING+180)%360, imu_thread.get_heading()) > 5:
         heading = imu_thread.get_heading()
         servo.set_angle(steer_with_gyro(heading,(INITIAL_HEADING+180)%360, kp=1,min_servo_angle=-40, max_servo_angle=40))
@@ -318,16 +318,16 @@ def parking():
                     plog.info("Detected what seems to be the first magenta line (%d px).", magenta_pixel_count)
                     on_first_line = True
     servo.set_angle(0)
-    time.sleep(0.62)  # INCREASING MAKES ROBOT STOP MORE FORWARD
+    time.sleep(0.32)  # INCREASING MAKES ROBOT STOP MORE FORWARD
     motor.stop_rpm_control()
     time.sleep(0.3)
-    motor.start_rpm_control(40, "reverse")
+    motor.start_rpm_control(60, "reverse")
     servo.set_angle_unlimited(55)
     while get_angular_difference((INITIAL_HEADING+100)%360, imu_thread.get_heading()) > 10:
         time.sleep(0.01)
     motor.stop_rpm_control()
     plog.debug("first reverse turn done: %s", sensor_thread.get_readings())
-    motor.start_rpm_control(40, "reverse")
+    motor.start_rpm_control(60, "reverse")
     servo.set_angle(0)
     parking_start = time.monotonic()
     throttle = Throttle(0.2)
@@ -343,7 +343,7 @@ def parking():
         time.sleep(0.01)
     motor.stop_rpm_control()
     time.sleep(0.3)
-    motor.start_rpm_control(40, "forward")
+    motor.start_rpm_control(60, "forward")
     time.sleep(0.1)
     parking_start = time.monotonic()
     throttle = Throttle(0.2)
@@ -362,8 +362,8 @@ def parking():
         time.sleep(0.01)
     motor.stop_rpm_control()
     time.sleep(0.3)
-    motor.start_rpm_control(40, "reverse")
     servo.set_angle_unlimited(-65)
+    motor.start_rpm_control(60, "reverse")
     manuver_start_time = time.monotonic()
     throttle = Throttle(0.2)
     while True:
@@ -380,7 +380,7 @@ def parking():
         time.sleep(0.01)
     motor.stop_rpm_control()
     time.sleep(0.3)
-    motor.start_rpm_control(40, "forward")
+    motor.start_rpm_control(60, "forward")
     throttle = Throttle(0.2)
     while True:
         dist_center = sensor_thread.get_readings()['distance_center']
@@ -395,7 +395,7 @@ def parking():
     motor.stop_rpm_control()
     time.sleep(0.3)
 
-    motor.start_rpm_control(40, "reverse")
+    motor.start_rpm_control(60, "reverse")
     throttle = Throttle(0.2)
     while True:
         dist = sensor_thread.get_readings()['distance_back']
@@ -410,7 +410,6 @@ def parking():
         time.sleep(0.01)
     motor.stop_rpm_control()
     plog.info("--- parking() completed in %.2fs ---", time.monotonic() - fn_start)
-
 
 def parking2():
     fn_start = time.monotonic()

@@ -3,21 +3,21 @@
 `process_video_frame()` is the entry point -- it turns one BGR frame into the
 detections dict the control loop steers on. When the vision pool is running, the
 arena mask and the colour masks are computed concurrently in two worker processes
-and joined here (see vision_pool.py); the results are identical either way.
+and joined here (see pool.py); the results are identical either way.
 
 Nothing in this module touches hardware, so it is safe to import and exercise on
-saved frames.
+saved frames. Shared by both the obstacle and open challenges.
 """
 
 import math
 import cv2
 import numpy as np
 
-from src.obstacle_challenge.logsetup import vlog
+from src.logs.setup import vlog
 from src.obstacle_challenge.tuning import *
 
-# The live VisionPool, or None to process inline. Set by main_v5 at startup;
-# vision_pool.py imports this module, so it must not be imported from here.
+# The live VisionPool, or None to process inline. Set by each challenge's main at
+# startup; pool.py imports this module, so it must not be imported from here.
 vision_pool = None
 # --- Arena mask -------------------------------------------------------------
 # v5 only. The fixed ROIs above say *where in the frame* to look; they can't say
@@ -415,55 +415,36 @@ def process_video_frame(frame):
                     })
 
     def process_block_contours(mask, offset_x, offset_y, b_type, b_color, min_area):
+        blocks = []
         if cv2.countNonZero(mask) > 0:
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if contours:
-                biggest_contour = max(contours, key=cv2.contourArea)
-                area = cv2.contourArea(biggest_contour)
+            for cnt in contours:
+                area = cv2.contourArea(cnt)
                 if area > min_area:
-                    M = cv2.moments(biggest_contour)
+                    M = cv2.moments(cnt)
                     if M["m00"] != 0:
                         bcx = int(M["m10"] / M["m00"]) + offset_x
                         bcy = int(M["m01"] / M["m00"]) + offset_y
-                        biggest_contour_global = biggest_contour + [offset_x, offset_y]
+                        cnt_global = cnt + [offset_x, offset_y]
 
-                        # Ground-contact test. The arena mask is a SOLID fill that
-                        # includes the wall band, so a red logo on the wall or a
-                        # pillar in the far section poking into that band still
-                        # passes it. This asks the orthogonal question: is the thing
-                        # standing on the mat? Real pillars have floor beneath them;
-                        # anything resting on a wall has black beneath it.
-                        # Skipped for 'close_block' -- that 10px strip is an
-                        # emergency reverse-and-swerve reflex where a false negative
-                        # is worse than a false positive.
                         if USE_GROUND_CONTACT and floor_mask is not None and b_type == 'block':
-                            rx, ry, rw, rh = cv2.boundingRect(biggest_contour_global)
+                            rx, ry, rw, rh = cv2.boundingRect(cnt_global)
                             probe_y = ry + rh + GROUND_PROBE_DY
                             if probe_y < ARENA_Y_BOTTOM:
                                 strip = floor_mask[probe_y, rx:rx + rw]
                                 if strip.size and (np.count_nonzero(strip) / strip.size) < GROUND_CONTACT_MIN:
-                                    return None
+                                    continue
 
-                        return {'type': b_type, 'color': b_color, 'area': area,
-                                'centroid': (bcx, bcy), 'contour': biggest_contour_global}
-        return None
+                        blocks.append({'type': b_type, 'color': b_color, 'area': area,
+                                       'centroid': (bcx, bcy), 'contour': cnt_global})
+        return blocks
 
     all_detected_blocks = []
-
-    res = process_block_contours(mask_red_main, mx, GLOBAL_Y_OFFSET + my_slice, 'block', 'red', BLOCK_MIN_AREA)
-    if res: all_detected_blocks.append(res)
-
-    res = process_block_contours(mask_green_main, mx, GLOBAL_Y_OFFSET + my_slice, 'block', 'green', BLOCK_MIN_AREA)
-    if res: all_detected_blocks.append(res)
-
-    res = process_block_contours(mask_red_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'red', CLOSE_BLOCK_MIN_AREA)
-    if res: all_detected_blocks.append(res)
-
-    res = process_block_contours(mask_green_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'green', CLOSE_BLOCK_MIN_AREA)
-    if res: all_detected_blocks.append(res)
-
-    res = process_block_contours(mask_magenta_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'magenta', CLOSE_BLOCK_MIN_AREA)
-    if res: all_detected_blocks.append(res)
+    all_detected_blocks.extend(process_block_contours(mask_red_main, mx, GLOBAL_Y_OFFSET + my_slice, 'block', 'red', BLOCK_MIN_AREA))
+    all_detected_blocks.extend(process_block_contours(mask_green_main, mx, GLOBAL_Y_OFFSET + my_slice, 'block', 'green', BLOCK_MIN_AREA))
+    all_detected_blocks.extend(process_block_contours(mask_red_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'red', CLOSE_BLOCK_MIN_AREA))
+    all_detected_blocks.extend(process_block_contours(mask_green_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'green', CLOSE_BLOCK_MIN_AREA))
+    all_detected_blocks.extend(process_block_contours(mask_magenta_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'magenta', CLOSE_BLOCK_MIN_AREA))
 
     main_blocks = [b for b in all_detected_blocks if b['type'] == 'block']
     other_blocks = [b for b in all_detected_blocks if b['type'] != 'block']

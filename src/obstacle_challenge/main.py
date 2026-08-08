@@ -3,16 +3,17 @@ Obstacle Challenge -- main control program (v5).
 
 Runs on the robot's Raspberry Pi 5. See CLAUDE.md for the hardware map. This file
 holds the run setup and the per-frame control loop, and nothing else; everything it
-calls lives in a sibling module:
+calls lives in a sibling module -- vision, threads and logging are shared with the
+open challenge, so they live outside this package:
 
-    logsetup.py      the `robot.*` logger tree, Throttle, non-blocking log queue
-    tuning.py        every constant -- colour ranges, ROIs, gains, perf switches
-    vision.py        arena mask, colour masks, process_video_frame, annotation
-    vision_pool.py   the two vision worker processes and their shared memory
-    video.py         the annotated-run recorder, in its own process
-    hw_threads.py    CameraThread / ImuThread / SensorThread / PerfMonitor
-    control.py       heading maths and the gyro-stabilised drive primitives
-    maneuvers.py     the scripted sequences: initial maneuver, parking, parking2
+    src/logs/setup.py      the `robot.*` logger tree, Throttle, non-blocking log queue
+    tuning.py               every constant -- colour ranges, ROIs, gains, perf switches
+    src/vision/pipeline.py  arena mask, colour masks, process_video_frame, annotation
+    src/vision/pool.py      the two vision worker processes and their shared memory
+    video.py                the annotated-run recorder, in its own process
+    src/threads/hw_threads.py  CameraThread / ImuThread / SensorThread / PerfMonitor
+    control.py              heading maths and the gyro-stabilised drive primitives
+    maneuvers.py            the scripted sequences: initial maneuver, parking, parking2
 
 Performance model (measured 2026-08-01 on the real robot, 640x360):
 
@@ -46,7 +47,7 @@ fork-join, NOT a pipeline -- a pipeline would raise latency, which is the opposi
 what we want. Frames move through /dev/shm (0.05 ms memcpy); a Queue/pickle path would
 cost more than the work saved.
 
-Run it from the repo root:  python3 -m src.obstacle_challenge.main_v5
+Run it from the repo root:  python3 -m src.obstacle_challenge.main
 """
 
 import math
@@ -63,15 +64,16 @@ from gpiozero import Button, LED
 from src.motors import motor, servo
 from src.sensors import bno086, camera, distance
 
-from src.obstacle_challenge import config, control, maneuvers, vision
-from src.obstacle_challenge.hw_threads import (
+from src.obstacle_challenge import config, control, maneuvers
+from src.threads.hw_threads import (
     CameraThread, ImuThread, PerfMonitor, SensorThread,
 )
-from src.obstacle_challenge.logsetup import log, setup_logging, shutdown_logging
+from src.logs.setup import log, setup_logging, shutdown_logging
 from src.obstacle_challenge.tuning import *
 from src.obstacle_challenge.video import VideoEncoderProcess
-from src.obstacle_challenge.vision import annotate_video_frame, process_video_frame
-from src.obstacle_challenge.vision_pool import VisionPool
+from src.vision import pipeline as vision
+from src.vision.pipeline import annotate_video_frame, process_video_frame
+from src.vision.pool import VisionPool
 
 
 if __name__ == "__main__":
@@ -194,16 +196,9 @@ if __name__ == "__main__":
         frame_counter = 0
         maneuvers.perform_initial_maneuver()
         log.info("Initial maneuver done; entering main control loop.")
-        MIN_RPM = 300.0
-        MAX_RPM = 1.10 * motor.MAX_WHEEL_RPM
-        MAX_ACCEL_PER_FRAME = 10.0
-        MAX_DECEL_PER_FRAME = 200.0
-        INITIAL_RPM = 50.0
-        USE_VARIABLE_SPEED = False  # Set to True to re-enable variable speed based on steering & block height
 
         motor.start_rpm_control(INITIAL_RPM, "forward")
         prev_rpm = INITIAL_RPM
-        BLOCK_TARGET_GRACE_FRAMES = 12
         last_block_target_rpm = INITIAL_RPM
         frames_since_block_seen = BLOCK_TARGET_GRACE_FRAMES
         loop_frames = 0
@@ -299,7 +294,12 @@ if __name__ == "__main__":
 
                 if not is_close_block:
                     candidate_blocks = [b for b in detected_blocks if b['type'] == 'block']
-                    block = candidate_blocks[0] if candidate_blocks else None
+                    block = None
+                    if candidate_blocks:
+                        if candidate_blocks[0]['centroid'][1] >= 205 and len(candidate_blocks) > 1:
+                            block = candidate_blocks[1]
+                        else:
+                            block = candidate_blocks[0]
 
                     if block is not None:
                         block_color = block['color']
@@ -408,8 +408,13 @@ if __name__ == "__main__":
                 f_steering = 1.0 - (0.5 * a)
 
                 if active_block_y is not None:
-                    y_clamped = np.clip(active_block_y, 130, 150)
-                    h = 1.0 - (y_clamped - 130.0) / (150.0 - 130.0)
+                    roi_y_min = full_frame_roi[1]
+                    roi_y_max = full_frame_roi[1] + full_frame_roi[3]
+                    # Linear scale from top of ROI (y_min) down to 20px before ROI bottom.
+                    # Lower 20px of ROI stays at lowest RPM (MIN_RPM).
+                    scale_y_max = max(roi_y_min + 1, roi_y_max - 20)
+                    y_clamped = np.clip(active_block_y, roi_y_min, scale_y_max)
+                    h = 1.0 - (y_clamped - roi_y_min) / (scale_y_max - roi_y_min)
                     f_height = h
                     target_rpm = MIN_RPM + (MAX_RPM - MIN_RPM) * f_height * f_steering
                     last_block_target_rpm = target_rpm

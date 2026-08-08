@@ -11,7 +11,7 @@ from collections import deque
 import numpy as np
 
 from src.sensors import distance
-from src.obstacle_challenge.logsetup import (
+from src.logs.setup import (
     Throttle, _fmt, clog, ilog, perflog, slog,
 )
 from src.obstacle_challenge.tuning import PERF_REPORT_PERIOD
