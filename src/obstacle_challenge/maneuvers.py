@@ -318,7 +318,7 @@ def parking():
                     plog.info("Detected what seems to be the first magenta line (%d px).", magenta_pixel_count)
                     on_first_line = True
     servo.set_angle(0)
-    time.sleep(0.32)  # INCREASING MAKES ROBOT STOP MORE FORWARD
+    time.sleep(0.47)  # INCREASING MAKES ROBOT STOP MORE FORWARD
     motor.stop_rpm_control()
     time.sleep(0.3)
     motor.start_rpm_control(60, "reverse")

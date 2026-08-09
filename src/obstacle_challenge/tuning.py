@@ -76,6 +76,7 @@ USE_BILATERAL = True
 BILATERAL_D = 5
 BILATERAL_SIGMA_COLOR = 50
 BILATERAL_SIGMA_SPACE = 50
+HSV_BEFORE_BLUR = True
 
 # Worker sync timeout. If a vision worker ever misses this the pool is disabled for
 # the rest of the run and we fall back to inline processing -- a slow frame is

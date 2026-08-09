@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 
 # --- Robot Parameters ---
-MOTOR_SPEED = 100
+MOTOR_SPEED = 90
 
 # --- Frame & Video Processing ---
 FRAME_WIDTH = 640
@@ -49,6 +49,7 @@ USE_BILATERAL = True
 BILATERAL_D = 5
 BILATERAL_SIGMA_COLOR = 50
 BILATERAL_SIGMA_SPACE = 50
+HSV_BEFORE_BLUR = True
 
 # --- Regions of Interest (ROI) ---
 # ROIs for Wall Detection (v5 positions -- 10 px higher than the old open ones)
