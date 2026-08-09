@@ -76,20 +76,24 @@ def run_pipeline_capture():
         else:
             print("Arena mask: seed point isn't on a floor blob (nose into a wall / camera covered)")
 
+        # --- Filtered slice: the bilateral/Gaussian step, before HSV/Lab and
+        # thresholding -- USE_BILATERAL/BILATERAL_* in tuning.py control it.
+        images["06_filtered_slice.png"] = vision.filter_slice(frame)
+
         # --- Colour masks: red/green/magenta/orange/blue/black on the working slice ---
         masks = vision.compute_colour_masks(frame)
-        images["06_mask_red.png"] = masks['red']
-        images["07_mask_green.png"] = masks['green']
-        images["08_mask_magenta.png"] = masks['magenta']
-        images["09_mask_orange.png"] = masks['orange']
-        images["10_mask_blue.png"] = masks['blue']
-        images["11_mask_black.png"] = masks['black']
+        images["07_mask_red.png"] = masks['red']
+        images["08_mask_green.png"] = masks['green']
+        images["09_mask_magenta.png"] = masks['magenta']
+        images["10_mask_orange.png"] = masks['orange']
+        images["11_mask_blue.png"] = masks['blue']
+        images["12_mask_black.png"] = masks['black']
 
         # --- Full detection + annotation: exactly what the control loop sees ---
         detections = vision.process_video_frame(frame)
         annotated = vision.annotate_video_frame(
             frame, detections, "clockwise", debug_info="pipeline capture")
-        images["12_annotated_frame.png"] = annotated
+        images["13_annotated_frame.png"] = annotated
 
         print(f"Saving {len(images)} pipeline images to {OUTPUT_DIR}/ ...")
         for filename, img in images.items():

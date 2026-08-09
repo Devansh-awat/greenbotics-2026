@@ -205,15 +205,12 @@ LINE_X0 = line_roi_x
 LINE_X1 = line_roi_x + line_roi_w
 
 
-def compute_colour_masks(frame, out=None):
-    """Threshold the working slice into the six colour masks.
+def filter_slice(frame):
+    """Crop the working slice and run the edge-preserving/blur step on it.
 
-    Every operation here is pointwise, so thresholding the whole slice and cropping
-    afterwards is identical to the old code's crop-then-threshold -- which is what
-    lets this run in a worker process independently of the arena mask.
-
-    `out`, if given, is a (6, SLICE_HEIGHT, FRAME_WIDTH) uint8 view into shared
-    memory to write into directly, avoiding an allocation + copy per frame.
+    Split out of compute_colour_masks() so callers that just want to see (or
+    debug) the filtered image -- e.g. src/tools/capture_*_pipeline.py -- don't
+    have to re-derive it by hand and risk drifting from the real pipeline.
     """
     frame_slice = frame[GLOBAL_Y_OFFSET:GLOBAL_Y_END, :]
     if USE_BILATERAL:
@@ -224,11 +221,34 @@ def compute_colour_masks(frame, out=None):
         )
     else:
         frame_slice = cv2.GaussianBlur(frame_slice, (1, 7), 0)
+    return frame_slice
 
-    if USE_LAB:
-        hsv_slice = cv2.cvtColor(frame_slice, cv2.COLOR_BGR2Lab)
+
+def compute_colour_masks(frame, out=None):
+    """Threshold the working slice into the six colour masks.
+
+    Every operation here is pointwise, so thresholding the whole slice and cropping
+    afterwards is identical to the old code's crop-then-threshold -- which is what
+    lets this run in a worker process independently of the arena mask.
+
+    `out`, if given, is a (6, SLICE_HEIGHT, FRAME_WIDTH) uint8 view into shared
+    memory to write into directly, avoiding an allocation + copy per frame.
+    """
+    if globals().get('HSV_BEFORE_BLUR', False):
+        raw_slice = frame[GLOBAL_Y_OFFSET:GLOBAL_Y_END, :]
+        hsv_raw = cv2.cvtColor(raw_slice, cv2.COLOR_BGR2HSV)
+        if USE_BILATERAL:
+            hsv_slice = cv2.bilateralFilter(
+                hsv_raw, BILATERAL_D, BILATERAL_SIGMA_COLOR, BILATERAL_SIGMA_SPACE
+            )
+        else:
+            hsv_slice = cv2.GaussianBlur(hsv_raw, (1, 7), 0)
     else:
-        hsv_slice = cv2.cvtColor(frame_slice, cv2.COLOR_BGR2HSV)
+        frame_slice = filter_slice(frame)
+        if USE_LAB:
+            hsv_slice = cv2.cvtColor(frame_slice, cv2.COLOR_BGR2Lab)
+        else:
+            hsv_slice = cv2.cvtColor(frame_slice, cv2.COLOR_BGR2HSV)
 
     red = cv2.inRange(hsv_slice, LOWER_RED_1, UPPER_RED_1)
     if not USE_LAB:
