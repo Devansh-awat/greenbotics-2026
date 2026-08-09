@@ -67,7 +67,6 @@ Here is how we have designed Ackermann steering in our robot.
 
 |<img src="docs/diagrams/mobility/robo_ackermann.png" alt="Ackermann Reference Robot" height="500" width="400">|<img src="docs/diagrams/mobility/Ackerman.png" alt="Ackermann Reference Robot Geometry" height="500" width="400">|
 
-TODO: Tests that show tyre slip at cornering between both robots. Ackermann should be able to get higher speeds at cornering so we can measure one lap time.
 ---
 
 ### 1.3 Vehicle dimensions
@@ -99,7 +98,7 @@ The defining constraint in this vehicle is its turning radius for its parallel p
         Width does not change the turning radius, but increases the outer clearance radius.
       </td>
       <td>
-        <img src="docs/diagrams/mobility/Width_dimension_impact.jpeg"" alt="Vehicle Width Clearance Diagram" width="300">
+        <img src="docs/diagrams/mobility/Width_dimension_impact.jpeg" alt="Vehicle Width Clearance Diagram" width="300">
       </td>
     </tr>
   </tbody>
@@ -132,9 +131,11 @@ Both these problems can be resolved with metal differential gears. To allow for 
 
 ### 1.5 Wheel selection
 
-We used lego spike prime medium wheels with 56mm diameter. These are narrow like bicycle wheels giving smoother turns. A bigger wheel would amplify the backlash causing imprecise movements during parking.
-##TODO Complete this section also mention we tried 3 D printing it ..also mention the width of the wheel
+We used lego spike prime medium wheels with 56mm diameter and 14 mm wide. These are narrow like bicycle wheels giving smoother turns. A bigger wheel would amplify the backlash causing imprecise movements during parking.
 
+We also tried 3D printing our own custom wheels, and coating it with a cricket bat's rubber grip. But we realised we couldn't match the fit and finish of a pre-fabricated Lego wheel.
+
+//TODO  include link for 3 D graveyard 
 ---
 
 ### 1.6 Drive Motor selection
@@ -263,22 +264,54 @@ We did have one instance of SG90 breaking last year so we chose the EMAX servo m
 ---
 
 ### 1.8 3D printed parts
+Our robot structure is entirely 3-D designed. Here is how the various 3-D parts connect together to give structure to our robot. And to see how did we reach these final parts //TODO link to 3 D garveyard
 
-TODO: Add a stack of old printed parts annotating with reasons for change where applicable
-
-TODO: a blown up CAD image of all 3D parts
+  <img src="docs/diagrams/mobility/3D_assembly.png" alt="3 D parts" width="800">
 
 ---
 
 ### 1.9 Assembly photos
 
-TODO: Base plate, Top plate, left side view showing battery, bottom view showing differential
+When we asssemble the robot, using the 3 D parts, we also need to mount the components in the appropriate layer. While other components are easily visible in the Robot vehicle photos. But the base plat components are not visible; here's how the Base Plate looks like initially: 
 
+<img src="v-photos/BasePlate.png" alt="3 D parts" width="400">
 ---
 
 ### 1.10 Vehicle photos
 
-TODO: All 6 side and isometric pics of vehicle
+<table>
+  <tr>
+    <td align="center">
+      <img src="v-photos/Left.png" alt="Left View"  height ="400" width="300"><br>
+      <b>Left</b>
+    </td>
+       <td align="center">
+      <img src="v-photos/Right.png" alt="Right View"  height ="400" width="300"><br>
+      <b>Right</b>
+    </td> 
+    <td align="center">
+      <img src="v-photos/Front.png" alt="Front View" height ="400" width="200"><br>
+      <b>Front</b>
+    </td>
+    <td align="center">
+      <img src="v-photos/Back.png" alt="Back View" height ="400"  width="200"><br>
+      <b>Back</b>
+    </td>
+   </tr>
+</table>
+
+<table>
+  <tr>
+   <td align="center">
+      <img src="v-photos/Top.png" alt="Top View" height ="300" width="600"><br>
+      <b>Top</b>
+    </td>
+    <td align="center">
+      <img src="v-photos/Bottom.png" alt="Bottom View"height ="300" width="500"><br>
+      <b>Bottom</b>
+    </td> 
+  </tr>
+</table>
 
 ---
 
@@ -1264,34 +1297,24 @@ This allows post-run analysis without re-running on the track.
 
 This section looks at the robot as one system that combines mechanical, electrical and software aspects. Mobility Management, Power and Sensor Architecture, and Software Architecture each explain why a specific component or algorithm was chosen in isolation. This section looks at the places where a decision in one area forced something in another. We discuss the constraints all three subsystems share, the trade-offs we only discovered once the full robot was tested together, and the failures that needed more than one round of debugging to actually fix.
 
----
-
 ### 4.1 System Overview
+This system diagram illustrates how power, data, and mechanical dependencies actually flow between subsystems on the robot.
+- Power subsystem provides power to the circuitry across two power rails - 5V and 12V.
+- Sensors sense the environment and provide signals to the Software.
+- Software processes what the sensors see and makes the robot think before taking actions.
+- Mobility acts upon the software signals and executes the physical movement.
 
-Before going into individual decisions, it helps to see how power, data, and mechanical dependencies actually flow between subsystems on the robot.
+**Here is a sample cycle**
+- The camera sees the surroundings and provides raw frames to Rpi5
+- The encoder provides pulses to the RP1 controller which provides the accumulated counts to Rpi5
+- The software does image processing to determine which state it is in and decide on the robot movements
+- The software provides appropriate PWM signals for the servo motor and the drive motor to the RP1 controller
+- The RP1 controller provides the signals to the servo motor and to the motor driver.
+- The motor driver passes on appropriate external voltage as per PWM signal to the motor.
 
-Our robot works because three subsystems stay in sync every frame: **Power & Sense** feeds electricity and raw readings in, **Software** decides what to do, and **Mobility** turns that decision into motion. The diagram below is our single reference for how all three connect — power path, data path, and threads included.
-
-<img src="diagrams/systemsThinking/master_system_diagram.drawio.png" alt="Greenbotics System Integration Diagram" width="1100">
+<img src="docs/diagrams/systemsThinking/master_system_diagram.drawio.png" alt="Greenbotics System Integration Diagram" width="1100">
 
 *Figure 6: Purple boxes are Power & Sense — battery, converters, camera, IMU, ToF, and encoder. Yellow boxes are Software — the Raspberry Pi 5, its six threads, and the vision pipeline. Red boxes are Mobility — the driver, motor, differential, servo, and steering. The dashed green box is the RP1 I/O controller, hardware inside the Pi that runs PWM and pulse-counting without using the CPU.*
-
-### How the subsystems work together
-
-**Power & Sense feeds the loop.** The LiPo battery runs through a 25W converter (Pi, camera, servo) and a 15W converter (motor driver) — split so a motor current spike never sags the Pi's voltage and resets it. The camera, IMU, and 4 ToF sensors all draw their 3.3V from the Pi's own GPIO rail, so one power domain covers every sensor.
-
-**Software turns sensing into decisions.** Four threads (CameraThread, ImuThread, SensorThread, EncoderThread) each read one sensor continuously and hand fresh data to MainThread whenever it's ready — this is why we run threads instead of reading sensors one at a time in a single loop, which would drop our frame rate from ~50 fps to ~15 fps and make the robot react too slowly to pillars. Camera frames go through the vision pipeline (HSV masks + ROI) before reaching MainThread as pillar, wall, and line positions. MainThread runs the priority state machine — avoid head-on, pass traffic sign, corner turn, wall follow, park — and outputs a steering angle and target motor speed every frame.
-
-**RP1 hardware bridges software to mobility.** MainThread's outputs don't drive the motor and servo directly — they go through the RP1 I/O controller, a hardware block inside the Pi that generates PWM signals and counts encoder pulses without using the CPU. This matters because Linux can pause our Python code for a few milliseconds at any time; if we counted encoder pulses in Python, those pauses would silently drop counts. RP1's PIO block sits outside the OS scheduler, so it never misses a pulse — this is also why we didn't need a second microcontroller like an Arduino for motor control.
-
-**Mobility executes the motion.** The TB6612FNG driver and Pololu motor turn the rear wheels through our metal differential, while the EMAX servo turns the front wheels through Ackermann steering. The wheel encoder mounted on the differential axle feeds distance and RPM data straight back into the PIO block, closing the loop MainThread uses for RPM control.
-
-### Why this design holds together
-
-- **Single controller, not two boards:** Putting RP1's PWM and PIO on the same chip as our navigation code removed the wiring and communication lag a separate motor-control board would add.
-- **Threads over a single loop:** Reading camera, IMU, and ToF sensors in parallel keeps MainThread fed with fresh data every frame instead of waiting on the slowest sensor.
-- **Split power rails:** Isolating the motor's 15W supply from the Pi's 25W supply stops motor current spikes from corrupting sensor readings or crashing the Pi.
-- **Camera-first, not distance-only:** Only the camera can tell red pillars from green ones — ToF sensors handle short-range wall and parking detection where color doesn't matter.
 
 ---
 
