@@ -47,7 +47,7 @@ We chose RWD for its simpler design and smoother turns.
       <td>The rear wheels have a differential gear to prevent inner wheels from skidding when turning. As shown in the diagram below, during turns, the outer wheel covers more distance(wo) than inner wheels (wi). In absence of differential gear, the inner wheels would skid.
       </td>
       <td >
-       <img src="docs/diagrams/mobility/Differential_gear.png" alt="Differential Gear" width="400">
+       <img src="docs/diagrams/mobility/Differential_gear.png" alt="Differential Gear" height="200" width="300">
       </td>
     </tr>
   </tbody>
@@ -63,36 +63,52 @@ We used Parallel steering in our last year's robot. We realised certain manoeuvr
 
 <img src="docs/diagrams/mobility/ackermann_steering.png" alt="Ackermann Steering" width="400">
 
+Here is how we have designed Ackermann steering in our robot. 
+
+|<img src="docs/diagrams/mobility/robo_ackermann.png" alt="Ackermann Reference Robot" height="500" width="400">|<img src="docs/diagrams/mobility/Ackerman.png" alt="Ackermann Reference Robot Geometry" height="500" width="400">|
+
 TODO: Tests that show tyre slip at cornering between both robots. Ackermann should be able to get higher speeds at cornering so we can measure one lap time.
-
-TODO: Add annotated image like below sample
-
-<img src="docs/diagrams/mobility/ackermann_ref_robot.png" alt="Ackermann Reference Robot" width="200">
-
-<img src="docs/diagrams/mobility/ackermann_ref_robot_geometry.png" alt="Ackermann Reference Robot Geometry" width="400">
-
-TODO: Add hand drawn or computer diagram of Ackerman corresponding to our robot measurements
-
 ---
 
 ### 1.3 Vehicle dimensions
 
 The defining constraint in this vehicle is its turning radius for its parallel parking. The turning radius is defined by the dimensions of the vehicle.
 
-**Length Impact**  
-`R = L / sin(θ)`  
-Turning Radius(R) scales proportionally with the Length(L) of the vehicle
-
-**Width**  
-`R(outer) = R(center) + W/2`  
-Width does not change the turning radius, but increases the outer clearance radius
+<table>
+  <thead>
+    <tr>
+      <th>Impact Analysis & Formula</th>
+      <th>Visual Diagram</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <strong>Length Impact</strong><br>
+        <em>R = L / sin(θ)</em><br>
+        Turning Radius(R) scales proportionally with the Length(L) of the vehicle.
+      </td>
+      <td>
+        <img src="docs/diagrams/mobility/Length_dimension_impact.jpeg" alt="Vehicle Length Impact Diagram" width="300">
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <strong>Width Impact</strong><br>
+        <em>R(outer) = R(center) + W/2</em><br>
+        Width does not change the turning radius, but increases the outer clearance radius.
+      </td>
+      <td>
+        <img src="docs/diagrams/mobility/Width_dimension_impact.jpeg"" alt="Vehicle Width Clearance Diagram" width="300">
+      </td>
+    </tr>
+  </tbody>
+</table>
 
 We strive to keep both the Length and Width as minimum as possible.  
 Length is the minimum length to accommodate the differential gear assembly, drive motor and the steering assembly back to back.  
 Width is the minimum width for the differential assembly, couplings and the wheels attached back to back  
-This results into a x(TODO) mm long and  y(TODO) mm wide vehicle
-
-TODO – insert image explaining this 
+This results into a 23 cm long and  12 cm wide vehicle.
 
 ---
 
@@ -110,8 +126,7 @@ Both these problems can be resolved with metal differential gears. To allow for 
 | **Backlash**  | High (Rough control at low speed during parking) | Low (Precise control at low speed during parking) |
 | **Friction** | Plastic-plastic \- higher friction (Prone to low-speed stutter) | Metal-metal \- lower friction (Smooth low-speed crawl) |
 | **Rigidity / Prone to damage** | Teeth Chip away after continued usage | Rigid and stable |
-
-TODO: show 3D diagram side by side with real pic \- differential gearbox assembly opened showing gears \+ axle \+ wheel
+| **Robot Image with Gear** |<img src="docs/diagrams/mobility/Plastic Differential.png" alt="Metal Plastic Differential gear" width="300">|<img src="docs/diagrams/mobility/MetalDifferential.jpeg" alt="Metal Plastic Differential gear" width="300">|
 
 ---
 
@@ -185,75 +200,12 @@ v_nl = (π × 0.056 × 1800) / (60 × 2.923) = 1.81 m/s
 
 Can the motor move the robot from a dead stop? The motor is in stall condition at the moment it starts and the stall torque should exceed the initial resistance(static friction) that the robot needs to begin moving.
 
-*Step 1: Breakaway resistance force, flat ground (total, both wheels)*
-
-```
-F_start = C_rr,static × W
-
-F_start = 0.05 × 7.85 = 0.392 N
-```
-
-*Step 2: Torque required at the ring gear*
-
-```
-T_req,ring = F_start × r_w
-
-T_req,ring = 0.392 × 0.028 = 0.0110 N·m = 0.112 kg·cm
-```
-
-*Step 3: Refer to gearbox output*
-
-```
-T_req,gb = T_req,ring / G_ext = 0.112 / 2.923 = 0.0383 kg·cm
-```
-
-*Step 4: Compare to available stall torque*
-
-```
-Margin_A = T_stall_gb / T_req,gb = 0.71 / 0.0383 = 18.5×
-```
-
-*Conclusion:* The robot will easily start from a dead stop with ease.
-
 **B) Running Torque v/s Continuous Torque rating**
 
 Is the torque required for continuous driving comfortably within motor's output to avoid constantly overloading the motor that could result in motor breakdown
 
-*Step 1: Rolling resistance force (total, both wheels)*
 
-```
-F_roll = C_rr × W
-
-F_roll = 0.03 × 7.85 = 0.236 N
-```
-
-*Step 2: Torque required at the ring gear*
-
-```
-T_req,ring = F_roll × r_w
-
-T_req,ring = 0.236 × 0.028 = 0.0066 N·m = 0.0673 kg·cm
-```
-
-*Step 3: Refer to gearbox output*
-
-```
-T_req,gb = T_req,ring / G_ext = 0.0673 / 2.923 = 0.0230 kg·cm
-```
-
-*Step 4: Continuous torque rating available*
-
-```
-T_cont,gb = 0.25 × T_stall_gb = 0.25 × 0.71 = 0.1775 kg·cm
-```
-
-*Step 5: Compare*
-
-```
-Margin_C1 = T_cont,gb / T_req,gb = 0.1775 / 0.0230 = 7.7×
-```
-
-*Conclusion:* Continuous running uses only 13% of the recommended continuous torque rating so the motor is running under very light load.
+<img src="docs/diagrams/mobility/TorqueCalculations.png" alt="Starting Torque Calculation" width="1200">
 
 **C) Running speed v/s No load speed**
 
@@ -275,11 +227,14 @@ v = π × D_w × N_wheel / 60 = π × 0.056 × 595.8 / 60 = 1.75 m/s
 
 *Conclusion:* The running speed (1.75 m/s) should be very close to the no load speed (1.81 m/s).
 
-TODO: Add observed speed here. If adding a table, show no load, theoretically calculated load speed, and observed speed.
+**Experiment Metrics**
+|Theortical No Load Speed| Theoritical Running Speed |Observed Running Speed|
+|---|---|--|
+|1.81 m/s|1.75 m/s|1.54 m/s|
 
 **Assumptions**
 
-Our calculations assumed no loss at differential gear. However a differential gear would have efficiency of **η=85%** due to frictional losses. However its impact wouldn't be of concern to us as we have a very high margin.
+Our calculations assumed no loss at differential gear. However a differential gear would have efficiency of **η=85%** due to frictional losses. But, its impact wouldn't be of concern to us as we have a very high margin.
 
 **Summary**
 
@@ -287,11 +242,6 @@ Our calculations assumed no loss at differential gear. However a differential ge
 | :---- | :---- | :---- | :---- | :---- |
 | A: Starting Torque v/s Stall Torque rating | Can it start moving from rest? | 0.0383 | 0.71 (stall) | 18.5× |
 | B: Running Torque v/s Continuous Torque rating | Can it sustain cruising without overheating? | 0.0230 | 0.1775 (25% cont.) | 7.7× |
-
-| Metric | Value |
-| :---- | :---- |
-| Top (no-load) speed | 1.81 m/s |
-| Expected cruising speed | 1.75 m/s — close to no-load, since running load is small |
 
 The Pololu motor has adequate torque margin to start the robot from rest, sustain cruising without overheating and to provide the max speed we could possibly use.
 
@@ -487,7 +437,7 @@ A multimeter was put in series in the LiPo battery path and the robot run on a r
 | Idle operation | 0.350 to 0.420 (across multiple readings) | 0.422 |
 | Typical operation | 0.780 to 0.990 (across multiple readings) | 1.039 |
 
-![MultiMeter Output](docs/diagrams/powerNsense/IMG_1251.jpeg)
+<img src="docs/diagrams/powerNsense/IMG_1251.jpeg" width="400">
 
 #### 2.3.2 5V Power Bus — Onboard Telemetry
 
@@ -551,11 +501,15 @@ The complete wiring diagram below shows all power and signal connections between
 - The Camera Module 3 Wide provides auto focus which keeps moving targets sharp.
 - The 120° FOV is sufficiently wide and at the same time gives zero edge distortion.
 - The HDR would be useful for low light conditions if encountered.
+
+**Experimentation**
 - In the HQ Camera, objects towards the edges become curved and stretched, causing occasional failures in object contour detection. The distortion can be corrected, but the process is computationally intensive, reducing the control loop speed and slows down reaction time.
 - In the HQ Camera, objects towards the edges seem compressed and smaller, causing contour area to drop below the detection threshold.
 - The HQ camera was too heavy to be mounted at the rear top. Mounting it in the front lower center still covers the field due to its higher FOV, but it reduces the perception of depth as when mounted high, further objects appear higher up in the image but when mounted in front, all objects appear at a similar height.
 
-**Experimentation**
+|Camera Image from FishyEye Camera|Camera Image from RPi5 Wide Camera|
+| :---: | :---:
+|<img src="docs/diagrams/powerNsense/fisheye_cam.jpg" width="300" >|<img src="docs/diagrams/powerNsense/normal_cam.jpg" width="300">|
 
 **TODO: Show edge distorted pics from both cameras with traffic signs at edges, in a FPV image. Show side-by-side comparison of detection accuracy at frame edges.**
 
@@ -1308,14 +1262,203 @@ This allows post-run analysis without re-running on the track.
 
 ## 4. Systems Thinking & Engineering Decisions
 
-*This section has not yet been written.*
+This section looks at the robot as one system that combines mechanical, electrical and software aspects. Mobility Management, Power and Sensor Architecture, and Software Architecture each explain why a specific component or algorithm was chosen in isolation. This section looks at the places where a decision in one area forced something in another. We discuss the constraints all three subsystems share, the trade-offs we only discovered once the full robot was tested together, and the failures that needed more than one round of debugging to actually fix.
 
-Per the WRO FE 2026 Documentation Golden Reference, this section should cover:
-- Explicit constraint identification (size, weight, power, processing, time, budget)
-- At least 3–4 documented tradeoffs in "we chose X instead of Y because [data]" format
-- 2–3 mechanical/electrical/software design iterations with before/after evidence
-- A risk and failure-mode table with mitigations
-- A subsystem interaction map showing how mobility, power, sensors, software, and frame depend on each other
+---
+
+### 4.1 System Overview
+
+Before going into individual decisions, it helps to see how power, data, and mechanical dependencies actually flow between subsystems on the robot.
+
+Our robot works because three subsystems stay in sync every frame: **Power & Sense** feeds electricity and raw readings in, **Software** decides what to do, and **Mobility** turns that decision into motion. The diagram below is our single reference for how all three connect — power path, data path, and threads included.
+
+<img src="diagrams/systemsThinking/master_system_diagram.drawio.png" alt="Greenbotics System Integration Diagram" width="1100">
+
+*Figure 6: Purple boxes are Power & Sense — battery, converters, camera, IMU, ToF, and encoder. Yellow boxes are Software — the Raspberry Pi 5, its six threads, and the vision pipeline. Red boxes are Mobility — the driver, motor, differential, servo, and steering. The dashed green box is the RP1 I/O controller, hardware inside the Pi that runs PWM and pulse-counting without using the CPU.*
+
+### How the subsystems work together
+
+**Power & Sense feeds the loop.** The LiPo battery runs through a 25W converter (Pi, camera, servo) and a 15W converter (motor driver) — split so a motor current spike never sags the Pi's voltage and resets it. The camera, IMU, and 4 ToF sensors all draw their 3.3V from the Pi's own GPIO rail, so one power domain covers every sensor.
+
+**Software turns sensing into decisions.** Four threads (CameraThread, ImuThread, SensorThread, EncoderThread) each read one sensor continuously and hand fresh data to MainThread whenever it's ready — this is why we run threads instead of reading sensors one at a time in a single loop, which would drop our frame rate from ~50 fps to ~15 fps and make the robot react too slowly to pillars. Camera frames go through the vision pipeline (HSV masks + ROI) before reaching MainThread as pillar, wall, and line positions. MainThread runs the priority state machine — avoid head-on, pass traffic sign, corner turn, wall follow, park — and outputs a steering angle and target motor speed every frame.
+
+**RP1 hardware bridges software to mobility.** MainThread's outputs don't drive the motor and servo directly — they go through the RP1 I/O controller, a hardware block inside the Pi that generates PWM signals and counts encoder pulses without using the CPU. This matters because Linux can pause our Python code for a few milliseconds at any time; if we counted encoder pulses in Python, those pauses would silently drop counts. RP1's PIO block sits outside the OS scheduler, so it never misses a pulse — this is also why we didn't need a second microcontroller like an Arduino for motor control.
+
+**Mobility executes the motion.** The TB6612FNG driver and Pololu motor turn the rear wheels through our metal differential, while the EMAX servo turns the front wheels through Ackermann steering. The wheel encoder mounted on the differential axle feeds distance and RPM data straight back into the PIO block, closing the loop MainThread uses for RPM control.
+
+### Why this design holds together
+
+- **Single controller, not two boards:** Putting RP1's PWM and PIO on the same chip as our navigation code removed the wiring and communication lag a separate motor-control board would add.
+- **Threads over a single loop:** Reading camera, IMU, and ToF sensors in parallel keeps MainThread fed with fresh data every frame instead of waiting on the slowest sensor.
+- **Split power rails:** Isolating the motor's 15W supply from the Pi's 25W supply stops motor current spikes from corrupting sensor readings or crashing the Pi.
+- **Camera-first, not distance-only:** Only the camera can tell red pillars from green ones — ToF sensors handle short-range wall and parking detection where color doesn't matter.
+
+---
+
+### 4.2 Shared Constraints
+
+A few constraints don't belong to any single subsystem. They impact the robot's design across subsystems.
+
+#### 4.2.1 The no-differential-drive rule
+
+WRO's rule against a differential-drive robot is the constraint for multiple aspects:
+
+Mobility: It pushed us towards a front-steering vehicle. For a front steering vehicle, the parallel parking requirement makes turning radius dictate the length of the chassis (R = L / sin(θ)). The outer radius grows further with the width (R(outer) = R(center) + W/2). Hence we tightly packed back to back the differential, drive motor, and steering assembly, building a compact robot
+
+Power: The power and PCB components also need to be tightly packed to fit this compact sized robot.
+
+#### 4.2.2 Vehicle weight
+
+The vehicle weight should be within 1.5 kg as per the rules. However it's not just the total weight that matters. How this weight is distributed is equally important. The battery could have been placed on top of the plate to make charging and swapping easier, but we placed it on the bottom plate to keep the centre of mass as low as possible. This gives better stability to the robot especially during sharp turns. We also have kept the weight as low as possible. This helps in multiple aspects:
+
+Mobility: A lower weight robot requires a motor with lower power.
+
+Power: A lower power motor requires less battery power to drive, hence smaller battery
+
+#### 4.2.3 Power budget
+
+The full power budget identified in Power and Sensor Architecture gives us a runtime of over an hour. Building a robot within this constraint also impacted
+
+Software: The image detection algorithm could have been improved with YOLO, but it would have required an AI HAT on the Rpi increasing the power budget further, which would require a higher powered battery, hence increasing the weight.
+
+Mobility: A higher weight slows down the robot.
+
+Thus multiple decisions are interlinked. Hence we limited ourselves to a software algorithm that could run on the Rpi5 itself.
+
+#### 4.2.4 Control Loop timing
+
+The robot sense - think - act control loop needs to be really fast to make quick decisions the moment it sees things else the robot may bang into obstacles or the wall. This single constraint dictates:
+
+Software architecture: If we collect the sensor data in the main control loop, it would slow down the system drastically. We run a multi threaded system where dedicated threads collect & process the Camera frames, IMU readings, Sensor readings. This keeps the control loop free to think and act efficiently. While the main thread is doing this, the other threads collect and process the data in parallel. This architecture works because Rpi 5 has a quad core CPU where 4 threads can run in parallel.
+
+Power and Sensor architecture: Sensors need fast sampling rate to be able to quickly feed back changes in distances during parking to take advantage of a fast control loop. Similarly, a camera with a fast fps would feed back environment changes rapidly.
+
+Mobility: The servo motor needs fast reaction time so that it can quickly act on the steering instructions.
+
+---
+
+### 4.3 Cross-Subsystem Decision Case Studies
+
+These are decisions that cannot be fully explained from inside a single subsystem document — each one only makes sense once you look at what two or three subsystems needed at the same time.
+
+#### 4.3.1 One Raspberry Pi 5 instead of a dual-controller architecture
+
+We used RP1, the Rpi's onboard IO controller to provide jitter free PWM output and accurate Encoder pulse counts. This avoids the typical scheduling jitter associated with offloading these to a separate thread on Linux.
+
+The alternative to use a second microcontroller dedicated to motor tasks was rejected because of the native features of Rpi 5.
+
+The decision is a systems decision, because three different constraints point the same way:
+
+* **Mobility** needed precise encoder counting for sensitive parallel parking maneuvers. Losing pulses during micro-adjustments would make parking difficult.
+
+* **Power and Sensors** had fewer boards to wire, power, and mount.
+
+* **Software** needed the control loop to run at fast fps. An onboard controller avoids the lag associated with cross-board communication.
+
+Using the Rpi 5's RP1 controller answers all three at once: it counts every encoder edge in the onboard controller regardless of CPU load, hardware PWM never stutters even when the vision pipeline is busy, and there is only one board's worth of wiring and power distribution.
+
+#### 4.3.2 Speed vs. accuracy — why we moved to variable speed
+
+**Trigger:** Increasing the drive speed from 86% to 92% kept accuracy at the same 100% across 5 runs each. The robot avoided all obstacles in both scenarios. But the overall lap time got worse, not better, despite the higher speed.
+
+**Diagnosis:** At 92% speed, the robot was reaching pillars before it could be finished steering to the correct side, triggering the close-block emergency evasion routine more often than at 86%. Each evasion is a full stop-reverse-recover cycle, and costs more time than the higher speed saved.
+
+**Decision:** We wanted higher accuracy at higher speed. So moved to variable speed. The robot goes on full speed while the path is clear, reducing speed as a pillar gets closer. This means the robot goes slower only when it's needed. **Exactly like a real world car driver would slow down near obstacles instead of everywhere.**
+
+**Verification:** Variable speed produced a faster overall lap time than either fixed-speed setting.
+
+| Scenario | No. of backoffs (avg) | Time taken in seconds (avg) |
+| :---- | :---- | :---- |
+| 86% fixed | 0-1 | 51 |
+| 92% fixed | 3-4 | 59 |
+| Variable speed | 0 | 50 |
+
+This result matches the experiment we did in Mobility Management that concluded the reaction time to stop the robot in front of an obstacle at a given distance increases with speed.
+
+---
+
+### 4.4 Risk & Failure Modes
+
+This section outlines the engineering process we followed when the robot broke mid-project. These failures needed debugging across multiple aspects of the system, sometimes software, sometimes hardware and sometimes both!
+
+#### 4.4.1 Drive motor burnout — TT-GM25 to Pololu 4861
+
+**Trigger:** The TT-GM25 drive motor began stalling intermittently, initially once in a few days, then finally four times during a single run.
+
+**Diagnosis:**
+**1)** We put a multimeter across the driver output when the robot stalled four times and noticed it was getting 6.5V. This confirmed that software and wiring was fine.
+
+**2)** The motor terminals still showed continuity with occasional breaks.
+**3)** We opened the motor casing and found dark marks on the steel shaft that remained even after cleaning it, probably signs of physical wear inside the motor.
+
+<img src="docs/diagrams/systemsThinking/MotorBurnt.jpeg" alt="Greenbotics System Integration Diagram" width="200">
+
+**Alternatives considered:** Replace it with another TT-GM25 of the same design, which repeats the same risk.
+
+**Decision:** We moved to a motor from a reliable brand instead of staying with the same design, and reused the speed/torque comparison from Mobility Management section to pick the Pololu 4861 specifically, rather than just any Pololu model.
+
+**Verification:** The Pololu 4861 has run for over a month of testing with zero stalls, against a TT-GM25 that was already failing within weeks.
+
+#### 4.4.2 ToF sensor dropout during parking
+
+**Trigger:** Roughly once in every 20 parking runs, the robot failed to stop during a parking maneuver and hit the wall instead of braking.
+
+**Diagnosis:** Run logs showed the distance sensor reading None at the moment of failure. This confirmed that the sensor was not responding and it wasn't a logic error in the parking routine.
+
+**Alternatives considered:**
+
+**1)** We assumed initialisation failure at startup time, so added a retry until successful check during the sensor initialisation at startup. Still it failed, implying that sensor was starting successfully, but dropping out mid run.
+
+**2)** We added a fallback initialisation during sensor reads. If a sensor failed in the middle of a run, it would be re-initialised. Still it failed, confirming this wasn't a software problem.
+
+**3)** The actual cause turned out to be hardware. The Raspberry Pi GPIO pin driving that sensor defaults to an internal Pull-Down, while the sensor needs a Pull-Up.
+
+**Decision:** Reconfigured the GPIO pin as Pull-Up in the Pi's config.
+
+**Verification:** Zero recurrence over 200+ runs against a roughly 1-in-20 failure rate inspite of the two software-level fixes.
+
+#### 4.4.3 Wheel wobble showing up as camera jitter
+
+**Trigger:** No wobble was visible in the robot's physical driving, but the camera feed showed a wavy motion while the robot was moving.
+
+**Diagnosis:** Traced to the wheel-axle fit inside the 3D-printed gearbox, which does not hold the wheel centred as precisely as the Lego chassis it replaced. That play was too small to notice by watching the chassis, but was visible when closely observing the shaft. This is amplified as the camera is mounted higher up on a pillar.
+
+**Alternatives considered:** A software correction would have increased the main loop processing time, besides the issue wasn't significantly affecting driving.
+
+**Decision:** Tried to fix it mechanically by adding a plastic bracket fixed with the gearbox that supports the wheel with a second axle point.
+
+<img src="docs/diagrams/systemsThinking/Wheel_bracket_back.jpeg" alt="Wheel Bracket" width="300">
+<img src="docs/diagrams/systemsThinking/WheelBracketSide.jpeg" alt="Wheel Bracket" width="300">
+
+
+**Verification:**
+
+A comparison of the videos before and after the fix shows some improvement in wobble, though it is not completely eliminated.
+
+|Before|After|
+| :---: | :---:
+|<img src="docs/diagrams/systemsThinking/MoreeWobble.gif" alt="Before" width="300">|<img src="docs/diagrams/systemsThinking/LessWobble.gif" alt="After" width="300">|
+
+
+---
+
+### 4.5 Iteration and Testing Cycle Summary
+
+Pulled from all three subsystem documents plus the case studies and failures above, this table is a compact record of what changed, why, and what evidence backs the change.
+
+| Decision | Changed From → To | Why | Evidence / Status |
+| :---- | :---- | :---- | :---- |
+| Steering | Parallel → Ackermann | Tyre slip during tight maneuvers between inner blocks and walls | TODO: cornering test data (Mobility Management) |
+| Differential gear | Plastic (Lego) → Metal (38:13) | Gear damage from wall hits; backlash caused inconsistent low-speed parking control | Comparison table, Mobility Management § 4.4 |
+| Steering servo | SG90 → EMAX ES08A II | SG90 broke from front-wheel collisions last year | Torque/durability comparison, Mobility Management |
+| Drive motor | Lego EV3 → TT-GM25 | Lego motor was run at 100% speed and had no headroom to increase robot speed. | Last year's robot run stats |
+| Drive motor | TT-GM25 → Pololu 4861 | TT-GM25 failed in the field (shaft wear); Pololu chosen for reliability and speed headroom | See § 4.1 — 1 month, zero stalls |
+| IMU | BNO055 → BNO086 | Heading drift accumulated over 3 laps; no hardware tare or magnetic immunity | 0.5°/min drift spec; see § 3.2 |
+| Camera | HQ Camera + fisheye → Camera Module 3 Wide | Edge distortion and compressed edge objects hurt contour detection | Side-by-side test, Power and Sensor Architecture |
+| Pillar-avoidance steering law | Fixed vertical target line → angle-based target-line geometry | Fixed-line delta grew as the robot approached a pillar, forcing hacky edge-case handling | Centroid-tracking calibration tool (drive_straight_tune_target.py) |
+| Drive speed | Fixed speed (86% / 92%) → Variable speed by obstacle distance | Fixed high speed caused repeated back-off recoveries, worsening lap time | See § 3.3 — TODO: lap-time table |
+| ToF sensor init | Boot-time check only → runtime re-init → GPIO Pull-Up fix | Wall collisions in ~1-in-20 parking runs | See § 4.2 — 200+ runs, zero recurrence |
+| Wheel-gearbox alignment | Bare 3D-printed gearbox → added axle-support bracket | Wobble at the wheel showed up as jitter in the camera feed | Before/after video — TODO: insert gif (see § 4.3) |
 
 ---
 
