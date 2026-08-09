@@ -1,8 +1,6 @@
 # Greenbotics — WRO Future Engineers 2026
 
-> Consolidated engineering documentation for Team Greenbotics' WRO Future Engineers 2026 entry. This document merges the team's detailed design documentation into a single reference, structured according to the WRO FE 2026 Documentation Golden Reference (5 scored criteria).
->
-> Outstanding action items (experiments to run, images to capture, data to record) are tracked separately in [`TODO_Consolidated.md`](TODO_Consolidated.md).
+
 
 ---
 
@@ -115,7 +113,7 @@ This results into a 23 cm long and  12 cm wide vehicle.
 
 We used Lego differential gear assembly in our last year's robot. While this gave us adequate performance, there were few drawbacks to it
 
-1) Gear damage: When the robot hit a wall during our testing, the plastic gears slipped causing a grinding sound. This slowly damages the gear teeth.  
+1) Gear damage: Plastic gears chip away after continued use..  
 2) Backlash: When the robot makes micro adjustments during parking switching from forward to reverse, the motor rotates slightly before the wheels actually move. This makes software control of the robot inconsistent. If we move the motor a bit more, the robot sometimes hits the walls, if we make the motor move a bit less, it doesn't move.
 
 Both these problems can be resolved with metal differential gears. To allow for precise control, we chose the largest possible gear ratio that could fit in the chassis. We chose a metal differential gear with a 38:13 ratio of ring gear to pinion gear. This gear ratio gives higher torque providing reliable transmission even at lower speeds. There is loss of top speed, but we do not need to race the car so that is fine.
@@ -165,10 +163,10 @@ We explored different motors from [Pololu](https://www.pololu.com/product/4861) 
 | Criteria | LEGO EV3 Medium Motor | Pololu 4861 |
 | :---- | :---- | :---- |
 | Power supply match | Needs buck converter (12 V → 9V), small conversion loss | Runs directly off 12 V LiPo, no converter required |
-| Mechanical reliability | Plastic gears — lower abuse tolerance, can slip under stall. Higher backlash | All-metal gearbox — higher tolerance for abuse. Lower backlash |
+| Mechanical reliability | Plastic gears —  can slip or chip away and has higher backlash | All-metal gearbox — More reliable and has lower backlash |
 | No load speed | 250 rpm | 1800 rpm |
 | Stall torque | 1.22 kg·cm | 0.71 kg·cm |
-| Rated stall current | 0.8 A | 1.8 A — within TB6612FNG's 3.2 A peak rating |
+| Rated stall current | 0.8 A | 1.8 A |
 
 The Pololu motor natively matches the power source and has better mechanical reliability.
 
@@ -210,7 +208,7 @@ Is the torque required for continuous driving comfortably within motor's output 
 
 **C) Running speed v/s No load speed**
 
-The Pololu 4861 datasheet ([https://www.pololu.com/file/0J1829/pololu-25d-metal-gearmotors-rev-2-0.pdf](https://www.pololu.com/file/0J1829/pololu-25d-metal-gearmotors-rev-2-0.pdf)) shows that torque and speed are approximately linearly related. 
+The Pololu 4861 datasheet ([https://www.pololu.com/file/0J1829/pololu-25d-metal-gearmotors-rev-2-0.pdf](https://www.pololu.com/file/0J1829/pololu-25d-metal-gearmotors-rev-2-0.pdf)) shows that torque and speed are linearly related. 
 
 <img src="docs/diagrams/mobility/Polulu_datasheet.png" alt="Pololu Datasheet" width="600">
 
@@ -264,15 +262,19 @@ We did have one instance of SG90 breaking last year so we chose the EMAX servo m
 ---
 
 ### 1.8 3D printed parts
-Our robot structure is entirely 3-D designed. Here is how the various 3-D parts connect together to give structure to our robot. And to see how did we reach these final parts //TODO link to 3 D garveyard
+Our robot structure is entirely 3-D designed. Here is how the various 3-D parts connect together to give structure to our robot. And to see how we iterated to reach these final parts see the section --XX//TODO link to 3 D garveyard
 
   <img src="docs/diagrams/mobility/3D_assembly.png" alt="3 D parts" width="800">
+
+**[Link for all 3-D modelled parts photos ](schemes/)**
+
+**[Link for all 3-D parts  KiCAD files](models/chassis/)**
 
 ---
 
 ### 1.9 Assembly photos
 
-When we asssemble the robot, using the 3 D parts, we also need to mount the components in the appropriate layer. While other components are easily visible in the Robot vehicle photos. But the base plat components are not visible; here's how the Base Plate looks like initially: 
+When we asssemble the robot, using the 3 D parts, we also need to mount the components in the appropriate layer. While other components are easily visible in the Robot vehicle photos. But the base plate components are not visible; here's how the Base Plate looks like initially: 
 
 <img src="v-photos/BasePlate.png" alt="3 D parts" width="400">
 ---
@@ -321,57 +323,53 @@ We ran some experiments to determine our robot precision. This data helps us cal
 
 #### 1.11.1 Detection distance v/s speed
 
-We ran a robot in a straight line until it found an obstacle 20 cm in front of it. This measures the latency of the ToF sensor by measuring the extra distance the robot goes before the sensor triggers 20cm detection.
+We ran the robot in a straight line until it found an obstacle 20 cm in front of it. The robot started breaking at the point the sensor triggered. This measures the time taken by the robot to come to a complete halt. This helps us determine how slowly the robot should move at critical points e.g. parking section.
 
-TODO: Run below experiment and also plot graph
+<table>
+  <tr>
+    <!-- Left Column: Data Table -->
+    <td valign="top">
+      <table border="1" cellpadding="5" cellspacing="0">
+        <thead>
+          <tr>
+            <th>Speed (m/s)</th>
+            <th>Stopping Time (ms)</th>
+            <th>Stopping Distance (cm)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td align="center">0.199</td><td align="center">111</td><td align="center">0.51</td></tr>
+          <tr><td align="center">0.265</td><td align="center">237.5</td><td align="center">1.65</td></tr>
+          <tr><td align="center">0.334</td><td align="center">266.6</td><td align="center">2.57</td></tr>
+          <tr><td align="center">0.396</td><td align="center">256.2</td><td align="center">2.76</td></tr>
+          <tr><td align="center">0.456</td><td align="center">301</td><td align="center">3.59</td></tr>
+          <tr><td align="center">0.523</td><td align="center">335</td><td align="center">4.6</td></tr>
+          <tr><td align="center">0.588</td><td align="center">370</td><td align="center">5.8</td></tr>
+          <tr><td align="center">0.653</td><td align="center">410</td><td align="center">7.1</td></tr>
+          <tr><td align="center">0.719</td><td align="center">450</td><td align="center">8.6</td></tr>
+          <tr><td align="center">0.784</td><td align="center">490</td><td align="center">10.2</td></tr>
+        </tbody>
+      </table>
+    </td>
+    <!-- Right Column: Chart Image -->
+    <td valign="top" style="padding-left: 20px;">
+      <img src="docs/diagrams/mobility/Speed-stopping-time-distance.png" alt="Speed vs Stopping Time and Distance Chart" height="300" width="500">
+    </td>
+  </tr>
+</table>
 
-| Sr. no. | v (cm/s) | Δ distance (cm) |
-| :---- | :---- | :---- |
-|  |  |  |
-|  |  |  |
-|  |  |  |
+**Conclusion** This experiment proves that at higher speed the time taken to come to a full stop as well as distance covered before it actually stop increases, so we need to ensure robot is moving at the right speed for it to stop and turn accurately in parking or while avoiding obstacles.
 
-#### 1.11.2 Brake distance v/s speed
+#### 1.11.2 Encoder precision and tuning
 
-We continued the previous test and the robot started breaking at the point the sensor triggered. This measures the time taken by the robot to come to a complete halt. This helps us determine how slowly the robot should move at critical points e.g. parking section.
+We used the encoder specifications and gear ratio to tune the encoder. Then we measured the actual distance travelled when it was given a particular instruction to verify its accuracy.
 
-TODO: Run below experiment and also plot graph
+| Run # | Encoder measured distance (cm) | Observed distance practically (cm) | Δ distance (cm) |
+| :---: | :---: | :---: | :---: |
+| 1 | 100 | 92 | 8 |
+| 2 | 50 | 47 | 3 |
 
-| Sr. no. | v (cm/s) | Δ distance (cm) |
-| :---- | :---- | :---- |
-|  |  |  |
-|  |  |  |
-|  |  |  |
-
-#### 1.11.3 Encoder precision and tuning
-
-We tuned the encoder to convert its pulses to the real distance the robot travels over 10m. We then ran the robot over multiple distances to verify if this linear formula was accurate.
-
-No. of pulses over 10 m distance \=  
-Distance per pulse \=
-
-| Sr. no. | Encoder measured distance (cm) | Observed distance practically (cm) | Δ distance (cm) |
-| :---- | :---- | :---- | :---- |
-|  |  |  |  |
-|  |  |  |  |
-|  |  |  |  |
-
----
-
-### 1.12 Building instructions
-
-Link to main section system design
-
-—————————————————UPDATES——————————————————
-
-
-Detection distance accuracy v/s distance experiment
-The accuracy of the ToF sensor reduces as the distance reduces with a possible blind spot. Show this in a table. We refined our design by placing our sensors inside of the robot chassis to account for the measured blind spot.
-
-Parking accuracy experiment
-The parking slot is 1.5x the robot length. The turning radius of the robot is proportional to the wheel base. Our wheel base is the tightest required to accommodate the required drive components. However every car has a projection and a bumper outside the wheel base. We ran 5 runs with different bumper sizes to choose the one which provides most reliable parking.
-
-
+**Conclusion** We designed our software to be able to handle the accuracy that the actual encoder can provide. 
 
 ---
 
@@ -470,16 +468,32 @@ A multimeter was put in series in the LiPo battery path and the robot run on a r
 | Idle operation | 0.350 to 0.420 (across multiple readings) | 0.422 |
 | Typical operation | 0.780 to 0.990 (across multiple readings) | 1.039 |
 
-<img src="docs/diagrams/powerNsense/IMG_1251.jpeg" width="400">
+
 
 #### 2.3.2 5V Power Bus — Onboard Telemetry
 
 We used pmic_read_adc diagnostic command from Raspberry Pi 5 to read real-time voltage and current measurements from its built-in Power Management IC. The telemetry total power almost matches the theoretically calculated power for RPi and sensors connected to it.
 
-**TODO: Add code link to pmic_read_adc script**
+[For Telemetry- See Power Profile Script](src/tools/power_profile.py)
 
-![RPi 5 PMIC Telemetry Output](docs/diagrams/powerNsense/Telemetry.png)
-
+<table>
+  <thead>
+    <tr>
+      <th>Multimeter Measurement</th>
+      <th>Telemetry Output</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td align="center">
+        <img src="docs/diagrams/powerNsense/IMG_1251.jpeg" alt="Multimeter Measurement" width="400">
+      </td>
+      <td align="center">
+        <img src="docs/diagrams/powerNsense/Telemetry.png" alt="RPi 5 PMIC Telemetry Output" width="400">
+      </td>
+    </tr>
+  </tbody>
+</table>
 ---
 
 ### 2.4 Wiring Diagram and PCB
@@ -487,15 +501,15 @@ We used pmic_read_adc diagnostic command from Raspberry Pi 5 to read real-time v
 In our first draft of the robot, there were many criss-crossing wires between many different components. A lack of clean arrangement for the wires made the robot very messy to handle. During practice runs, wires would routinely get loose, making it difficult to troubleshoot errors.
 
 To solve this, we designed a PCB which cleanly connected all of our components together, making the robot far cleaner and reliable.
-
-Here is a comparison showing our robot before and after the PCB
-**TODO: Check if we have before after pictures and embed a full wiring PCB diagram.**
-
-The complete wiring diagram below shows all power and signal connections between the battery, voltage converters, Raspberry Pi 5, motor driver, servo, camera, IMU, and ToF sensors.
-
+Here's  simplified pin layout diagram for the wiring.
 <img src="docs/diagrams/powerNsense/Wiring_Diagram.drawio.png" alt="Wiring Diagram" width="1000">
 
-**TODO: Add a simplified pin layout diagram showing how PWM and Encoder connect to RP1 hardware pins**
+The complete Circuit diagram below shows all power and signal connections between the battery, voltage converters, Raspberry Pi 5, motor driver, servo, camera, IMU, and ToF sensors.
+<img src="docs/diagrams/powerNsense/CircuitDiagram_cropped.png" alt="Circuit Diagram" width="400">
+
+[Link For Complete Circuit Diagram](schemes/CircuitDiagram.png) 
+
+[Link for all PCB KiCAD files](models/PCB)
 
 ---
 
@@ -544,16 +558,12 @@ The complete wiring diagram below shows all power and signal connections between
 | :---: | :---:
 |<img src="docs/diagrams/powerNsense/fisheye_cam.jpg" width="300" >|<img src="docs/diagrams/powerNsense/normal_cam.jpg" width="300">|
 
-**TODO: Show edge distorted pics from both cameras with traffic signs at edges, in a FPV image. Show side-by-side comparison of detection accuracy at frame edges.**
-
 **Placement**
 
 1) Mount the camera on the pillar
-2) Adjust the camera angle so that
-   1) The front edge of the robot is visible in the camera. This is essential to avoid blind spots in the front.
-   2) With the robot at the edge of a square section, it should be able to see at least till the middle traffic pillar to avoid last minute sudden steering to avoid the obstacle.
-
-**TODO: Show a picture depicting camera placement and visible coverage area from robot's perspective**
+2) Adjust the camera angle so that the front edge of the robot is visible in the camera. This is essential to avoid blind spots in the front.
+  
+<img src="docs/diagrams/powerNsense/Camera_FOV.png" width="200" >
 
 ---
 
@@ -571,8 +581,6 @@ The complete wiring diagram below shows all power and signal connections between
 | **Ambient Light Immunity** | Moderate | Standard | **Excellent** (Uses histogram processing) |
 | **Primary Focus** | Ultra-short range precision & speed | Mid-to-Long range point sensing | Scene mapping, multi-target tracking |
 
-**TODO: Add ambient light immunity numbers from VL53L4CD datasheet**
-
 **Why We Chose VL53L4CD**
 
 - Our robot uses distance sensors for parallel parking — it must detect parking walls at very short range to avoid collision.
@@ -581,16 +589,43 @@ The complete wiring diagram below shows all power and signal connections between
 - Its only disadvantage is its max range is 1.3m unlike others, but that is sufficient for our purpose since we only need to detect walls within parking distance.
 
 **Experimentation**
+To figure out the accuracy of our sensor at various distances, we measured its reading vs actual physical distance measurements.
+<table>
+  <tr>
+    <!-- Left Column: Data Table -->
+    <td valign="middle">
+      <table border="1" cellpadding="5" cellspacing="0">
+        <thead>
+          <tr>
+            <th>Experiment #</th>
+            <th>ToF measured distance (cm)</th>
+            <th>Observed distance practically (cm)</th>
+            <th>Δ distance (cm)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td align="center">1</td><td align="center">303</td><td align="center">300</td><td align="center">3</td></tr>
+          <tr><td align="center">2</td><td align="center">201</td><td align="center">200</td><td align="center">1</td></tr>
+          <tr><td align="center">3</td><td align="center">100</td><td align="center">100</td><td align="center">0</td></tr>
+          <tr><td align="center">4</td><td align="center">50</td><td align="center">50</td><td align="center">0</td></tr>
+          <tr><td align="center">5</td><td align="center">35</td><td align="center">36</td><td align="center">1</td></tr>
+          <tr><td align="center">6</td><td align="center">12</td><td align="center">5</td><td align="center">7</td></tr>
+        </tbody>
+      </table>
+    </td>
+    <!-- Right Column: Graph Placeholder -->
+    <td valign="top" style="padding-left: 20px;">
+      <img src="docs/diagrams/powerNsense/sensor-err-vs-distance.png" alt="ToF Distance Accuracy Graph" height="300" width="500">
+    </td>
+  </tr>
+</table>
 
-We mounted all 3 sensors and ran a distance detection test.
-
-**TODO: Table with distance detection test for all 3 sensors at different speeds, if running in robot, or motionless test**
+**Conclusion** The accuracy of the ToF sensor reduces as the distance reduces with a possible blind spot. As a result, we refined our design by placing our sensors inside of the robot chassis to account for the measured blind spot.
 
 **Placement**
-
 Even though the VL53L4CD's datasheet mentions a minimum range of 1mm, its ranging error is higher at short distances of < 20mm. To avoid this issue altogether, we have mounted the sensor recessed inside the robot body on all sides, as much as we physically could. This ensures that the closest distance it needs to measure is more than 15 to 20 mm.
 
-**TODO: Show a photo or a 3D diagram of recessed sensor mount**
+<img src="docs/diagrams/powerNsense/RecessedToF.jpeg" width="300" >
 
 ---
 
@@ -614,7 +649,7 @@ Even though the VL53L4CD's datasheet mentions a minimum range of 1mm, its rangin
 
 **Experimentation**
 
-**TODO: Run both old and new robots for 3 - 5 full circles and see accuracy on a 90 degree turn. May need to calibrate new robot. Record heading drift comparison data.**
+**TODOINTL: Run both old and new robots for 3 - 5 full circles and see accuracy on a 90 degree turn. May need to calibrate new robot. Record heading drift comparison data.**
 
 **Placement**
 
@@ -637,9 +672,6 @@ This design gave us the following **benefits**
 * **Less Wiring and No Communication Lag:** By running everything on a single Raspberry Pi 5 instead of adding a secondary board like an ESP32, we simplified our electronics and saved space. This completely eliminated the data lag that usually happens when two different systems try to talk to each other.
 
 * **Accurate Tracking Under Heavy Load:** Because the PIO silicon continuously counts and stores pulses in hardware buffers, we never lose track of our distance. Even when the main processor is heavily loaded with intense image processing tasks, the robot's navigation loop can just read the exact counts whenever it needs them.
-
-**TODO: Add a simplified pin layout diagram showing how PWM and Encoder connect to RP1 hardware pins**
-
 ---
 
 ### 2.7 Calibration Procedures (Recommended — Not Yet Written)
