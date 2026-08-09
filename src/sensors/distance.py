@@ -52,6 +52,7 @@ adafruit_vl53l4cd.VL53L4CD._write_register = _custom_write_register
 
 # --- Configuration ---
 _REG_RANGE_OFFSET_MM = 0x001E  # signed 16-bit register for range offset (mm * 4)
+RANGE_OFFSET_MM = -2.5  # Range offset in mm (-2.5 mm correction for 2.5mm over-reporting)
 I2C_BUS = 3
 
 # Channels == XSHUT GPIO numbers.
@@ -159,8 +160,8 @@ def _bring_up(channel, retries=None):
                 s.set_address(new_address)
                 s.timing_budget = TIMING_BUDGET_MS
                 s.inter_measurement = 0
-                # Set range offset to 0 mm
-                s._write_register(_REG_RANGE_OFFSET_MM, struct.pack(">h", 0))
+                # Set range offset register (value in register is offset_mm * 4)
+                s._write_register(_REG_RANGE_OFFSET_MM, struct.pack(">h", int(RANGE_OFFSET_MM * 4)))
                 s.start_ranging()
             print(f"  - {label}: up at 0x{new_address:02X} (attempt {attempt + 1})")
             _sensors[channel] = s
