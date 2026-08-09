@@ -36,8 +36,21 @@ vision_pool = None
 # mat. No colour repainting stage is needed. Magenta counts as floor too, so the
 # parking walls survive the gate.
 USE_ARENA_MASK = True        # False -> byte-identical behaviour to main_v2
-ARENA_Y_TOP = 50             # hard clamp: nothing above this row is ever arena
-ARENA_Y_BOTTOM = 250         # below this the chassis is in frame (chassis: x180 y250 w280 h110)
+# Tied to GLOBAL_Y_OFFSET/GLOBAL_Y_END (tuning.py) -- the exact union of every ROI's
+# y-span. This makes the arena band IDENTICAL to the shared colour-slice crop (see
+# prepare_colour_slice), not just overlapping with it, so the two never re-derive
+# HSV/bilateral over the same rows twice.
+#
+# ARENA_Y_BOTTOM used to be a hardcoded 250, clamped there specifically because the
+# chassis becomes visible below that row (chassis: x180 y250 w280 h110). Tying it to
+# GLOBAL_Y_END extends active arena gating ~30 rows further down (to 280, where the
+# wall ROIs end), which newly gates the bottom ~5 rows of the inner-left/inner-right
+# wall ROIs (they read to y=255) against a floor/wall call that can see the top edge
+# of the chassis in columns x180-460. The outer left/right wall ROIs (x0-135,
+# x505-640) don't overlap the chassis's x-range at all, so they're unaffected.
+# Verify inner-wall detection near y=250-255 on real frames before trusting this.
+ARENA_Y_TOP = GLOBAL_Y_OFFSET
+ARENA_Y_BOTTOM = GLOBAL_Y_END
 ARENA_SEED_PT = (320, 230)   # patch of mat directly in front of the robot, frame coords
 ARENA_TOP_MARGIN = 0         # TUNING KNOB: push the skyline DOWN N px to trim the wall band
 MAX_WALL_RUN = 160           # run longer than this = column untrusted (see build_arena_mask).
@@ -82,12 +95,21 @@ def _sliding_median(arr, window):
     return np.median(win, axis=-1).astype(np.int32)
 
 
-def build_arena_mask(frame):
+def build_arena_mask_from_prepared(cs_slice):
     """
-    Returns (arena_mask, floor_mask, sky), or (None, None, None) if the seed point
-    isn't on any floor blob (camera covered, nose into a wall) -- caller falls back
-    to pass-through so a bad frame degrades to main_v2 behaviour instead of blanking
-    every detection.
+    Same as build_arena_mask, but takes the already-cropped, already colour-converted
+    and already-filtered slice from prepare_colour_slice() instead of a raw frame.
+
+    ARENA_Y_TOP/ARENA_Y_BOTTOM are now exactly GLOBAL_Y_OFFSET/GLOBAL_Y_END (see their
+    definitions above), so cs_slice already IS the arena band -- no re-cropping here.
+    This also computes mask_black once and returns it, since compute_colour_masks_
+    from_prepared() needs the identical black threshold and must not re-derive it.
+
+    Returns (arena_mask, floor_mask, sky, mask_black), or (None, None, None,
+    mask_black) if the seed point isn't on any floor blob (camera covered, nose into
+    a wall) -- caller falls back to pass-through so a bad frame degrades to main_v2
+    behaviour instead of blanking every detection. mask_black is always valid since
+    it's computed before the seed test.
 
     arena_mask : full-frame uint8. Inside the band it is the solid skyline region.
                  ABOVE the band it is 0 -- ARENA_Y_TOP is a hard clamp, nothing up
@@ -98,12 +120,9 @@ def build_arena_mask(frame):
                  make that test pass trivially.
     sky        : per-column top boundary, band-local. Annotation only.
     """
-    band = frame[ARENA_Y_TOP:ARENA_Y_BOTTOM, :]
-    hsv = cv2.cvtColor(band, cv2.COLOR_BGR2HSV)
-
     # 1. Floor candidate. Black walls are the only thing excluded -- pillars, floor
     #    lines and magenta parking walls all pass and stay part of the blob.
-    mask_black = cv2.inRange(hsv, LOWER_BLACK, UPPER_BLACK)
+    mask_black = cv2.inRange(cs_slice, LOWER_BLACK, UPPER_BLACK)
     floor_cand = cv2.bitwise_not(mask_black)
     # Closing seals seams/glare/cable shadows in the mat. Careful raising this: a
     # kernel wide enough to bridge the arena wall merges the far section into our
@@ -114,7 +133,7 @@ def build_arena_mask(frame):
     contours, _ = cv2.findContours(floor_cand, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     seeded = [c for c in contours if cv2.pointPolygonTest(c, ARENA_SEED_LOCAL, False) >= 0]
     if not seeded:
-        return None, None, None
+        return None, None, None, mask_black
     cnt = max(seeded, key=cv2.contourArea)
 
     filled = np.zeros_like(floor_cand)
@@ -185,13 +204,26 @@ def build_arena_mask(frame):
     floor_mask = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
     floor_mask[ARENA_Y_TOP:ARENA_Y_BOTTOM, :] = cv2.bitwise_and(floor, band_mask)
 
+    return arena_mask, floor_mask, sky, mask_black
+
+
+def build_arena_mask(frame):
+    """Standalone entry point for callers that don't already have a prepared slice
+    (the capture_*_pipeline.py diagnostic tools). Production code (pool.py,
+    process_video_frame's inline fallback) should call prepare_colour_slice() once
+    and pass the result to build_arena_mask_from_prepared() directly instead, so the
+    HSV/bilateral conversion never runs twice for one frame."""
+    cs_slice = prepare_colour_slice(frame)
+    arena_mask, floor_mask, sky, _mask_black = build_arena_mask_from_prepared(cs_slice)
     return arena_mask, floor_mask, sky
 
 # ---------------------------------------------------------------------------
 # Colour thresholding (the half of the pipeline that does NOT need the arena mask)
 # ---------------------------------------------------------------------------
 
-MASK_NAMES = ('red', 'green', 'magenta', 'orange', 'blue', 'black')
+COLOUR_MASK_NAMES = ('red', 'green', 'magenta', 'orange', 'blue')  # black comes from
+                                                                     # build_arena_mask_from_prepared
+MASK_NAMES = COLOUR_MASK_NAMES + ('black',)
 
 # Orange and blue are ONLY ever read inside the line ROI (an 80x40 patch), so they
 # are thresholded on that patch alone rather than over the whole 640x200 slice --
@@ -224,37 +256,53 @@ def filter_slice(frame):
     return frame_slice
 
 
-def compute_colour_masks(frame, out=None):
-    """Threshold the working slice into the six colour masks.
+def prepare_colour_slice(frame):
+    """Crop the shared working slice, colour-convert it and filter it -- ONCE.
+
+    The one piece of work both build_arena_mask_from_prepared() and
+    compute_colour_masks_from_prepared()/compute_colour_masks_only() need. Call this
+    once per frame and pass its result to both; do not let either branch re-derive
+    HSV/bilateral independently, or they silently drift back into duplicate work
+    (which is the bug this function exists to prevent -- see pool.py for how the
+    fork-join shares this result across both worker processes).
+
+    ARENA_Y_TOP/ARENA_Y_BOTTOM are exactly GLOBAL_Y_OFFSET/GLOBAL_Y_END (see
+    pipeline.py's arena-mask constants), so this slice doubles as the arena band with
+    no further cropping needed.
+    """
+    if HSV_BEFORE_BLUR:
+        raw_slice = frame[GLOBAL_Y_OFFSET:GLOBAL_Y_END, :]
+        cs_raw = cv2.cvtColor(raw_slice, cv2.COLOR_BGR2Lab if USE_LAB else cv2.COLOR_BGR2HSV)
+        if USE_BILATERAL:
+            cs_slice = cv2.bilateralFilter(
+                cs_raw, BILATERAL_D, BILATERAL_SIGMA_COLOR, BILATERAL_SIGMA_SPACE
+            )
+        else:
+            cs_slice = cv2.GaussianBlur(cs_raw, (1, 7), 0)
+    else:
+        frame_slice = filter_slice(frame)
+        cs_slice = cv2.cvtColor(frame_slice, cv2.COLOR_BGR2Lab if USE_LAB else cv2.COLOR_BGR2HSV)
+    return cs_slice
+
+
+def compute_colour_masks_only(cs_slice, out=None):
+    """Threshold the prepared slice into the FIVE non-black colour masks. Black is
+    owned by build_arena_mask_from_prepared() (it needs it for the wall scan anyway)
+    -- see compute_colour_masks_from_prepared() for the caller that stitches both
+    together into the full six-mask dict.
 
     Every operation here is pointwise, so thresholding the whole slice and cropping
     afterwards is identical to the old code's crop-then-threshold -- which is what
     lets this run in a worker process independently of the arena mask.
 
-    `out`, if given, is a (6, SLICE_HEIGHT, FRAME_WIDTH) uint8 view into shared
+    `out`, if given, is a (5, SLICE_HEIGHT, FRAME_WIDTH) uint8 view into shared
     memory to write into directly, avoiding an allocation + copy per frame.
     """
-    if globals().get('HSV_BEFORE_BLUR', False):
-        raw_slice = frame[GLOBAL_Y_OFFSET:GLOBAL_Y_END, :]
-        hsv_raw = cv2.cvtColor(raw_slice, cv2.COLOR_BGR2HSV)
-        if USE_BILATERAL:
-            hsv_slice = cv2.bilateralFilter(
-                hsv_raw, BILATERAL_D, BILATERAL_SIGMA_COLOR, BILATERAL_SIGMA_SPACE
-            )
-        else:
-            hsv_slice = cv2.GaussianBlur(hsv_raw, (1, 7), 0)
-    else:
-        frame_slice = filter_slice(frame)
-        if USE_LAB:
-            hsv_slice = cv2.cvtColor(frame_slice, cv2.COLOR_BGR2Lab)
-        else:
-            hsv_slice = cv2.cvtColor(frame_slice, cv2.COLOR_BGR2HSV)
-
-    red = cv2.inRange(hsv_slice, LOWER_RED_1, UPPER_RED_1)
+    red = cv2.inRange(cs_slice, LOWER_RED_1, UPPER_RED_1)
     if not USE_LAB:
         # In HSV, red wraps around 180->0, so it needs two ranges combined.
         # In LAB red is continuous and the first range is the whole story.
-        cv2.bitwise_or(red, cv2.inRange(hsv_slice, LOWER_RED_2, UPPER_RED_2), dst=red)
+        cv2.bitwise_or(red, cv2.inRange(cs_slice, LOWER_RED_2, UPPER_RED_2), dst=red)
 
     if out is None:
         orange = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), np.uint8)
@@ -264,36 +312,59 @@ def compute_colour_masks(frame, out=None):
         orange[:] = 0
         blue[:] = 0
 
-    line_hsv = hsv_slice[LINE_SLICE_Y0:LINE_SLICE_Y1, LINE_X0:LINE_X1]
+    line_cs = cs_slice[LINE_SLICE_Y0:LINE_SLICE_Y1, LINE_X0:LINE_X1]
     orange[LINE_SLICE_Y0:LINE_SLICE_Y1, LINE_X0:LINE_X1] = cv2.inRange(
-        line_hsv, LOWER_ORANGE, UPPER_ORANGE)
+        line_cs, LOWER_ORANGE, UPPER_ORANGE)
     blue[LINE_SLICE_Y0:LINE_SLICE_Y1, LINE_X0:LINE_X1] = cv2.inRange(
-        line_hsv, LOWER_BLUE, UPPER_BLUE)
+        line_cs, LOWER_BLUE, UPPER_BLUE)
 
     masks = {
         'red': red,
-        'green': cv2.inRange(hsv_slice, LOWER_GREEN, UPPER_GREEN),
-        'magenta': cv2.inRange(hsv_slice, LOWER_MAGENTA, UPPER_MAGENTA),
+        'green': cv2.inRange(cs_slice, LOWER_GREEN, UPPER_GREEN),
+        'magenta': cv2.inRange(cs_slice, LOWER_MAGENTA, UPPER_MAGENTA),
         'orange': orange,
         'blue': blue,
-        'black': cv2.inRange(hsv_slice, LOWER_BLACK, UPPER_BLACK),
     }
     if out is not None:
         # orange/blue were written in place above; copy the rest.
-        for i, name in enumerate(MASK_NAMES):
+        for i, name in enumerate(COLOUR_MASK_NAMES):
             if name not in ('orange', 'blue'):
                 out[i] = masks[name]
     return masks
 
+
+def compute_colour_masks_from_prepared(cs_slice, mask_black, out=None):
+    """The full six-mask dict: the five colour masks plus the black mask supplied by
+    the caller (normally build_arena_mask_from_prepared()'s output) -- never
+    re-thresholded here."""
+    masks = compute_colour_masks_only(cs_slice, out=out)
+    masks['black'] = mask_black
+    return masks
+
+
+def compute_colour_masks(frame, out=None):
+    """Standalone entry point for callers that don't already have a prepared slice
+    (the capture_*_pipeline.py diagnostic tools). Production code (pool.py,
+    process_video_frame's inline fallback) should call prepare_colour_slice() once
+    and pass the result to compute_colour_masks_from_prepared() directly instead."""
+    cs_slice = prepare_colour_slice(frame)
+    mask_black = cv2.inRange(cs_slice, LOWER_BLACK, UPPER_BLACK)
+    return compute_colour_masks_from_prepared(cs_slice, mask_black, out=out)
+
+
 def process_video_frame(frame):
     """Detect walls, pillars, floor lines and the arena boundary in one frame.
 
-    Two halves run concurrently when the pool is up:
-      - build_arena_mask (~3.3 ms)   -- worker 'vision-arena'
-      - compute_colour_masks (~2.5 ms) -- worker 'vision-colour'
-    They are independent until the bitwise_and below, so this is a fork-join, not a
-    pipeline: the frame we act on is the frame we just captured, never the previous
-    one. Contour extraction and all decisions stay in this process.
+    prepare_colour_slice() (crop + colour-convert + bilateral) runs once, in this
+    process, then two branches run concurrently when the pool is up:
+      - build_arena_mask_from_prepared    -- worker 'vision-arena' (also owns the
+        shared black threshold, since it needs it for the wall scan anyway)
+      - compute_colour_masks_only         -- worker 'vision-colour' (red/green/
+        magenta/orange/blue; black comes from the arena worker, not re-thresholded)
+    The two branches are independent of each other until the bitwise_and below, so
+    this is still a fork-join, not a pipeline: the frame we act on is the frame we
+    just captured, never the previous one. Contour extraction and all decisions stay
+    in this process.
     """
     processed_data = {
         'detected_blocks': [],
@@ -318,10 +389,19 @@ def process_video_frame(frame):
         if not seeded:
             arena_mask, floor_mask, arena_sky = None, None, None
     else:
-        masks = compute_colour_masks(frame)
+        # Inline fallback (pool disabled/unavailable): prepare the shared slice once
+        # and hand it to both branches, same as the pooled path does -- do NOT call
+        # compute_colour_masks(frame)/build_arena_mask(frame) here, they'd each
+        # independently re-derive HSV/bilateral and silently reintroduce the
+        # duplicate work this refactor removes.
+        cs_slice = prepare_colour_slice(frame)
         arena_mask = floor_mask = arena_sky = None
+        mask_black = None
         if USE_ARENA_MASK:
-            arena_mask, floor_mask, arena_sky = build_arena_mask(frame)
+            arena_mask, floor_mask, arena_sky, mask_black = build_arena_mask_from_prepared(cs_slice)
+        if mask_black is None:
+            mask_black = cv2.inRange(cs_slice, LOWER_BLACK, UPPER_BLACK)
+        masks = compute_colour_masks_from_prepared(cs_slice, mask_black)
 
     if not USE_ARENA_MASK:
         arena_mask, floor_mask, arena_sky = None, None, None
@@ -659,6 +739,7 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
             target_pt_y = int(origin_y - target_len * math.cos(math.radians(ideal_angle)))
             cv2.line(annotated_frame, (origin_x, origin_y), (target_pt_x, target_pt_y), (0, 255, 255), 3)
 
-    cv2.putText(annotated_frame, str(debug_info), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+    if debug_info:
+        cv2.putText(annotated_frame, str(debug_info), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
     return annotated_frame
