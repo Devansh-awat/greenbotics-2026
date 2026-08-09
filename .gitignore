@@ -218,3 +218,4 @@ open/
 dataset/
 *.npy
 pipeline_images/
+CLAUDE.md
