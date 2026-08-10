@@ -1,0 +1,39 @@
+# Greenbotics WRO FE 2026 - Python Dependencies
+# Target platform: Raspberry Pi 5, Raspberry Pi OS (Bookworm, 64-bit), Python 3.11+
+
+# ---- Computer vision / numerics ----
+opencv-python==4.10.0.84
+numpy==1.26.4
+
+# ---- Camera (Raspberry Pi CSI) ----
+picamera2==0.3.20
+
+# ---- GPIO / PWM (motor + servo control) ----
+lgpio==0.2.2.0
+rpi-hardware-pwm==0.2.1
+gpiozero==2.0.1
+
+# ---- CircuitPython / Blinka hardware abstraction (board, busio, I2C) ----
+adafruit-blinka==8.50.0
+adafruit-circuitpython-busdevice==5.2.11
+
+# ---- IMU (BNO086, I2C) ----
+adafruit-circuitpython-bno08x==1.2.6
+
+# ---- Distance / ToF sensor (VL53L4CD, I2C) ----
+adafruit-circuitpython-vl53l4cd==2.0.9
+
+# ---- Encoder (PIO-based, Raspberry Pi 5 RP1) ----
+adafruit-circuitpython-pioasm==1.4.0
+adafruit-circuitpython-rp1pio==1.0.4
+
+# ---- Status LED (NeoPixel over SPI, tools/neopixel.py) ----
+adafruit-circuitpython-neopixel-spi==1.1.6
+
+# ---- Live telemetry/control server (tools/server.py) ----
+flask==3.0.3
+flask-sock==0.7.0
+
+# ---- Testing (dev only) ----
+pytest==8.3.3
+flake8==7.1.1

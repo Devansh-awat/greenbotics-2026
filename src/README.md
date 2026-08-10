@@ -92,3 +92,27 @@ if not orange_detection_history[-4] and all(list(orange_detection_history)[1:]):
 [Main Readme 3.4.8](../README.md#348-parking-algorithm) covers the parking sequence, edge cases, and parameter tuning in full detail.
 
 
+
+
+
+---
+
+## Files in this folder
+This is a high-level map of how files are organized within src folder.
+
+```
+src/
+├── experiments/          # Standalone data-collection scripts for tuning/characterizing robot behavior
+├── logs/                 # Logging setup/configuration for run logs
+├── motors/               # Drive motor and steering servo control (PWM, RPM closed-loop)
+├── obstacle_challenge/   # Obstacle Challenge entry point, config, and decision/control logic (includes a legacy/ subfolder of prior versions)
+├── open_challenge/       # Open Challenge entry point and config
+├── sensors/              # Hardware-abstraction drivers for camera, IMU, distance sensors, and encoder (includes a legacy/ subfolder of superseded drivers)
+├── threads/              # Background hardware-sensor thread management
+├── tools/                # Calibration and diagnostic utilities (HSV tuning, capture pipelines, sensor tests)
+├── vision/               # Shared frame-processing pipeline and worker pool
+└── __init__.py           # Marks src/ as a Python package (empty)
+```
+
+This is a high-level map 
+
