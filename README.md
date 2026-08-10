@@ -775,35 +775,20 @@ Our software runs 4 background threads so the main navigation loop never waits o
 *Figure 2: Full system architecture showing all sensor threads feeding the main navigation loop, which commands the servo and motor. The VideoWriter thread records annotated frames for post-run analysis without blocking the control path.*
 
 #### 3.2.2 Code Module Map
+This is a high-level map of how files are organized within src folder.
 
 ```
 src/
-├── motors/
-│   ├── motor.py          # TB6612FNG drive motor: forward/reverse/brake + RPM closed-loop
-│   └── servo.py          # Hardware PWM steering via RP1 (GPIO18)
-├── sensors/
-│   ├── camera.py         # Picamera2 wrapper: capture frames at 640×360
-│   ├── bno086.py         # BNO086 IMU: heading via SPI
-│   ├── distance.py       # 4× VL53L4CD ToF via I2C with XSHUT multiplexing
-│   └── encoder.py        # PIO quadrature encoder for wheel distance/RPM
-├── open_challenge/
-│   ├── config.py         # HSV + ROI constants for open challenge
-│   └── main.py           # Open Challenge entry point
-└── obstacle_challenge/
-    ├── main_v4.py        # Obstacle Challenge entry point + all decision logic
-    ├── config.py         # HSV + ROI constants for obstacle challenge
-    └── drive_straight_tune_target.py  # Calibration tool for target-line angles
+├── experiments/          # Standalone data-collection scripts for tuning/characterizing robot behavior
+├── logs/                 # Logging setup/configuration for run logs
+├── motors/               # Drive motor and steering servo control (PWM, RPM closed-loop)
+├── obstacle_challenge/   # Obstacle Challenge entry point, config, and decision/control logic (includes a legacy/ subfolder)
+├── open_challenge/       # Open Challenge entry point and config
+├── sensors/              # Hardware-abstraction drivers for camera, IMU, distance sensors, and encoder (includes legacy subfolder)
+├── threads/              # Background hardware-sensor thread management
+├── tools/                # Calibration and diagnostic utilities (HSV tuning, capture pipelines, sensor tests)
+└── vision/               # Shared frame-processing pipeline and worker pool
 ```
-
-| Module | What It Does |
-|--------|-------------|
-| `motors/motor.py` | Controls drive motor via TB6612FNG. Provides `forward()`, `reverse()`, `brake()`, and a closed-loop `start_rpm_control(target_rpm, direction)` for parking |
-| `motors/servo.py` | Steering via hardware PWM on RP1. `set_angle()` (clamped ±40°) for normal driving, `set_angle_unlimited()` (±65°) for parking |
-| `sensors/camera.py` | Initializes Picamera2, captures 640×360 frames. Uses a Condition variable so the main loop blocks until a new frame is ready (never processes the same frame twice) |
-| `sensors/bno086.py` | Reads heading from BNO086 at ~100 Hz. Uses Game Rotation Vector mode (no magnetometer — immune to metal walls) |
-| `sensors/distance.py` | Reads 4 VL53L4CD sensors via XSHUT pin multiplexing. Returns nullable distances (consumers always check for None) |
-| `sensors/encoder.py` | Quadrature encoder via RP1 PIO hardware. Counts pulses in dedicated silicon — zero CPU cost, zero dropped counts even under heavy load |
-| `obstacle_challenge/main_v4.py` | The main brain. Runs the sense/think/act loop at ~50 fps. Contains the priority state machine, all steering algorithms, turn counting, and parking routines |
 
 ---
 
@@ -1518,149 +1503,106 @@ Pulled from all three subsystem documents plus the case studies and failures abo
 
 ---
 
-## 5. Reproducibility & GitHub Quality
+## 5. Reproducibility & GitHub Organization
 
-> Rubric target (Advanced/6): *"The robot is fully reproducible from the documentation. GitHub has clear project structure, meaningful commit messages, documented testing workflow and versioning or release notes."*
+Our robot is fully reproducible and this section outlines all the details required to build the robot from scratch. It explains our git file structure, how to build the robot, how to setup the software and how to test it.
 
 ---
 
 ### 5.1 Repository Structure & Module Map
 
-This section replaces a generic folder tree with a description of what each file/module actually does, so a reader can navigate the repository without opening every file. This is the evidence the rubric asks for under "GitHub structure and clarity" and "file organization."
+This section gives a high-level map of the Git Hub repository. It highlights the purpose of each folder and what kind of files reside in it. Each folder also has its own ReadMe which details the purpose of files within that folder.
 
 ```
-Greenbotics/
-├── src/
-│   ├── open_challenge/
-│   ├── obstacle_challenge/
-│   ├── motors/
-│   ├── sensors/
-│   ├── requirements.txt
-│   └── README.md
-├── docs/
-├── models/
-├── schemes/
-├── matlab/
-├── other/
-├── v-photos/
-├── t-photos/
-├── video/
+greenbotics-2026-main/
+├── docs/           # Engineering documentation (source .md files) and supporting diagrams/photos
+├── matlab/         # MATLAB Open Challenge prototype and simulation report assets
+├── models/         # 3D-printable chassis STL files and KiCad PCB project
+├── schemes/        # Wiring diagram, chassis renders, mount reference images
+├── src/            # Python code that runs on the Raspberry Pi 5 (open/obstacle challenge, motors, sensors, tools, etc.)
+├── t-photos/       # Team photo(s)
+├── test/           # Master test tracker and reference test-session track layouts
+├── v-photos/       # Vehicle photos (top/bottom/front/back/left/right + base plate)
+├── video/          # Link(s) to performance videos
 ├── README.md
-├── CHANGELOG.md
-├── LICENSE
 └── .gitignore
 ```
 
-**`src/open_challenge/` — Open Challenge logic**
+### Level-1 Folder Guide
 
-| File | Purpose |
-|---|---|
-| `main.py` | Entry point for the Open Challenge. Camera-based wall following using HSV color masks, proportional steering, orange-line turn counting, sharp-turn collision avoidance. Stops after 12 turns (3 laps). |
-| `config.py` | Tunable parameters for the Open Challenge: HSV thresholds, steering gains, speed settings. |
-
-**`src/obstacle_challenge/` — Obstacle Challenge logic**
-
-| File | Purpose |
-|---|---|
-| `main.py` | Entry point for the Obstacle Challenge. Detects driving direction (clockwise/counter-clockwise) from distance sensors, performs the initial maneuver, avoids red/green traffic signs, counts turns, and executes parallel parking on the final approach. |
-| `config.py` | Tunable parameters: HSV thresholds for signs/lines, steering gains, parking sequence constants. |
-
-**`src/motors/` — Actuation**
-
-| File | Purpose |
-|---|---|
-| `motor.py` | Drive motor control via TB6612FNG driver — PWM speed control, forward/reverse/brake. |
-| `servo.py` | Steering servo control via hardware PWM — angle-to-pulse-width conversion, safety clamping. |
-| `turning_radius.py` | Turning radius calculations used for steering angle limits and parking geometry. |
-
-**`src/sensors/` — Perception**
-
-| File | Purpose |
-|---|---|
-| `camera.py` | Raspberry Pi Camera Module 3 interface (Picamera2) — dual-resolution capture (high-res processing, low-res fast loop). |
-| `distance.py` | Distance sensor abstraction layer used by the main challenge loops. |
-| `encoder.py` | Wheel encoder reading via PIO (RP1) for speed/distance feedback. |
-| `bno055.py` | BNO055 IMU driver (I2C) — orientation/heading for straight-line correction and turn detection. |
-| `bno086.py` / `bno086_spi.py` | BNO086 IMU driver variants (I2C and SPI) — alternative/upgraded IMU option. |
-| `vl53l1x.py` | VL53L1X ToF distance sensor driver, read through the TCA9548A I2C multiplexer. |
-| `vl53l4cd.py` | VL53L4CD ToF distance sensor driver (direct I2C, no multiplexer dependency). |
-| `vl53l8cx_python.py` | Python ctypes bindings to the vendored VL53L8CX ULD/SPI shared libraries (`libvl53l8cx_uld.so`, `libvl53l8cx_spi.so`) and the SPI platform shim (`vl53l8cx_spi_platform.c`, `build_spi_platform.sh`). |
-| `i2c_bus.py` | Shared I2C bus handle used across sensor drivers to avoid bus contention. |
-| `color_tuning.py` / `color_annotate_tuner.py` | Interactive tools for tuning HSV color thresholds against live camera frames. |
-| `calibrate_bno.py` | Calibration routine for the BNO08x IMU family. |
-| `color_samples/*.npy` | Saved HSV sample sets (RED, GREEN, BLUE, ORANGE, BLACK) used as reference during color tuning. |
-
-**`docs/` — Engineering documentation**
-
-| File | Purpose |
-|---|---|
-| `MobilityManagementFinal.md` | Source document for Section 1 — chassis, drivetrain, steering design and justification. |
-| `PowerAndSenseFinal.md` | Source document for Section 2 — power budget, sensor selection and placement, wiring. |
-| `SoftwareArchitectureFinal.md` | Source document for Section 3 — state machine, algorithms, obstacle/parking strategy. |
-| `GitHub_Rproducibility_final.md` | Source document for this section. |
-| `GitHub_cleanupSteps.md` | Repository housekeeping checklist — not part of scored documentation. |
-| `diagrams/` | Supporting diagrams referenced throughout this README (mobility, power/sense, software, parking). |
-| `Engineering_Journal/` | Placeholder — see [5.7](#57-engineering-journal). |
-
-**`models/`, `schemes/`, `matlab/`, `other/` — Hardware & reference assets**
-
-| Folder | Purpose |
-|---|---|
-| `models/chassis/` | 3D-printable STL files (servo mount, servo horn mount, camera mounts, sensor mount) and Lego BrickLink chassis files. |
-| `models/PCB/` | KiCad schematic, PCB layout, and Gerber-adjacent files for the custom PCB. |
-| `schemes/` | Wiring diagram, chassis renders (top/front/iso/bottom views), mount reference images. |
-| `matlab/` | MATLAB prototype (`open_challenge.m`) used during early algorithm exploration — kept as a reference of the design process, not part of the deployed robot code. |
-| `other/readmephotos/`, `lddphotos/`, `flowchart/`, `evolutionphotos/` | Supporting images for the main README: component photos, LEGO Digital Designer renders, algorithm flowcharts, and the build's version history in photos. |
-
-**Vehicle & team evidence**
-
-| Folder | Purpose |
-|---|---|
-| `v-photos/` | Vehicle photos: Top, Bottom, Front, Back, Left, Right — satisfies the "photos from every side" mandatory requirement. |
-| `t-photos/` | Team photo(s). |
-| `video/video.md` | Links to Open Challenge and Obstacle Challenge performance videos (YouTube). |
+| Folder | Short Description | README |
+|---|---|---|
+| `docs/` | Source engineering documents behind this README (Mobility, Power & Sense, Software, Systems Thinking, Reproducibility) plus all supporting diagrams and raw robot photos/videos. | [docs/README.md](docs/README.md) |
+| `matlab/` | MATLAB Open Challenge algorithm prototype and simulation report images. | [matlab/README.md](matlab/README.md) |
+| `models/` | 3D-printable chassis STL files and the KiCad PCB project (schematic + layout) for the custom PCB. | [models/README.md](models/README.md) |
+| `schemes/` | Wiring diagram, chassis build-step renders, and 3D-part mount reference images. | [schemes/README.md](schemes/README.md) |
+| `src/` | Python code that runs on the Raspberry Pi 5 — Open Challenge and Obstacle Challenge entry points, motor/sensor/vision hardware-abstraction modules, calibration tools, and standalone experiment scripts. | [src/README.md](src/README.md) |
+| `t-photos/` | Team photo(s). | [t-photos/README.md](t-photos/README.md) |
+| `test/` | Master test tracker document and reference master-session test-track layout images. | [test/README.md](test/README.md) |
+| `v-photos/` | Vehicle photos — Top, Bottom, Front, Back, Left, Right, Base Plate — satisfies the "photos from every side" mandatory requirement. | [v-photos/README.md](v-photos/README.md) |
+| `video/` | Link(s) to Open Challenge and Obstacle Challenge performance videos (YouTube). | [video/README.md](video/README.md) |
 
 ---
 
 ### 5.2 Robot Build Instructions
 
-*(Sourced from the project's own README "Robot construction guide" section — see [Section 1.12](#112-building-instructions) and Steps 1–7 embedded in that section.)*
-
 **Step 1: Print the 3D parts**
-- STL files for servo motor mount, servo horn mount, camera base, camera arm, and sensor mounts are in `models/chassis/`.
-- Recommended print settings: **Material: PLA, Infill: 100%**
 
-**Step 2: Assemble the steering and drive train**
-- Build the steering assembly using the Lego parts as shown in `schemes/`.
-- Attach the two rear wheels with a differential gear assembly using Lego gears and axle.
-- Attach the Lego EV3 medium motor with Lego pins to the chassis; the motor gears must mesh with the differential gear.
-- Attach the front wheels.
+- STL files for wheel shaft, bottom chassis, camera mount, differential gear box top case, motor shaft, bumper, top chassis, servo horn and wheel bracket are in models/chassis/.  
+- The print settings for Bambu Lab A1 are in models/chassis/settings/  
+- If you use a different printer and cannot import above settings, follow the settings below:
 
-**Step 3: Attach the 3D-printed mounts**
-- Mount the servo on the 3D-printed servo motor mount.
-- Attach the servo horn to the steering assembly with the 3D-printed servo horn mount.
-- Attach the servo mount to the chassis using Lego pins.
-- Attach the camera base mount to the rear of the chassis, and the camera arm mount to the base using screws.
-- Use zip ties where needed for extra stability.
+**Global Slicer Settings**
+
+* **Material:** PLA  
+* **Layer Height:** 0.2mm  
+* **Infill Pattern:** Gyroid  
+* **Walls:** 2 Wall Loops  
+* **Infill density:** 15%
+
+**Part Overrides**
+
+* **Camera Mount:** 25% Infill  
+* **Bearing to Wheel Shaft:** 4 Wall Loops  
+* **Motor Shaft:** 100% Infill | 4 Wall Loops  
+* **Bumper:** TPU(Flex) | 7% Infill
+
+**Step 2: Assemble the Ackerman steering**
+
+Build the steering assembly using the Lego parts as shown in schemes/
+
+**Step 3: Assemble the Robot**
+
+- Use appropriate screws at each step to affix individual parts  
+- Assemble the 3D printed parts as per Step 1 and attach Pololu 4861 motor and the Metal Differential Gear in the rear cavity  
+- Insert the Ackerman steering assembly in the front cavity  
+- Assemble the 3D printed parts as per Step 2 and attach EMAX servo motor  
+- Assemble the 3D printed parts as per Step 3 and 4  
+- Attach front and rear wheels
 
 **Step 4: Fabricate the PCB**
-- Fabricate the PCB from the KiCad files in `models/PCB/` using [KiCad](https://www.kicad.org/).
 
-**Step 5: Solder the electronics (gradual, safe startup order)**
-1. Solder all headers to the PCB.
-2. Solder the power modules.
-3. Attach the battery and verify the Raspberry Pi 5 boots.
-4. Solder the startup switch and LED; verify with a simple test program.
-5. Attach the motor driver module; verify motor control with a test program.
-6. Attach the multiplexer module; verify sensor readings with a test program.
-7. Attach the IMU module; verify orientation readings with a test program.
-8. Attach the Raspberry Pi 5 wide-angle camera.
+- Fabricate the PCB from the KiCad files in models/PCB/ using KiCad.
 
-**Step 6: Install the software** — see [5.3](#53-software-setup--running-the-robot) below.
+**Step 5: Solder the electronics with safe sequence**
 
-**Step 7: Verify robot stability**
-- Run the robot — it should move smoothly.
-- If gears make a grinding noise, this is usually caused by Lego components not being tightly coupled. Use zip ties to secure chassis beams firmly.
+- Solder all headers to the PCB.  
+- Solder the power modules.  
+- Attach the battery and verify the Raspberry Pi 5 boots.  
+- Solder the startup switch and LED and verify with a simple test program.  
+- Attach the motor driver module and verify motor control with a test program.  
+- Attach the sensor modules and verify sensor readings with a test program.  
+- Attach the IMU module and verify orientation readings with a test program.  
+- Attach the Raspberry Pi 5 wide-angle camera.
+
+**Step 6: Install the software**
+
+- See [Software Setup](#53-software-setup--running-the-robot) below for detailed steps on setting up software
+
+**Step 7: Verify robot runs\!**
+
+- Run the robot as per steps in [Testing Workflow](#54-testing-workflow) and it will run smoothly\!  
+- If the rear wheel shaft doesn’t move smoothly with your hands, apply grease to the gear teeth using the greasing hole underside the robot chassis.
 
 ---
 
@@ -1670,28 +1612,17 @@ Greenbotics/
 
 - Install Raspberry Pi OS (Bookworm, 64-bit) on the Raspberry Pi 5.
 - Connect to Wi-Fi and confirm internet access, then update the system:
-  ```bash
-  sudo apt update
-  sudo apt upgrade
-  ```
+```bash
+sudo apt update
+sudo apt upgrade
+```
 
-#### 5.3.2 Install Git and connect to GitHub
+#### 5.3.2 Install Git and clone Greenbotics Repo
 
 ```bash
 sudo apt install -y git
-git config --global user.name "Your Name"
-git config --global user.email "you@example.com"
-```
-
-Generate an SSH key and register it with GitHub (recommended over HTTPS for push access):
-```bash
-ssh-keygen -t ed25519 -C "you@example.com"
-cat ~/.ssh/id_ed25519.pub
-```
-Add the printed key at [github.com/settings/keys](https://github.com/settings/keys), then clone:
-```bash
-git clone git@github.com:<your-org>/greenbotics-wro-fe-2026.git
-cd greenbotics-wro-fe-2026
+git clone https://github.com/Devansh-awat/greenbotics-2026.git
+cd greenbotics-2026
 ```
 
 #### 5.3.3 Install system-level dependencies
@@ -1713,7 +1644,7 @@ python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
 ```
 
-#### 5.3.5 Install pinned Python dependencies
+#### 5.3.5 Install Python dependencies
 
 ```bash
 pip3 install -r src/requirements.txt
@@ -1747,33 +1678,23 @@ Ensure all hardware is wired per Section 2 and `schemes/` before running.
 
 ---
 
-### 5.4 Testing Workflow
+### 5.4 Testing Workflow 
+Having built the robot using [Section 5.2](#52-robot-build-instructions) and [Section 5.3](#53-software-setup--running-the-robot) above, follow below instructions to test it on the field.
 
 **Open Challenge test procedure**
-1. Place robot in the starting section on a standard track (borders at 1000mm or 600mm).
+1. Place robot in the starting section on a WRO FE mat with its walls.
 2. Run `python3 -m src.open_challenge.main`.
 3. Confirm: 3 laps completed, correct direction, no wall contact, stop in finish section.
-4. Repeat for a batch of runs (recommend 20) and log: lap time, wall contacts, completion (Y/N).
 
 **Obstacle Challenge test procedure**
-1. Place 6 traffic signs (red/green) in a valid randomized configuration.
+1. Place traffic signs (red/green) in a valid randomized configuration.
 2. Run `python3 -m src.obstacle_challenge.main`.
 3. Confirm: correct avoidance (red = pass left, green = pass right), no pillar contact, 3 laps completed, parking attempted.
-4. Repeat for a batch of runs (recommend 20) and log: correct avoidances (out of 6), contacts, lap completion, parking success.
-
-**Pass/Fail criteria**
-
-| Result | Criteria |
-|---|---|
-| PASS | All pillars avoided correctly, 3 laps completed, no contacts |
-| PARTIAL | 1–2 incorrect avoidances or 1 contact |
-| FAIL | >2 incorrect avoidances, multiple contacts, or incomplete laps |
-
-*(Insert actual logged results here — mean lap time, success rate over N runs — once a test batch has been run and summarized.)*
 
 ---
 
 ### 5.5 CHANGELOG Template
+//TODO create cahngelong , check in then mention here 
 
 ```markdown
 # Changelog
@@ -1798,31 +1719,10 @@ Ensure all hardware is wired per Section 2 and `schemes/` before running.
 
 ---
 
-### 5.6 Commit & Versioning Practice
 
-- Use descriptive commit messages, e.g. `fix(steering): correct PID overshoot at sharp corners`, not `update` or `fix`.
-- Mandatory deadline commits (per rules): 1st ≥2 months before competition (≥20% of code), 2nd ≥1 month before (~60% complete), 3rd ≥2 weeks before (100% complete — this is what's scored).
-- Tag milestone commits as releases (`v1.0`, `v2.0`, `v3.0`) matching the CHANGELOG entries above.
+### 5.6 Engineering Journal
 
----
-
-### 5.7 Engineering Journal
-
-The Engineering Journal will be produced as an **export of this README**, reformatted for narrative/PDF presentation (title page, section numbering, page breaks — this document already uses `page-break-before` styling in places to build on).
-
-Placeholder folder reserved at `docs/Engineering_Journal/` — will hold `Engineering_Journal.pdf` and its source `.md` once exported.
+The Engineering Journal will be produced as an **export of this README**, reformatted as PDF. Placeholder folder reserved at `docs/Engineering_Journal/` 
 
 ---
 
-### 5.8 Reproducibility Self-Check
-
-- [ ] Another team can identify every required part from the BOM in this README
-- [ ] Another team can follow [Section 5.2](#52-robot-build-instructions) to assemble the mechanical build
-- [ ] Another team can follow [Section 5.3](#53-software-setup--running-the-robot) to install software and run both challenges from a clean Raspberry Pi
-- [ ] `src/requirements.txt` versions match what was actually tested
-- [ ] Testing workflow results are logged with real numbers, not placeholders, before the scored commit
-- [ ] CHANGELOG has at least 3 dated version entries before the scored commit
-
----
-
-*End of Document | Team Greenbotics | WRO Future Engineers 2026*
