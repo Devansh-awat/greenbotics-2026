@@ -16,7 +16,7 @@
 
 ## 1. Mobility & Mechanical Design
 
-At the top of doc, we should have a paragraph on the excellent performance we achieved at WRO 2025 with old robot and we strived to improve it in every possible aspect this year.
+This section describes the Mecahnical design of the robot including its chassis, drivetrain and gearbox. It also mentions our experiments, speed &torque calculations, component selection criteria , 3-D designed parts and vehicle photos.
 
 ---
 
@@ -133,7 +133,8 @@ We used lego spike prime medium wheels with 56mm diameter and 14 mm wide. These 
 
 We also tried 3D printing our own custom wheels, and coating it with a cricket bat's rubber grip. But we realised we couldn't match the fit and finish of a pre-fabricated Lego wheel.
 
-//TODO  include link for 3 D graveyard 
+[For Wheel Attempts refer 3D Iterations](#451-3d-chassis-iterations)
+
 ---
 
 ### 1.6 Drive Motor selection
@@ -262,7 +263,8 @@ We did have one instance of SG90 breaking last year so we chose the EMAX servo m
 ---
 
 ### 1.8 3D printed parts
-Our robot structure is entirely 3-D designed. Here is how the various 3-D parts connect together to give structure to our robot. And to see how we iterated to reach these final parts see the section --XX//TODO link to 3 D garveyard
+Our robot structure is entirely 3-D designed. Here is how the various 3-D parts connect together to give structure to our robot. 
+[Click Here to see how we iterated to reach these final parts](#451-3d-chassis-iterations)
 
   <img src="docs/diagrams/mobility/3D_assembly.png" alt="3 D parts" width="800">
 
@@ -674,60 +676,57 @@ This design gave us the following **benefits**
 * **Accurate Tracking Under Heavy Load:** Because the PIO silicon continuously counts and stores pulses in hardware buffers, we never lose track of our distance. Even when the main processor is heavily loaded with intense image processing tasks, the robot's navigation loop can just read the exact counts whenever it needs them.
 ---
 
-### 2.7 Calibration Procedures (Recommended — Not Yet Written)
+### 2.7 Calibration Procedures
 
-This section should document how each sensor is calibrated before a race.
+This section documents how each sensor is calibrated.
 
 #### 2.7.1 Camera HSV Threshold Calibration
+We wrote code to help us tune the color as per the lighting conditions. It allows us to find the HSV color ranges for each color in a particualr environment.
 
-*What to include: Step-by-step process to calibrate color detection thresholds for red and green traffic signs under venue lighting. Show the tool/script used, sample HSV values, and how values change across lighting conditions.*
+<img src="docs/diagrams/powerNsense/HSV_tuning.png" width="300" >
+
+[Link for HSV Color Calibration Code](src/tools/color_annotate_tuner.py)
 
 #### 2.7.2 IMU Calibration
+To calibrate the BNO086, we start by calibrating the gyroscope by keeping the robot still for 1 min. Then to calibrate the magnetometer, we rotate the robot in figure 8 shape. Lastly to calibrate the accelerometer, we keep it in 6 different position with each face pointing down.
 
-*What to include: Steps to achieve full calibration of BNO086 (Game Rotation Vector mode). How the Tare command is used. How to verify heading accuracy before a race. Time required for calibration.*
+[Link for IMU Calibration Code](src/tools/calibrate_bno.py)
 
 #### 2.7.3 Distance Sensor Calibration
+For Distance calibration, we measure the distance of an object kept 20 cm away. The difference between actual and measured is used as offset in the code, so that software can handle the error created by the sensor reading. 
 
-*What to include: Offset calibration procedure for VL53L4CD at known distances. How recessed mounting affects readings. Verification that readings are accurate at 15-200mm range.*
+[Link To Experiment to measure Sensor Accuracy](#253-distance-sensor)
 
----
 
-### 2.8 Failure Point Analysis (Recommended — Not Yet Written)
-
-This section should identify what can go wrong and what we do about it.
-
-*What to include: A table listing failure scenarios, their probability, severity, and mitigation. For example:*
-
-- *What happens if venue lighting is very different from practice lighting? (Camera detection fails)*
-- *What happens if battery voltage drops during a race? (Motor slows, sensor readings drift)*
-- *What happens if a ToF sensor gets occluded by dust or debris?*
-- *What happens if the IMU drifts mid-race?*
-- *What happens if the motor draws a spike and causes voltage sag on the 5V rail?*
+#### 2.7.4 Encoder Calibration
+Encoder was initially configured with a theoretical multiplier as per wheel diameter, gear ratio, pulses per rotation (ppm) to convert the encoder pulses to distance. This was slightly off so we adjusted the multiplier after running the robot for a fixed distance.
 
 ---
 
-### 2.9 Iteration Evidence (Recommended — Not Yet Written)
+### 2.8 Failure Point Analysis 
 
-This section should show how the power/sensor design changed over time based on testing.
+This section details what can go wrong and what we do about it.
 
-*What to include:*
-
-- *Camera mount evolution: If the camera position was changed (height, angle, front vs rear), show before/after with test results. Example: "We tested two camera positions. The first position caused glare from overhead lights, so we moved the camera 3 cm higher and tilted it by 10 degrees downward, which reduced misdetection by 40 percent."*
-- *Sensor selection changes: If you initially tried a different sensor and switched, document why with data.*
-- *PCB or wiring changes: If the wiring layout evolved, show the earlier version and what problem it caused.*
-- *Before/after performance comparison table showing improvement.*
+| Scenario | Impact | Mitigation |
+| :--- | :--- | :--- |
+| Lighting variations | Robot crashes into obstacles or wall | HSV tuning to adapt to new surroundings |
+| Battery voltage drops | Robot slows down unexpectedly, LiPo could become permanently damaged if it goes below 3V/cell | Voltmeter added to make sure the robot voltage doesn’t go too low |
+| ToF sensor dusty | Sensor gives false readings and increase in blind spot | Clean the sensor surface |
+| IMU drift | Slanted parking or slanted path when going towards parking blocks | Magnetometer is turned off in IMU to reduce drift occurrences. Recalibrate IMU if it still drifts as per process described in this doc. |
 
 ---
 
-### 2.10 Sensor Placement Geometry (Recommended — Not Yet Written)
+### 2.9 Iteration Evidence
 
-This section should use math and field dimensions to justify where each sensor is placed.
+This section shows how the power/sensor design changed over time based on testing.
 
-*What to include:*
+|Component|Iteration|Details|
+|---|--|--|
+|Camera|Mounting angle and height changed|[For Camera Mounts Iteration refer 3D Iterations](#451-3d-chassis-iterations)|
+|TOF Selection| VL53L1X changed to VL53L4CD to reduce blind spot|[For TOF comparison refer section 2.5.3](#253-distance-sensor)|
+|TOF Sensor|Mount position changed to recessed|[For TOF placement reasoning refer Section 2.5.3](#253-distance-sensor)|
+|Battery|Lipo 11.1V 2100mAh changed to Lipo 11.1V 1500mAh after Power Budget calculation|[For Power Budget Calculation Refer to Section](#21-power-budget)|
 
-- *Camera FOV calculation: At the mounted height and angle, how much of the track is visible? Calculate coverage width at different distances. Show that the camera can see pillars early enough to react.*
-- *ToF sensor coverage: Show the sensing cone/beam at the mounted position. Prove that it covers the parking wall detection zone.*
-- *A top-down diagram of the robot with sensor FOV cones overlaid on the track dimensions (track width, section length, pillar positions).*
 
 ---
 
@@ -992,7 +991,7 @@ We define a virtual target line from a corner of the frame to the top center. Th
 
 <table>
   <tr>
-    <td><img src="docs/diagrams/software/target_line_geometery.png" alt="Target-Line Geometry Diagram" width="600"></td>
+    <td><img src="docs/diagrams/software/target_line_geometery.png" alt="Target-Line Geometry Diagram" width="800"></td>
     <td>
       <strong>Per-frame Steering angle calculation:</strong>
 <pre><code>current_angle = atan2(block_x - origin_x, origin_y - block_y)  // θ = tan_inv(Δx/Δy)
@@ -1499,21 +1498,23 @@ A comparison of the videos before and after the fix shows some improvement in wo
 
 ### 4.5 Iteration and Testing Cycle Summary
 
+#### 4.5.1 3D Chassis Iterations
+We have worked on this robot since Jan 2026 and gone over multiple iterations with respect to various components. These changes required changes to the 3D parts as well and we designed multiple variations of each of our chassis parts to accommodate these changes.
+
+|<img src="docs/diagrams/systemsThinking/3D_Graveyard_1.png" alt="3D Graveyard 1" width="600">|<img src="docs/diagrams/systemsThinking/3D_graveyard_2.png" alt="3D Graveyard 2" width="600">|
+
+#### 4.5.2 Other Design Iterations
 Pulled from all three subsystem documents plus the case studies and failures above, this table is a compact record of what changed, why, and what evidence backs the change.
 
 | Decision | Changed From → To | Why | Evidence / Status |
 | :---- | :---- | :---- | :---- |
-| Steering | Parallel → Ackermann | Tyre slip during tight maneuvers between inner blocks and walls | TODO: cornering test data (Mobility Management) |
-| Differential gear | Plastic (Lego) → Metal (38:13) | Gear damage from wall hits; backlash caused inconsistent low-speed parking control | Comparison table, Mobility Management § 4.4 |
-| Steering servo | SG90 → EMAX ES08A II | SG90 broke from front-wheel collisions last year | Torque/durability comparison, Mobility Management |
-| Drive motor | Lego EV3 → TT-GM25 | Lego motor was run at 100% speed and had no headroom to increase robot speed. | Last year's robot run stats |
-| Drive motor | TT-GM25 → Pololu 4861 | TT-GM25 failed in the field (shaft wear); Pololu chosen for reliability and speed headroom | See § 4.1 — 1 month, zero stalls |
-| IMU | BNO055 → BNO086 | Heading drift accumulated over 3 laps; no hardware tare or magnetic immunity | 0.5°/min drift spec; see § 3.2 |
-| Camera | HQ Camera + fisheye → Camera Module 3 Wide | Edge distortion and compressed edge objects hurt contour detection | Side-by-side test, Power and Sensor Architecture |
-| Pillar-avoidance steering law | Fixed vertical target line → angle-based target-line geometry | Fixed-line delta grew as the robot approached a pillar, forcing hacky edge-case handling | Centroid-tracking calibration tool (drive_straight_tune_target.py) |
-| Drive speed | Fixed speed (86% / 92%) → Variable speed by obstacle distance | Fixed high speed caused repeated back-off recoveries, worsening lap time | See § 3.3 — TODO: lap-time table |
-| ToF sensor init | Boot-time check only → runtime re-init → GPIO Pull-Up fix | Wall collisions in ~1-in-20 parking runs | See § 4.2 — 200+ runs, zero recurrence |
-| Wheel-gearbox alignment | Bare 3D-printed gearbox → added axle-support bracket | Wobble at the wheel showed up as jitter in the camera feed | Before/after video — TODO: insert gif (see § 4.3) |
+| Steering | Parallel → Ackermann | Tyre slip during tight maneuvers between inner blocks and walls | [Refer Sec 1.2 for Details](#12-steering-selection) |
+| Drive motor | Lego EV3 → TT-GM25 | Lego motor was run at 100% speed and had no headroom to increase robot speed. | [Refer Sec 1.6 for Details](#16-drive-motor-selection) |
+| Drive motor | TT-GM25 → Pololu 4861 | TT-GM25 failed in a month. Chose Pololu motor for reliability | [Refer Sec 1.2 for Details](#441-drive-motor-burnout--tt-gm25-to-pololu-4861)|
+| Pillar-avoidance steering law | Fixed vertical target line → angle-based target-line geometry|The delta between the robot and obstacle reduced as the robot approached the pillar with Fixed-line delta, forcing hacky edge-case handling| [Centroid-tracking calibration tool](src/tools/drive_straight_tune_target.py)  [Section 3.4.5](#345-pass-traffic-sign---target-line-geometry)|
+| Drive speed | Fixed speed (86% / 92%) → Variable speed by obstacle distance | Fixed high speed caused repeated back-off recoveries, worsening lap time |[Details for Variable Speeds](#432-speed-vs-accuracy--why-we-moved-to-variable-speed) |
+| ToF sensor init | Boot-time check only → runtime re-init → GPIO Pull-Up fix | Wall collisions in ~1-in-20 parking runs | [Details for TOF sensor Dropout](#442-tof-sensor-dropout-during-parking2) |
+| Wheel-gearbox alignment | Bare 3D-printed gearbox → added axle-support bracket | Wobble at the wheel showed up as jitter in the camera feed | [Details of Wheel Gearbox alignment issue](#443-wheel-wobble-showing-up-as-camera-jitter)|
 
 ---
 
