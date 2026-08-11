@@ -1,8 +1,8 @@
 
-| <img src="docs/diagrams/GreenboticsLogo.png" alt="4" width="500" /> |
+| <img src="docs/diagrams/GreenboticsLogo.png" alt="4" width="400" /> |
 | :----------------------------------------------------------: |
 
-| <img src="other/readmephotos/GithubQR.svg" alt="GithubQR" width="200" align="left"/> | <img src="other/readmephotos/YoutubeQR.svg" alt="YoutubeQR" width="200" align="right" /> |
+| <img src="docs/diagrams/GithubQR.png" alt="GithubQR" width="200" align="left"/> | <img src="docs/diagrams/YoutubeQR.png" alt="YoutubeQR" width="200" align="right" /> |
 | :----------------------------------------------------------- | -----------------------------------------------------------: |
 | Scan QR to open Github repo                                  |                                Scan QR to open YouTube video |
 
@@ -10,11 +10,10 @@
 # Table of Contents
 
 1. [Introduction](#1-introduction)
-   - 1.1 [Summary Video](#11-summary-video)
+   - 1.1 [Summary and Performance Video](#11-summary-and-performance-video)
    - 1.2 [Vision](#12-vision)
    - 1.3 [The Team](#13-the-team)
    - 1.4 [Vehicle photos](#14-vehicle-photos)
-   - 1.5 [Performance Videos](#15-performance-videos)
 2. [Mobility & Mechanical Design](#2-mobility--mechanical-design)
    - 2.1 [Drivetrain selection](#21-drivetrain-selection)
    - 2.2 [Steering selection](#22-steering-selection)
@@ -57,33 +56,43 @@
    - 6.2 [Robot Build Instructions](#62-robot-build-instructions)
    - 6.3 [Software Setup & Running the Robot](#63-software-setup--running-the-robot)
    - 6.4 [Testing Workflow](#64-testing-workflow)
-   - 6.5 [CHANGELOG Template](#65-changelog-template)
-   - 6.6 [Engineering Journal](#66-engineering-journal)
+   - 6.5 [Engineering Journal](#66-engineering-journal)
 
 ---
 
 # 1 Introduction 
 We are team Greenbotics and are competing in WRO 2026 Future Engineers category. This is our second year after a successful participation in WRO 2025, where we were one of the 5 teams to hit a full score(https://scoring.wro-association.org/en/event/scoring/293) in all 4 rounds. You can find our documentation from 2025 here (https://github.com/Devansh-awat/greenbotics).
 
-![WRO_2025_score](docs/diagrams/WRO_2025_score.png)
+<img src="docs/diagrams/WRO_2025_score.png" alt="WRO_2025_score.png" width="60%"/>
 
 
-## 1.1 Summary Video
+## 1.1 Summary and Performance Video
 Here is a quick 5 min video that summarizes the essence of our robot and documentation. We recommend you watch it to get a quick understanding of our project!
 
-This playlist consists of 3 videos that show our robot's construction, open challenge run as well as obstacle challenge run.
 
-| [<img src="other/readmephotos/VideoThumbnail.png" alt="Robot Video" width="300"/>](https://www.youtube.com/playlist?list=PLtGeYglcz-LV6koN9wQThOjIqPL0-ONzv) | <img src="other/readmephotos/YoutubeQR.svg" alt="YoutubeQR" width="100" /> <br />Scan QR code to open in YouTube |
+| [<img src="docs/diagrams/SummaryVideoThumbnail.png" alt="Robot Video" width="500"/>](https://m.youtube.com/playlist?list=PLMdippUF4xxo) | <img src="docs/diagrams/YoutubeQR.png" alt="YoutubeQR" width="100" /> <br />Scan QR code to open in YouTube |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
 
-
+* [Summary Video](https://youtu.be/YS-oyNQQUGs) 
+* [Open Challenge Performance Video](https://youtu.be/OW5V_LRIKNU)
+* [Obstacle Challenge Performance Video](https://youtu.be/RbtGV2t9GcI)
 
 ## 1.2 Vision
 Even though we had a robot from WRO 2025 that performed perfectly across all rounds, we decided to make the most of the 6 months we had to prepare for WRO 2026 by redesigning our robot in every aspect and building it from scratch. This experience gave us tremendous learning.
 
 ## 1.3 The Team
 
-<img src="t-photos/GreenboticsTeamPic.jpeg" width="450" style="margin-center:20px;"/><img src="t-photos/GreenboticsClowns.jpeg" width="350" style="margin-center:20px;"/>
+<table style="width: 100%; text-align: center; border-collapse: collapse;">
+   <tr>
+    <td style="padding: 10px;">
+      <img src="t-photos/GreenboticsTeamPic.jpeg" width="450" style="margin-center:20px;"/>
+    </td>
+    <td style="padding: 10px;">
+     <img src="t-photos/GreenboticsClowns.jpeg" width="350" style="margin-center:20px;"/>
+    </td>
+  </tr>
+</table>
+
 
 Devansh Harivallabhdas is a student in Grade 11 at Ahmedabad International School, Ahmedabad.
 Rakshith Rao is a student in Grade 10 at The Riverside School, Ahmedabad.
@@ -126,17 +135,6 @@ Paresh Gambhava is our coach from The Robotronics Club, Ahmedabad
     </td> 
   </tr>
 </table>
-
-## 1.5 Performance Videos
-This playlist consists of 3 videos that show our robot's construction, open challenge run as well as obstacle challenge run.
-
-| [<img src="other/readmephotos/VideoThumbnail.png" alt="Robot Video" width="300"/>](https://www.youtube.com/playlist?list=PLtGeYglcz-LV6koN9wQThOjIqPL0-ONzv) | <img src="other/readmephotos/YoutubeQR.svg" alt="YoutubeQR" width="100" /> <br />Scan QR code to open in YouTube |
-| ------------------------------------------------------------ | ------------------------------------------------------------ |
-
-
-
----
-
 
 # 2 Mobility & Mechanical Design
 
@@ -672,35 +670,8 @@ The complete Circuit diagram below shows all power and signal connections betwee
 **Experimentation**
 
 To figure out the accuracy of our sensor at various distances, we measured its reading vs actual physical distance measurements.
-<table>
-  <tr>
-    <!-- Left Column: Data Table -->
-    <td valign="middle" width="35%">
-      <table border="1" cellpadding="5" cellspacing="0" style="width:100%;">
-        <thead>
-          <tr>
-            <th style="width:15%; white-space:normal;">Experiment #</th>
-            <th style="width:28%; white-space:normal;">ToF measured distance (cm)</th>
-            <th style="width:32%; white-space:normal;">Observed distance practically (cm)</th>
-            <th style="width:25%; white-space:normal;">Δ distance (cm)</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td align="center">1</td><td align="center">303</td><td align="center">300</td><td align="center">3</td></tr>
-          <tr><td align="center">2</td><td align="center">201</td><td align="center">200</td><td align="center">1</td></tr>
-          <tr><td align="center">3</td><td align="center">100</td><td align="center">100</td><td align="center">0</td></tr>
-          <tr><td align="center">4</td><td align="center">50</td><td align="center">50</td><td align="center">0</td></tr>
-          <tr><td align="center">5</td><td align="center">35</td><td align="center">36</td><td align="center">1</td></tr>
-          <tr><td align="center">6</td><td align="center">12</td><td align="center">5</td><td align="center">7</td></tr>
-        </tbody>
-      </table>
-    </td>
-    <!-- Right Column: Graph -->
-    <td valign="top" width="65%" style="padding-left: 20px;">
-      <img src="docs/diagrams/powerNsense/sensor-err-vs-distance.png" alt="ToF Distance Accuracy Graph" width="100%">
-    </td>
-  </tr>
-</table>
+
+<img src="docs/diagrams/powerNsense/sensor-err-vs-distance.png" >
 
 **Conclusion** The accuracy of the ToF sensor reduces as the distance reduces with a possible blind spot. As a result, we refined our design by placing our sensors inside of the robot chassis to account for the measured blind spot.
 
@@ -1025,23 +996,17 @@ IDEAL_ANGLE(green) = -40.5 degrees  // tuned for green pillar
 Kp = 1.5  // proportional constant
 ```
 
-
-
-
 **Evaluation of multiple algorithms**
-Our previous year's robot used a **fixed vertical line** as the target line and actual line. If you notice the camera image, the straight walls are seen in camera as inclined lines which means the straight path of robot visually appears as inclined lines due to the depth of vision.
-Fixed line causes the delta between the target and actual to increase as the robot approaches the pillar. As the robot approached closer to the pillar, it sharply steered closer towards the pillar or sharply steered away from the pillar depending on the color of the pillar. We had to handle multiple edge cases which was a hacky approach.
+Our previous year's robot used a **fixed vertical line** as the target line and actual line. If you notice the camera image, the straight walls are seen in camera as inclined lines which means the straight path of robot visually appears as inclined lines due to the depth of vision. Fixed line caused the block to come very close to the robot and to avoid this, we used to change the target line when block used to come very close which was a hacky approach.
 
 Inclined line using angle calculation for **Target line geometry** causes the delta between target and actual to remain almost constant even when the robot approaches the pillar. The robot now steers smoothly like a real world driver would avoid an obstacle. The code is cleaner as there aren't any hacky approaches now making it reliable.
 
-**TODO Recheck with Devansh**
 We built a **calibration tool** (`drive_straight_tune_target.py`) that drives the robot straight past a pillar while tracking its centroid frame-by-frame. The path the centroid traces is **not vertical** — because of the camera's forward tilt, a fixed pillar drifts horizontally across the frame as it gets closer. The angle-based law accounts for this drift naturally, making the robot pass cleanly at every range.
-
 
 **Edge Cases**
 **Inner-wall guard:** When `wall_inner_right > 3000` (or left), the block-following angle is clipped to a one-sided range so steering can only turn further *away* from the wall, never into it. This prevents wall contact when passing a pillar near a corner.
 
-**Magenta-coordinated path:** When a magenta parking block is visible at roughly the same y as a pillar, the steering target becomes the midpoint between them — targetting the gap between the parking block and the traffic pillar.
+**Magenta-coordinated path:** When a magenta parking block is visible alongwith a pillar, the steering target becomes the midpoint between them which allows us to ensure we do not hit any of the blocks.
 
 **Close Block Avoidance Pillar:** If a pillar gets dangerously close (in the "close block" ROI), normal steering cannot avoid it. We do a hard reverse maneuver.
 
@@ -1513,7 +1478,17 @@ Build the steering assembly using the Lego parts as shown in schemes/
 
 Ackermann steering was built using Lego components and a custom 3D part for Variable Servo Horn, which was **specially designed through trial and testing** so that it may accommodate a shifting lego screw in the backside for Ackerman.
 
-<img src="docs/diagrams/gitNReproducibility/Ackerman.jpeg" alt="Ackerman" width="500"><img src="docs/diagrams/gitNReproducibility/AckermanAssembly.jpeg" alt="AckermanAssembly " width="500">
+
+<table style="width: 100%; text-align: center; border-collapse: collapse;">
+   <tr>
+    <td style="padding: 10px;">
+      <img src="docs/diagrams/gitNReproducibility/Ackerman.jpeg" alt="Ackerman" width="500">
+    </td>
+    <td style="padding: 10px;">
+      <img src="docs/diagrams/gitNReproducibility/AckermanAssembly.jpeg" alt="AckermanAssembly " width="500">
+    </td>
+  </tr>
+</table>
 
 **Step 3: Assemble the Robot**
 
@@ -1642,34 +1617,7 @@ Having built the robot using [Section 6.2](#62-robot-build-instructions) and [Se
 
 ---
 
-## 6.5 CHANGELOG Template
-//TODO create cahngelong , check in then mention here 
-
-```markdown
-# Changelog
-
-## [Unreleased]
-- main_v5 in development (obstacle challenge)
-
-## [v3.0] - YYYY-MM-DD — Final Submission
-### Added
-### Changed
-### Fixed
-
-## [v2.0] - YYYY-MM-DD — Internationals Prep
-### Added
-### Changed
-### Fixed
-
-## [v1.0] - YYYY-MM-DD — Nationals
-### Added
-### Known Issues
-```
-
----
-
-
-## 6.6 Engineering Journal
+## 6.5 Engineering Journal
 
 The Engineering Journal will be produced as an **export of this README**, reformatted as PDF. Placeholder folder reserved at `docs/Engineering_Journal/` 
 
