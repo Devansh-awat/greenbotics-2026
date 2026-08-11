@@ -1,17 +1,8 @@
 # Greenbotics WRO FE 2026 - Python Dependencies
 # Target platform: Raspberry Pi 5, Raspberry Pi OS (Bookworm, 64-bit), Python 3.11+
 
-# ---- Computer vision / numerics ----
-opencv-python==4.10.0.84
-numpy==1.26.4
-
-# ---- Camera (Raspberry Pi CSI) ----
-picamera2==0.3.20
-
-# ---- GPIO / PWM (motor + servo control) ----
-lgpio==0.2.2.0
+# ---- PWM (motor + servo control) ----
 rpi-hardware-pwm==0.2.1
-gpiozero==2.0.1
 
 # ---- CircuitPython / Blinka hardware abstraction (board, busio, I2C) ----
 adafruit-blinka==8.50.0
