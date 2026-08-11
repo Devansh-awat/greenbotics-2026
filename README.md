@@ -38,7 +38,7 @@
 4. [Software Architecture & Obstacle Strategy](#4-software-architecture--obstacle-strategy)
    - 4.1 [Design Philosophy](#41-design-philosophy)
    - 4.2 [System Architecture](#42-system-architecture)
-   - 4.3 [Open Challenge — `src/open_challenge/main.py`](#43-open-challenge--srcopen_challengemainpy)
+   - 4.3 [Open Challenge Flow Chart and Algorithm](#43-open-challenge-flow-chart-and-algorithm)
    - 4.4 [Obstacle Challenge — State Machine & Algorithms](#44-obstacle-challenge--state-machine--algorithms)
    - 4.5 [Edge Cases](#45-edge-cases)
    - 4.6 [Parameter Tuning](#46-parameter-tuning)
@@ -82,6 +82,7 @@ This playlist consists of 3 videos that show our robot's construction, open chal
 Even though we had a robot from WRO 2025 that performed perfectly across all rounds, we decided to make the most of the 6 months we had to prepare for WRO 2026 by redesigning our robot in every aspect and building it from scratch. This experience gave us tremendous learning.
 
 ## 1.3 The Team
+
 <img src="t-photos/GreenboticsTeamPic.jpeg" width="450" style="margin-center:20px;"/><img src="t-photos/GreenboticsClowns.jpeg" width="350" style="margin-center:20px;"/>
 
 Devansh Harivallabhdas is a student in Grade 11 at Ahmedabad International School, Ahmedabad.
@@ -326,7 +327,7 @@ Can the motor move the robot from a dead stop? The motor is in stall condition a
 Is the torque required for continuous driving comfortably within motor's output to avoid constantly overloading the motor that could result in motor breakdown
 
 
-<img src="docs/diagrams/mobility/TorqueCalculations.png" alt="Starting Torque Calculation" width="1200">
+<img src="docs/diagrams/mobility/TorqueCalculations.png" alt="Starting Torque Calculation">
 
 **C) Running speed v/s No load speed**
 
@@ -669,18 +670,19 @@ The complete Circuit diagram below shows all power and signal connections betwee
 - Its only disadvantage is its max range is 1.3m unlike others, but that is sufficient for our purpose since we only need to detect walls within parking distance.
 
 **Experimentation**
+
 To figure out the accuracy of our sensor at various distances, we measured its reading vs actual physical distance measurements.
 <table>
   <tr>
     <!-- Left Column: Data Table -->
-    <td valign="middle">
-      <table border="1" cellpadding="5" cellspacing="0">
+    <td valign="middle" width="35%">
+      <table border="1" cellpadding="5" cellspacing="0" style="width:100%;">
         <thead>
           <tr>
-            <th>Experiment #</th>
-            <th>ToF measured distance (cm)</th>
-            <th>Observed distance practically (cm)</th>
-            <th>Δ distance (cm)</th>
+            <th style="width:15%; white-space:normal;">Experiment #</th>
+            <th style="width:28%; white-space:normal;">ToF measured distance (cm)</th>
+            <th style="width:32%; white-space:normal;">Observed distance practically (cm)</th>
+            <th style="width:25%; white-space:normal;">Δ distance (cm)</th>
           </tr>
         </thead>
         <tbody>
@@ -693,9 +695,9 @@ To figure out the accuracy of our sensor at various distances, we measured its r
         </tbody>
       </table>
     </td>
-    <!-- Right Column: Graph Placeholder -->
-    <td valign="top" style="padding-left: 20px;">
-      <img src="docs/diagrams/powerNsense/sensor-err-vs-distance.png" alt="ToF Distance Accuracy Graph" height="300" width="500">
+    <!-- Right Column: Graph -->
+    <td valign="top" width="65%" style="padding-left: 20px;">
+      <img src="docs/diagrams/powerNsense/sensor-err-vs-distance.png" alt="ToF Distance Accuracy Graph" width="100%">
     </td>
   </tr>
 </table>
@@ -766,7 +768,7 @@ We use [color_tuning.py](src/tools/color_tuning.py) for live trackbar-based HSV 
 
 **Key rule for BLACK tuning:** Keep S (saturation) low, not V. If you let S go wide, the dark blue mat and dark sides of red pillars get classified as wall, causing non existent walls in mid-corridor.
 
-[Link for HSV Color Calibration Code](src/tools/color_annotate_tuner.py)
+[Link for HSV Color Calibration Code](src/tools/color_tuning.py)
 
 ### 3.7.2 IMU Calibration
 To calibrate the BNO086, we start by calibrating the gyroscope by keeping the robot still for 1 min. Then to calibrate the magnetometer, we rotate the robot in figure 8 shape. Lastly to calibrate the accelerometer, we keep it in 6 different position with each face pointing down.
@@ -873,7 +875,7 @@ src/
 
 ---
 
-## 4.3 Open Challenge — `src/open_challenge/main.py`
+## 4.3 Open Challenge Flow Chart and Algorithm
 
 The open challenge uses only the WALL FOLLOW and CORNER TURN behaviours from our architecture. With no traffic signs on the track, the robot drives three laps using the wall-following controller to stay centered, detects corners via the close-black ROI, and counts orange lines to know when 3 laps are complete.
 
@@ -996,53 +998,7 @@ The images below show what the robot's vision system does to each camera frame �
 
 **ROI Zones**
 
-<table>
-  <thead>
-    <tr>
-      <th>Sensor View / Image</th>
-      <th>ROI</th>
-      <th>Purpose</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <!-- This cell spans all 8 data rows horizontally next to them -->
-      <td rowspan="8" style="vertical-align: middle; text-align: center;">
-        <img src="docs/diagrams/software/02_roi_overlay.png" alt="Camera ROI Zones" width="800">
-      </td>
-      <td>Left wall</td>
-      <td>Detect left wall for wall-following</td>
-    </tr>
-    <tr>
-      <td>Right wall</td>
-      <td>Detect right wall for wall-following</td>
-    </tr>
-    <tr>
-      <td>Inner left</td>
-      <td>Detect close left wall to make sharp turn</td>
-    </tr>
-    <tr>
-      <td>Inner right</td>
-      <td>Detect close right wall to make sharp turn</td>
-    </tr>
-    <tr>
-      <td>Line detection</td>
-      <td>Detect orange/blue floor lines for turn counting</td>
-    </tr>
-    <tr>
-      <td>Full frame (blocks)</td>
-      <td>Detect red/green/magenta pillars</td>
-    </tr>
-    <tr>
-      <td>Close block</td>
-      <td>Detect pillars that are dangerously close</td>
-    </tr>
-    <tr>
-      <td>Close black</td>
-      <td>Detect walls directly ahead</td>
-    </tr>
-  </tbody>
-</table>
+<img src="docs/diagrams/software/roi_overlay_annotated.png" alt="Camera ROI Zones" >
 
 ### 4.4.4 Avoid HeadOn 
 If the total area in the close-black ROI exceeds 3000px, a wall is exactly in front. We hard steer to ±35° toward whichever side has more space. This is the only place the wall law ignores its own proportional output.
@@ -1055,21 +1011,22 @@ If the total area in the close-black ROI exceeds 3000px, a wall is exactly in fr
 
 We define a virtual target line from a corner of the frame to the top center. The robot steers to bring the actual line towards the target line so the pillar stays on the correct side.
 
-<table>
-  <tr>
-    <td><img src="docs/diagrams/software/target_line_geometery.png" alt="Target-Line Geometry Diagram" width="800"></td>
-    <td>
-      <strong>Per-frame Steering angle calculation:</strong>
-<pre><code>current_angle = atan2(block_x - origin_x, origin_y - block_y)  // θ = tan_inv(Δx/Δy)
+<img src="docs/diagrams/software/target_line_geometery.png" alt="Target-Line Geometry Diagram" width="80%">
+
+**Per-frame Steering angle calculation**
+
+```
+current_angle = atan2(block_x - origin_x, origin_y - block_y)  // θ = tan_inv(Δx/Δy)
 steering_angle = (current_angle - IDEAL_ANGLE) * Kp
 
 where
 IDEAL_ANGLE(red) = +42.5 degrees  // tuned for red pillar
 IDEAL_ANGLE(green) = -40.5 degrees  // tuned for green pillar
-Kp = 1.5  // proportional constant</code></pre>
-    </td>
-  </tr>
-</table>
+Kp = 1.5  // proportional constant
+```
+
+
+
 
 **Evaluation of multiple algorithms**
 Our previous year's robot used a **fixed vertical line** as the target line and actual line. If you notice the camera image, the straight walls are seen in camera as inclined lines which means the straight path of robot visually appears as inclined lines due to the depth of vision.
@@ -1140,7 +1097,7 @@ After completing 3 laps (12 turns), the robot enters the parking sequence. We ha
 
 **Parking Phases (Clockwise Example)**
 
-<img src="docs/diagrams/software/parking_sequence.png" alt="Parking Sequence Phases" width="1400">
+<img src="docs/diagrams/software/parking_sequence.png" alt="Parking Sequence Phases">
 
 | Phase | Action | End Condition |
 |-------|--------|---------------|
@@ -1434,9 +1391,20 @@ This section outlines the engineering process we followed when the robot broke m
 
 **Decision:** Tried to fix it mechanically by adding a plastic bracket fixed with the gearbox that supports the wheel with a second axle point.
 
-<img src="docs/diagrams/systemsThinking/Wheel_bracket_back.jpeg" alt="Wheel Bracket" width="300">
-<img src="docs/diagrams/systemsThinking/WheelBracketSide.jpeg" alt="Wheel Bracket" width="300">
-
+<table style="width: 100%; text-align: center; border-collapse: collapse;">
+  <tr>
+    <th>Wheel Bracket (Back)</th>
+    <th>Wheel Bracket (Side)</th>
+  </tr>
+  <tr>
+    <td style="padding: 10px;">
+      <img src="docs/diagrams/systemsThinking/Wheel_bracket_back.jpeg" alt="Wheel Bracket Back" style="width: 200px; height: 200px;">
+    </td>
+    <td style="padding: 10px;">
+      <img src="docs/diagrams/systemsThinking/WheelBracketSide.jpeg" alt="Wheel Bracket Side" style="width: 200px; height: 200px;">
+    </td>
+  </tr>
+</table>
 
 **Verification:**
 
@@ -1444,7 +1412,7 @@ A comparison of the videos before and after the fix shows some improvement in wo
 
 |Before|After|
 | :---: | :---:
-|<img src="docs/diagrams/systemsThinking/MoreeWobble.gif" alt="Before" width="300">|<img src="docs/diagrams/systemsThinking/LessWobble.gif" alt="After" width="300">|
+|<img src="docs/diagrams/systemsThinking/MoreeWobble.gif" alt="Before" width="400">|<img src="docs/diagrams/systemsThinking/LessWobble.gif" alt="After" width="400">|
 
 
 ---
@@ -1454,7 +1422,9 @@ A comparison of the videos before and after the fix shows some improvement in wo
 ### 5.5.1 3D Chassis Iterations
 We have worked on this robot since Jan 2026 and gone over multiple iterations with respect to various components. These changes required changes to the 3D parts as well and we designed multiple variations of each of our chassis parts to accommodate these changes.
 
-<img src="docs/diagrams/systemsThinking/3D_Graveyard_1.png" alt="3D Graveyard 1" width="600"><img src="docs/diagrams/systemsThinking/3D_graveyard_2.png" alt="3D Graveyard 2" width="600">
+<img src="docs/diagrams/systemsThinking/3D_Graveyard_1.png" alt="3D Graveyard 1" width="700" >
+
+<img src="docs/diagrams/systemsThinking/3D_graveyard_2.png" alt="3D Graveyard 2" width="700">
 
 ### 5.5.2 Other Design Iterations
 Pulled from all three subsystem documents plus the case studies and failures above, this table is a compact record of what changed, why, and what evidence backs the change.
@@ -1643,7 +1613,7 @@ gpio=23=pu
 Then `sudo reboot`
 
 
-### 6.3.5 Run the code
+### 6.3.6 Run the code
 
 ```bash
 cd /path/to/greenbotics-2026
