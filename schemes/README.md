@@ -2,7 +2,7 @@ This directory contains the following schematic diagrams
 
 - Wiring diagrams
 - 3D printed parts diagrams
-- Base chassis design diagrams
+- Chassis assembly steps diagrams
 
 </br>
 
@@ -49,6 +49,14 @@ This directory contains the following schematic diagrams
 - Wheel Stabilizer
 
 ![WheelStabilizer](WheelStabilizer.png)
+
+- Ackerman
+
+![Ackerman](Ackerman.jpeg)
+
+- Ackerman Assembly
+
+![AckermanAssembly](AckermanAssembly.jpeg)
 
 - Chassis step 1
 
