@@ -1,6 +1,10 @@
-1) Hardware Intro - https://www.youtube.com/watch?v=FEl8HhxixXw&list=PLtGeYglcz-LV6koN9wQThOjIqPL0-ONzv&index=1
-2) Open Challenge - https://www.youtube.com/watch?v=RPlUBpgehC8&list=PLtGeYglcz-LV6koN9wQThOjIqPL0-ONzv&index=2
-3) Obstacle Challenge - https://www.youtube.com/watch?v=Hh7IV-Hk6og&list=PLtGeYglcz-LV6koN9wQThOjIqPL0-ONzv&index=3
+## Summary and Performance Video
+Here is a quick 5 min video that summarizes the essence of our robot and documentation. We recommend you watch it to get a quick understanding of our project!
 
 
-A single playlist of all of the above videos - https://www.youtube.com/playlist?list=PLtGeYglcz-LV6koN9wQThOjIqPL0-ONzv
+| [<img src="../docs/diagrams/SummaryVideoThumbnail.png" alt="Robot Video" width="500"/>](https://m.youtube.com/playlist?list=PLMdippUF4xxo) | <img src="../docs/diagrams/YoutubeQR.png" alt="YoutubeQR" width="100" /> <br />Scan QR code to open in YouTube |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+
+* [Summary Video](https://youtu.be/YS-oyNQQUGs) 
+* [Open Challenge Performance Video](https://youtu.be/OW5V_LRIKNU)
+* [Obstacle Challenge Performance Video](https://youtu.be/RbtGV2t9GcI)
