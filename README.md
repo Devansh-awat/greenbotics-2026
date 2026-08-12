@@ -58,6 +58,7 @@
    - 6.4 [Testing Workflow](#64-testing-workflow)   
    - 6.5 [Parts List (Bill of Materials)](#65-parts-list-bill-of-materials)
    - 6.6 [Engineering Journal](#66-engineering-journal)
+   - 6.7 [Matlab Journal](#67-matlab-journal)
 
 ---
 
@@ -1640,6 +1641,12 @@ This is a consolidated list of every major component used to build the robot, as
 
 ## 6.6 Engineering Journal
 
-The Engineering Journal will be produced as an **export of this README**, reformatted as PDF. Placeholder folder reserved at `docs/Engineering_Journal/` 
+The Engineering Journal is a printer friendly PDF export of the soft copy version of this README.md. You can find it in [docs/Engineering_Journal](docs/Engineering_Journal/Engineering_Journal.pdf)`
+
+---
+
+## 6.7 Matlab Journal
+
+The Matlab code and journal is in the [matlab folder](matlab/) of this repository. 
 
 ---
