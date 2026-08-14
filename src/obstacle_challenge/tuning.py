@@ -17,8 +17,8 @@ from src.motors import motor
 # ORANGE_COOLDOWN_FRAMES = 45
 
 MOTOR_SPEED = 65
-MIN_RPM = 320.0
-MAX_RPM = 0.80 * motor.MAX_WHEEL_RPM
+MIN_RPM = 0.5 * motor.MAX_WHEEL_RPM
+MAX_RPM = 0.65 * motor.MAX_WHEEL_RPM
 MAX_ACCEL_PER_FRAME = 10.0
 MAX_DECEL_PER_FRAME = 200.0
 INITIAL_RPM = 50.0
@@ -30,7 +30,7 @@ ORANGE_COOLDOWN_FRAMES = 50
 #MOTOR_SPEED = 92
 #ORANGE_COOLDOWN_FRAMES = 45
 
-ORANGE_DETECTION_HISTORY_LENGTH = 4
+ORANGE_DETECTION_HISTORY_LENGTH = 3
 
 WALL_THRESHOLD = 200
 WALL_KP = 0.0006
@@ -124,8 +124,8 @@ VIDEO_FPS = 10.0
 PERF_REPORT_PERIOD = 2.0   # seconds between INFO-level perf summaries
 
 HSV_RANGES = {
-    'LOWER_RED_1': np.array([0, 92, 43]), 'UPPER_RED_1': np.array([4, 230, 166]),
-    'LOWER_RED_2': np.array([175, 100, 43]), 'UPPER_RED_2': np.array([180, 230, 140]),
+    'LOWER_RED_1': np.array([0, 70, 43]), 'UPPER_RED_1': np.array([4, 230, 166]),
+    'LOWER_RED_2': np.array([175, 70, 43]), 'UPPER_RED_2': np.array([180, 230, 140]),
     'LOWER_GREEN': np.array([42, 85, 38]), 'UPPER_GREEN': np.array([88, 190, 135]),
     'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 95, 70]),
     'LOWER_ORANGE': np.array([6, 50, 182]), 'UPPER_ORANGE': np.array([15, 255, 255]),
@@ -165,7 +165,7 @@ UPPER_BLUE = COLOR_RANGES['UPPER_BLUE']
 target = 0
 detection_params = {'min_area': 300, 'return_rule': 'biggest_in_job', 'return_mask': True}
 WALL_MIN_AREA = detection_params['min_area']
-BLOCK_MIN_AREA = 350
+BLOCK_MIN_AREA = 250
 MAGENTA_MIN_AREA = 300
 CLOSE_BLOCK_MIN_AREA = 15
 

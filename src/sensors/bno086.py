@@ -64,9 +64,9 @@ def initialize():
             with i2c_bus.LOCK:
                 i2c = i2c_bus.get_bus()
                 sensor = BNO08X_I2C(i2c, address=BNO086_ADDRESS)
-                # Enable the fused absolute-orientation report (magnetometer-free).
-                sensor.enable_feature(adafruit_bno08x.BNO_REPORT_GAME_ROTATION_VECTOR)
-                time.sleep(1)
+                # Enable the fused absolute-orientation report (9-DOF with magnetometer).
+                sensor.enable_feature(adafruit_bno08x.BNO_REPORT_ROTATION_VECTOR)
+                time.sleep(0.05)
             print("INFO: Gyro (BNO086) Initialized (using Game Rotation Vector).")
             return True
         except Exception as e:
@@ -75,6 +75,9 @@ def initialize():
             time.sleep(0.2)
             sensor = None
     return False
+
+
+_tare_offset = 0.0
 
 
 def _quaternion_to_heading(qi, qj, qk, qr):
@@ -86,11 +89,11 @@ def _quaternion_to_heading(qi, qj, qk, qr):
     return yaw % 360.0
 
 
-def get_heading():
+def _get_raw_heading():
     if sensor:
         try:
             with i2c_bus.LOCK:
-                qi, qj, qk, qr = sensor.game_quaternion
+                qi, qj, qk, qr = sensor.quaternion
             if None not in (qi, qj, qk, qr):
                 heading = _quaternion_to_heading(qi, qj, qk, qr)
                 if getattr(config, "INVERT_GYRO", False):
@@ -99,6 +102,64 @@ def get_heading():
         except Exception:
             return None
     return None
+
+
+def get_heading(raw=False):
+    """Get current heading in degrees [0, 360). Applies tare offset unless raw=True."""
+    h = _get_raw_heading()
+    if h is None:
+        return None
+    if raw:
+        return h
+    return (h - _tare_offset) % 360.0
+
+
+def tare(target_angle=0.0):
+    """Tare (zero) the current heading to target_angle (default 0.0°)."""
+    global _tare_offset
+    raw = _get_raw_heading()
+    if raw is not None:
+        _tare_offset = (raw - target_angle) % 360.0
+        print(f"INFO: BNO086 tared (offset: {_tare_offset:.2f}°, heading: {get_heading():.2f}°)")
+        return True
+    return False
+
+
+def reset_tare():
+    """Reset tare offset back to 0.0°."""
+    global _tare_offset
+    _tare_offset = 0.0
+
+
+def lock_calibration():
+    """Lock/freeze calibration so the BNO086 does not dynamically alter gyro bias while driving."""
+    global sensor
+    if sensor is None:
+        return False
+    try:
+        with i2c_bus.LOCK:
+            # ME command: 0 for accel, 0 for gyro, 0 for mag disables dynamic background calibration
+            sensor._send_me_command([0, 0, 0, 0, 0, 0, 0, 0, 0])
+        print("INFO: BNO086 calibration locked (dynamic calibration disabled).")
+        return True
+    except Exception as e:
+        print(f"WARNING: Could not lock BNO086 calibration: {e}")
+        return False
+
+
+def unlock_calibration():
+    """Re-enable auto-calibration routine."""
+    global sensor
+    if sensor is None:
+        return False
+    try:
+        with i2c_bus.LOCK:
+            sensor.begin_calibration()
+        print("INFO: BNO086 auto-calibration enabled.")
+        return True
+    except Exception as e:
+        print(f"WARNING: Could not enable BNO086 calibration: {e}")
+        return False
 
 
 def get_initial_heading(num_readings=20):

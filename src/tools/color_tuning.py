@@ -4,7 +4,7 @@ import sys
 import os
 import time
 from src.sensors import camera
-from src.obstacle_challenge.main_v2 import HSV_RANGES, LAB_RANGES
+from src.obstacle_challenge.main import HSV_RANGES, LAB_RANGES
 
 # --- Configuration ---
 # Change these variables to switch modes

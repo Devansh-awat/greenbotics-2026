@@ -109,6 +109,18 @@ class ImuThread(threading.Thread):
         with self.lock:
             return self.heading
 
+    def tare(self, target_angle=0.0):
+        return self.bno.tare(target_angle)
+
+    def reset_tare(self):
+        return self.bno.reset_tare()
+
+    def lock_calibration(self):
+        return self.bno.lock_calibration()
+
+    def unlock_calibration(self):
+        return self.bno.unlock_calibration()
+
     def stop(self):
         self.stop_event.set()
 
@@ -146,8 +158,6 @@ class SensorThread(threading.Thread):
                     break
                 except Exception:
                     slog.exception("ERROR during distance sensor initialization")
-                time.sleep(0.3)
-            time.sleep(0.3)
             self.initialization_complete.set()
             slog.debug("Initialization complete flag set.")
 
