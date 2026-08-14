@@ -80,9 +80,9 @@ _CHANNEL_ALIASES = {0: FRONT_CHANNEL, 3: BACK_CHANNEL}
 
 # Timing settings
 TIMING_BUDGET_MS = 33
-BOOT_DELAY_S = 0.2
+BOOT_DELAY_S = 0.05
 BRING_UP_RETRIES = 6           # for required sensors
-OPTIONAL_BRING_UP_RETRIES = 2  # unwired sensors: fail fast, don't stall startup
+OPTIONAL_BRING_UP_RETRIES = 1  # unwired sensors: try once (0 retries), fail fast immediately
 
 # range_status values we accept as a usable distance
 _VALID_STATUSES = (
@@ -207,6 +207,9 @@ def initialise(i2c_bus_num=I2C_BUS, **_ignored):
     ok = True
     for channel in SENSOR_CHANNELS:
         _, label, required = SENSORS[channel]
+        if not required:
+            print(f"distance.py: {label} not present (optional) — skipping.")
+            continue
         try:
             _bring_up(channel)
         except Exception as e:

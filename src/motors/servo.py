@@ -21,7 +21,6 @@ def initialize():
             )
             servo_pwm.start(0)
             set_angle(0.0)
-            time.sleep(0.5)
             print("INFO: Servo Initialized.")
             return True
         except PermissionError as err:
@@ -48,9 +47,7 @@ def set_angle(input_angle: float):
         return
 
     adjusted_angle = input_angle + config.SERVO_CENTER_OFFSET
-    clamped_input = max(
-        config.INPUT_ANGLE_MIN_SERVO, min(config.INPUT_ANGLE_MAX_SERVO, adjusted_angle)
-    )
+    clamped_input = max(-45.0, min(40.0, adjusted_angle))
     input_range = config.INPUT_ANGLE_MAX_SERVO - config.INPUT_ANGLE_MIN_SERVO
     output_range = config.CALIBRATED_ANGLE_MAX - config.CALIBRATED_ANGLE_MIN
     target_output_angle = (
@@ -83,12 +80,13 @@ def set_angle_unlimited(input_angle: float):
         return
 
     unclamped_input = input_angle + config.SERVO_CENTER_OFFSET
+    clamped_input = max(-45.0, min(40.0, unclamped_input))
 
     input_range = config.INPUT_ANGLE_MAX_SERVO - config.INPUT_ANGLE_MIN_SERVO
     output_range = config.CALIBRATED_ANGLE_MAX - config.CALIBRATED_ANGLE_MIN
     target_output_angle = (
         config.CALIBRATED_ANGLE_MIN
-        + ((unclamped_input - config.INPUT_ANGLE_MIN_SERVO) / input_range)
+        + ((clamped_input - config.INPUT_ANGLE_MIN_SERVO) / input_range)
         * output_range
     )
 

@@ -41,7 +41,6 @@ def initialize():
         )
         picam2.configure(cam_config)
         picam2.start()
-        time.sleep(1.0)
         #picam2.set_controls(controls={'ExposureTime': 20000, 'AnalogueGain': 1})
         print("INFO: Camera Initialized.")
         return True

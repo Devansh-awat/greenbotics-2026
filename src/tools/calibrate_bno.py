@@ -31,7 +31,7 @@ def run_calibration():
     # is what the self-calibration actually tunes) so status updates flow.
     with i2c_bus.LOCK:
         sensor.enable_feature(adafruit_bno08x.BNO_REPORT_MAGNETOMETER)
-        sensor.enable_feature(adafruit_bno08x.BNO_REPORT_GAME_ROTATION_VECTOR)
+        sensor.enable_feature(adafruit_bno08x.BNO_REPORT_ROTATION_VECTOR)
     time.sleep(0.5)
 
     print("\n--- Starting Calibration Mode ---")

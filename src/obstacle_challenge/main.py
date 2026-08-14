@@ -60,6 +60,7 @@ import cv2
 import numpy as np
 import threading
 from gpiozero import Button, LED
+import subprocess
 
 from src.motors import motor, servo
 from src.sensors import bno086, camera, distance
@@ -133,21 +134,22 @@ if __name__ == "__main__":
     sensors_initialized_event = threading.Event()
     sensor_thread = SensorThread(distance, sensors_initialized_event)
     sensor_thread.start()
-    log.info("Waiting for sensors to initialize...")
-    sensors_initialized_event.wait()
-    log.info("Sensors are ready.")
 
     imu_initialized_event = threading.Event()
     imu_thread = ImuThread(bno086, imu_initialized_event)
     imu_thread.start()
-    log.info("Waiting for IMU to initialize...")
-    imu_initialized_event.wait()
-    log.info("IMU is ready. Proceeding with main logic.")
 
-    time.sleep(1)
+    log.info("Waiting for distance sensors and IMU to initialize...")
+    sensors_initialized_event.wait()
+    log.info("Sensors are ready.")
+    imu_initialized_event.wait()
+    log.info("IMU is ready. Locking dynamic calibration for run...")
+    imu_thread.lock_calibration()
+    log.info("Proceeding with main logic.")
     led.on()
     # button.wait_for_press()
     led.off()
+    subprocess.run(["pinctrl", "FAN_PWM", "op", "dl"], check=False)
     driving_direction = 'clockwise'
     past_frame_counter = 0
     for _ in range(10):
@@ -296,10 +298,17 @@ if __name__ == "__main__":
                     candidate_blocks = [b for b in detected_blocks if b['type'] == 'block']
                     block = None
                     if candidate_blocks:
-                        if candidate_blocks[0]['centroid'][1] >= 205 and len(candidate_blocks) > 1:
-                            block = candidate_blocks[1]
+                        b0 = candidate_blocks[0]
+                        if b0['centroid'][1] >= 212 and len(candidate_blocks) > 1:
+                            b1 = candidate_blocks[1]
+                            if b0['color'] == 'red' and b1['color'] == 'red' and b0['centroid'][0] < 170:
+                                block = b1
+                            elif b0['color'] == 'green' and b1['color'] == 'green':
+                                block = b1
+                            else:
+                                block = b0
                         else:
-                            block = candidate_blocks[0]
+                            block = b0
 
                     if block is not None:
                         block_color = block['color']
@@ -391,6 +400,11 @@ if __name__ == "__main__":
                         angle += 35
                     else:
                         angle += -35
+                if left_pixel_size == 0 and right_pixel_size == 0:
+                    if driving_direction == 'clockwise':
+                        angle += 20
+                    else:
+                        angle += -20
 
             # ---- ACTUATE FIRST ------------------------------------------
             # Steering happens here, immediately after the decision. Annotation,
@@ -522,5 +536,6 @@ if __name__ == "__main__":
 
         camera.cleanup()
         cv2.destroyAllWindows()
+        subprocess.run(["pinctrl", "FAN_PWM", "a0"], check=False)
         log.info("Run complete. Log saved to %s", log_path)
         shutdown_logging()
