@@ -50,6 +50,7 @@ cost more than the work saved.
 Run it from the repo root:  python3 -m src.obstacle_challenge.main
 """
 
+import argparse
 import math
 import os
 import time
@@ -78,6 +79,14 @@ from src.vision.pool import VisionPool
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Obstacle Challenge main control program.")
+    parser.add_argument(
+        "-b", "--button",
+        action="store_true",
+        help="Wait for hardware button press before starting the run."
+    )
+    args = parser.parse_args()
+
     run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     base_folder = "obstacle"
     run_folder = os.path.join(base_folder, run_timestamp)
@@ -147,7 +156,10 @@ if __name__ == "__main__":
     imu_thread.lock_calibration()
     log.info("Proceeding with main logic.")
     led.on()
-    # button.wait_for_press()
+    if args.button:
+        log.info("Waiting for button press...")
+        button.wait_for_press()
+        log.info("Button pressed! Starting run.")
     led.off()
     subprocess.run(["pinctrl", "FAN_PWM", "op", "dl"], check=False)
     driving_direction = 'clockwise'
@@ -377,15 +389,17 @@ if __name__ == "__main__":
                 right_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
                 wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
                 wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
-                if left_pixel_size < 700 and (right_pixel_size + wall_inner_right_size) > 100:
-                    right_pixel_size *= 2
-                    right_pixel_size += 25000
-                elif right_pixel_size < 700 and (left_pixel_size + wall_inner_left_size) > 100:
-                    left_pixel_size *= 2
-                    left_pixel_size += 25000
+
+                total_left = left_pixel_size + wall_inner_left_size
+                total_right = right_pixel_size + wall_inner_right_size
+
+                if total_left < 700 and total_right > 100:
+                    total_right = total_right * 2 + 25000
+                elif total_right < 700 and total_left > 100:
+                    total_left = total_left * 2 + 25000
 
                 debug.extend([left_pixel_size, right_pixel_size])
-                wall_error = (left_pixel_size + wall_inner_left_size) - (right_pixel_size + wall_inner_right_size)
+                wall_error = total_left - total_right
                 wall_derivative = wall_error - prev_wall_error
                 angle = (wall_error * WALL_KP) + (wall_derivative * WALL_KD) + 1
                 prev_wall_error = wall_error
@@ -395,12 +409,12 @@ if __name__ == "__main__":
                         angle += 35
                     else:
                         angle += -35
-                if left_pixel_size == 0 and right_pixel_size == 0 and (detected_orange_object or detected_blue_object):
+                if total_left == 0 and total_right == 0 and (detected_orange_object or detected_blue_object):
                     if driving_direction == 'clockwise':
                         angle += 35
                     else:
                         angle += -35
-                if left_pixel_size == 0 and right_pixel_size == 0:
+                if total_left == 0 and total_right == 0:
                     if driving_direction == 'clockwise':
                         angle += 20
                     else:

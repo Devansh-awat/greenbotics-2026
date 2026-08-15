@@ -3,12 +3,24 @@ import cv2
 import numpy as np
 
 # --- Robot Parameters ---
-MOTOR_SPEED = 90
+MOTOR_SPEED = 70
 
 # --- Frame & Video Processing ---
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 360
 FRAME_MIDPOINT_X = FRAME_WIDTH // 2
+
+# --- Performance Switches & Video ---
+USE_VISION_POOL = True
+VISION_POOL_TIMEOUT = 0.050
+VISION_WORKER_THREADS = 2
+VIDEO_QUEUE_SLOTS = 8
+VIDEO_FOURCC = 'avc1'
+USE_LAB = False
+
+# --- Turn Counting Parameters ---
+ORANGE_COOLDOWN_FRAMES = 50
+ORANGE_DETECTION_HISTORY_LENGTH = 3
 
 # --- Color Definitions (HSV) ---
 # Ported from obstacle_challenge/tuning.py (v5). The black range is much tighter
@@ -28,14 +40,27 @@ UPPER_ORANGE = np.array([15, 255, 255])
 LOWER_BLUE = np.array([114, 50, 110])
 UPPER_BLUE = np.array([123, 255, 255])
 
+# Pillars and parking walls (defaults, unused on open track)
+LOWER_RED_1 = np.array([0, 70, 43])
+UPPER_RED_1 = np.array([4, 230, 166])
+LOWER_RED_2 = np.array([175, 70, 43])
+UPPER_RED_2 = np.array([180, 230, 140])
+LOWER_GREEN = np.array([42, 85, 38])
+UPPER_GREEN = np.array([88, 190, 135])
+LOWER_MAGENTA = np.array([158, 73, 64])
+UPPER_MAGENTA = np.array([172, 255, 223])
+
 # --- Detection Parameters ---
 WALL_MIN_AREA = 300
 ORANGE_MIN_AREA = 20
+BLOCK_MIN_AREA = 250
+MAGENTA_MIN_AREA = 300
+CLOSE_BLOCK_MIN_AREA = 15
 
 # --- Wall-following gains (v5) -------------------------------------------
 # PD on (left + inner_left) - (right + inner_right) black pixel area.
-WALL_KP = 0.0006
-WALL_KD = 0.0003
+WALL_KP = 0.0012
+WALL_KD = 0.0005
 
 # Corner trigger: either a black band across the close ROI, or the line ROI
 # filling up with wall.
@@ -53,10 +78,10 @@ HSV_BEFORE_BLUR = True
 
 # --- Regions of Interest (ROI) ---
 # ROIs for Wall Detection (v5 positions -- 10 px higher than the old open ones)
-left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 130, 135, 150
-right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 130, 135, 150
-inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h = 140, 155, 100, 100
-inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h = 400, 155, 100, 100
+left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 130, 135, 160
+right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 130, 135, 160
+inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h = 140, 170, 100, 110
+inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h = 400, 170, 100, 110
 close_x, close_y, close_w, close_h = 140, 110, 360, 10
 
 # Jobs for wall detection
@@ -89,6 +114,13 @@ roi_mask_orange = roi_mask_line
 # Mask for "Close Black" Wall ROI (directly in front)
 roi_mask_close_black = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
 cv2.rectangle(roi_mask_close_black, (close_x, close_y), (close_x + close_w, close_y + close_h), 255, -1)
+
+# Block ROIs (unused on open track, empty/dummy masks)
+full_frame_roi = (0, 0, 0, 0)
+close_block_roi = (0, 0, 0, 0)
+roi_mask_main_blocks = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+roi_mask_close_blocks = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+roi_mask_magenta = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
 
 # --- Working slice -------------------------------------------------------
 # Every ROI lives inside this vertical band, so colour conversion and filtering

@@ -9,73 +9,271 @@ Nothing in this module touches hardware, so it is safe to import and exercise on
 saved frames. Shared by both the obstacle and open challenges.
 """
 
+import ast
 import math
 import cv2
 import numpy as np
 
 from src.logs.setup import vlog
-from src.obstacle_challenge.tuning import *
+from src.obstacle_challenge import tuning as _default_tuning
 
 # The live VisionPool, or None to process inline. Set by each challenge's main at
 # startup; pool.py imports this module, so it must not be imported from here.
 vision_pool = None
-# --- Arena mask -------------------------------------------------------------
-# v5 only. The fixed ROIs above say *where in the frame* to look; they can't say
-# *whether the thing we found is inside the arena*. full_frame_roi spans the whole
-# width, so any red/green blob in rows 80-250 becomes a pillar -- including blobs in
-# the far track section seen over the inner wall, and anything outside the arena.
-#
-# The arena mask fixes that. It is rebuilt every frame from the image itself: take
-# the largest connected non-black blob that CONTAINS the patch of mat directly in
-# front of the robot, then extend it upward through the black wall standing on it,
-# stopping at the wall's top edge. The far section is a separate blob (the wall
-# breaks connectivity) so it is structurally unreachable, not merely thresholded out.
-#
-# Unlike a brightness-threshold pipeline, pillars are automatically part of the floor
-# blob here -- they aren't black, so they pass NOT(black) and stay continuous with the
-# mat. No colour repainting stage is needed. Magenta counts as floor too, so the
-# parking walls survive the gate.
-USE_ARENA_MASK = True        # False -> byte-identical behaviour to main_v2
-# Tied to GLOBAL_Y_OFFSET/GLOBAL_Y_END (tuning.py) -- the exact union of every ROI's
-# y-span. This makes the arena band IDENTICAL to the shared colour-slice crop (see
-# prepare_colour_slice), not just overlapping with it, so the two never re-derive
-# HSV/bilateral over the same rows twice.
-#
-# ARENA_Y_BOTTOM used to be a hardcoded 250, clamped there specifically because the
-# chassis becomes visible below that row (chassis: x180 y250 w280 h110). Tying it to
-# GLOBAL_Y_END extends active arena gating ~30 rows further down (to 280, where the
-# wall ROIs end), which newly gates the bottom ~5 rows of the inner-left/inner-right
-# wall ROIs (they read to y=255) against a floor/wall call that can see the top edge
-# of the chassis in columns x180-460. The outer left/right wall ROIs (x0-135,
-# x505-640) don't overlap the chassis's x-range at all, so they're unaffected.
-# Verify inner-wall detection near y=250-255 on real frames before trusting this.
+
+# --- Arena mask constants ---
+USE_ARENA_MASK = True
+ARENA_SEED_PT = (320, 230)
+ARENA_TOP_MARGIN = 0
+MAX_WALL_RUN = 160
+MIN_WALL_THICK = 8
+WALL_GAP_SEAL = 3
+ARENA_CLOSE_KERNEL = np.ones((9, 9), np.uint8)
+ARENA_SKY_SMOOTH = 31
+
+USE_GROUND_CONTACT = True
+GROUND_PROBE_DY = 12
+GROUND_CONTACT_MIN = 0.5
+
+# Placeholders for configurable parameters
+FRAME_WIDTH = 640
+FRAME_HEIGHT = 360
+FRAME_MIDPOINT_X = 320
+USE_LAB = False
+USE_BILATERAL = True
+BILATERAL_D = 5
+BILATERAL_SIGMA_COLOR = 50
+BILATERAL_SIGMA_SPACE = 50
+HSV_BEFORE_BLUR = True
+USE_VISION_POOL = True
+VISION_POOL_TIMEOUT = 0.050
+VISION_WORKER_THREADS = 2
+
+LOWER_BLACK = np.array([0, 0, 0])
+UPPER_BLACK = np.array([180, 95, 70])
+LOWER_ORANGE = np.array([6, 50, 182])
+UPPER_ORANGE = np.array([15, 255, 255])
+LOWER_BLUE = np.array([114, 50, 110])
+UPPER_BLUE = np.array([123, 255, 255])
+LOWER_RED_1 = np.array([0, 70, 43])
+UPPER_RED_1 = np.array([4, 230, 166])
+LOWER_RED_2 = np.array([175, 70, 43])
+UPPER_RED_2 = np.array([180, 230, 140])
+LOWER_GREEN = np.array([42, 85, 38])
+UPPER_GREEN = np.array([88, 190, 135])
+LOWER_MAGENTA = np.array([158, 73, 64])
+UPPER_MAGENTA = np.array([172, 255, 223])
+
+WALL_MIN_AREA = 300
+BLOCK_MIN_AREA = 250
+MAGENTA_MIN_AREA = 300
+CLOSE_BLOCK_MIN_AREA = 15
+
+left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 130, 135, 150
+right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 130, 135, 150
+inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h = 140, 155, 100, 100
+inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h = 400, 155, 100, 100
+line_roi_x, line_roi_y, line_roi_w, line_roi_h = 280, 190, 80, 40
+close_x, close_y, close_w, close_h = 140, 110, 360, 10
+full_frame_roi = (0, 80, 640, 170)
+close_block_roi = (280, 215, 80, 10)
+
+left_side_job = {'roi': (left_roi_x, left_roi_y, left_roi_w, left_roi_h), 'type': 'wall_left'}
+right_side_job = {'roi': (right_roi_x, right_roi_y, right_roi_w, right_roi_h), 'type': 'wall_right'}
+inner_left_side_job = {'roi': (inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h), 'type': 'wall_inner_left'}
+inner_right_side_job = {'roi': (inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h), 'type': 'wall_inner_right'}
+WALL_JOBS = [left_side_job, right_side_job, inner_left_side_job, inner_right_side_job]
+
+roi_mask_walls = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+roi_mask_line = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+roi_mask_close_black = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+roi_mask_main_blocks = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+roi_mask_close_blocks = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+roi_mask_magenta = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+
+GLOBAL_Y_OFFSET = 80
+GLOBAL_Y_END = 280
+SLICE_HEIGHT = 200
+
 ARENA_Y_TOP = GLOBAL_Y_OFFSET
 ARENA_Y_BOTTOM = GLOBAL_Y_END
-ARENA_SEED_PT = (320, 230)   # patch of mat directly in front of the robot, frame coords
-ARENA_TOP_MARGIN = 0         # TUNING KNOB: push the skyline DOWN N px to trim the wall band
-MAX_WALL_RUN = 160           # run longer than this = column untrusted (see build_arena_mask).
-                             # Measured on real frames: wall runs reach p99=90, max=155 px
-                             # when the robot is close to a wall. 70 clipped 6% of columns.
-MIN_WALL_THICK = 8           # a black run must be >= this tall to count as a wall
-WALL_GAP_SEAL = 3            # seal bright breaks up to this tall inside a wall, so the
-                             # upward scan isn't stopped early by glare/noise/artifacts.
-                             # Do NOT raise much: sealing also lets the run climb past
-                             # the wall into dark background. Measured over 40 frames --
-                             # seal 3: 0.44 px/col jagged, 1/40 frames collapse to the
-                             # full band; seal 9: 0.41 px/col but 7/40 collapse.
-ARENA_CLOSE_KERNEL = np.ones((9, 9), np.uint8)
-ARENA_SKY_SMOOTH = 31        # sliding-MEDIAN window over sky[x]; <=1 disables
-
-USE_GROUND_CONTACT = True    # reject blocks that aren't standing on the mat
-GROUND_PROBE_DY = 12         # probe strip this far below a block's bounding box
-GROUND_CONTACT_MIN = 0.5     # >= this fraction of the strip must be floor
-
 ARENA_BAND_H = ARENA_Y_BOTTOM - ARENA_Y_TOP
 ARENA_SEED_LOCAL = (float(ARENA_SEED_PT[0]), float(ARENA_SEED_PT[1] - ARENA_Y_TOP))
 _ARENA_ROWS = np.arange(ARENA_BAND_H, dtype=np.int32)[:, None]
-_ARENA_WALL_KERNEL = np.ones((MIN_WALL_THICK, 1), np.uint8)   # vertical, for the wall scan
+_ARENA_WALL_KERNEL = np.ones((MIN_WALL_THICK, 1), np.uint8)
 _ARENA_WALL_CLOSE_KERNEL = np.ones((WALL_GAP_SEAL, 1), np.uint8)
 ARENA_PASSTHROUGH = np.full((FRAME_HEIGHT, FRAME_WIDTH), 255, dtype="uint8")
+
+LINE_SLICE_Y0 = line_roi_y - GLOBAL_Y_OFFSET
+LINE_SLICE_Y1 = LINE_SLICE_Y0 + line_roi_h
+LINE_X0 = line_roi_x
+LINE_X1 = line_roi_x + line_roi_w
+
+
+def configure(cfg):
+    """Dynamically configure the vision pipeline with parameters from the specified config/tuning module."""
+    global FRAME_WIDTH, FRAME_HEIGHT, FRAME_MIDPOINT_X
+    global USE_LAB, USE_BILATERAL, BILATERAL_D, BILATERAL_SIGMA_COLOR, BILATERAL_SIGMA_SPACE, HSV_BEFORE_BLUR
+    global USE_VISION_POOL, VISION_POOL_TIMEOUT, VISION_WORKER_THREADS
+    global LOWER_BLACK, UPPER_BLACK, LOWER_ORANGE, UPPER_ORANGE, LOWER_BLUE, UPPER_BLUE
+    global LOWER_RED_1, UPPER_RED_1, LOWER_RED_2, UPPER_RED_2, LOWER_GREEN, UPPER_GREEN, LOWER_MAGENTA, UPPER_MAGENTA
+    global WALL_MIN_AREA, BLOCK_MIN_AREA, MAGENTA_MIN_AREA, CLOSE_BLOCK_MIN_AREA
+    global left_roi_x, left_roi_y, left_roi_w, left_roi_h
+    global right_roi_x, right_roi_y, right_roi_w, right_roi_h
+    global inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h
+    global inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h
+    global line_roi_x, line_roi_y, line_roi_w, line_roi_h
+    global close_x, close_y, close_w, close_h
+    global full_frame_roi, close_block_roi
+    global left_side_job, right_side_job, inner_left_side_job, inner_right_side_job, WALL_JOBS
+    global roi_mask_walls, roi_mask_line, roi_mask_close_black, roi_mask_main_blocks, roi_mask_close_blocks, roi_mask_magenta
+    global GLOBAL_Y_OFFSET, GLOBAL_Y_END, SLICE_HEIGHT
+    global ARENA_Y_TOP, ARENA_Y_BOTTOM, ARENA_BAND_H, _ARENA_ROWS, _ARENA_WALL_KERNEL, _ARENA_WALL_CLOSE_KERNEL, ARENA_PASSTHROUGH, ARENA_SEED_LOCAL
+    global LINE_SLICE_Y0, LINE_SLICE_Y1, LINE_X0, LINE_X1
+
+    FRAME_WIDTH = getattr(cfg, 'FRAME_WIDTH', 640)
+    FRAME_HEIGHT = getattr(cfg, 'FRAME_HEIGHT', 360)
+    FRAME_MIDPOINT_X = getattr(cfg, 'FRAME_MIDPOINT_X', FRAME_WIDTH // 2)
+
+    USE_LAB = getattr(cfg, 'USE_LAB', False)
+    USE_BILATERAL = getattr(cfg, 'USE_BILATERAL', True)
+    BILATERAL_D = getattr(cfg, 'BILATERAL_D', 5)
+    BILATERAL_SIGMA_COLOR = getattr(cfg, 'BILATERAL_SIGMA_COLOR', 50)
+    BILATERAL_SIGMA_SPACE = getattr(cfg, 'BILATERAL_SIGMA_SPACE', 50)
+    HSV_BEFORE_BLUR = getattr(cfg, 'HSV_BEFORE_BLUR', True)
+    USE_VISION_POOL = getattr(cfg, 'USE_VISION_POOL', True)
+    VISION_POOL_TIMEOUT = getattr(cfg, 'VISION_POOL_TIMEOUT', 0.050)
+    VISION_WORKER_THREADS = getattr(cfg, 'VISION_WORKER_THREADS', 2)
+
+    LOWER_BLACK = getattr(cfg, 'LOWER_BLACK', np.array([0, 0, 0]))
+    UPPER_BLACK = getattr(cfg, 'UPPER_BLACK', np.array([180, 95, 70]))
+    LOWER_ORANGE = getattr(cfg, 'LOWER_ORANGE', np.array([6, 50, 182]))
+    UPPER_ORANGE = getattr(cfg, 'UPPER_ORANGE', np.array([15, 255, 255]))
+    LOWER_BLUE = getattr(cfg, 'LOWER_BLUE', np.array([114, 50, 110]))
+    UPPER_BLUE = getattr(cfg, 'UPPER_BLUE', np.array([123, 255, 255]))
+
+    LOWER_RED_1 = getattr(cfg, 'LOWER_RED_1', np.array([0, 70, 43]))
+    UPPER_RED_1 = getattr(cfg, 'UPPER_RED_1', np.array([4, 230, 166]))
+    LOWER_RED_2 = getattr(cfg, 'LOWER_RED_2', np.array([175, 70, 43]))
+    UPPER_RED_2 = getattr(cfg, 'UPPER_RED_2', np.array([180, 230, 140]))
+    LOWER_GREEN = getattr(cfg, 'LOWER_GREEN', np.array([42, 85, 38]))
+    UPPER_GREEN = getattr(cfg, 'UPPER_GREEN', np.array([88, 190, 135]))
+    LOWER_MAGENTA = getattr(cfg, 'LOWER_MAGENTA', np.array([158, 73, 64]))
+    UPPER_MAGENTA = getattr(cfg, 'UPPER_MAGENTA', np.array([172, 255, 223]))
+
+    WALL_MIN_AREA = getattr(cfg, 'WALL_MIN_AREA', 300)
+    BLOCK_MIN_AREA = getattr(cfg, 'BLOCK_MIN_AREA', 250)
+    MAGENTA_MIN_AREA = getattr(cfg, 'MAGENTA_MIN_AREA', 300)
+    CLOSE_BLOCK_MIN_AREA = getattr(cfg, 'CLOSE_BLOCK_MIN_AREA', 15)
+
+    left_roi_x = getattr(cfg, 'left_roi_x', 0)
+    left_roi_y = getattr(cfg, 'left_roi_y', 130)
+    left_roi_w = getattr(cfg, 'left_roi_w', 135)
+    left_roi_h = getattr(cfg, 'left_roi_h', 150)
+
+    right_roi_x = getattr(cfg, 'right_roi_x', 505)
+    right_roi_y = getattr(cfg, 'right_roi_y', 130)
+    right_roi_w = getattr(cfg, 'right_roi_w', 135)
+    right_roi_h = getattr(cfg, 'right_roi_h', 150)
+
+    inner_left_roi_x = getattr(cfg, 'inner_left_roi_x', 140)
+    inner_left_roi_y = getattr(cfg, 'inner_left_roi_y', 155)
+    inner_left_roi_w = getattr(cfg, 'inner_left_roi_w', 100)
+    inner_left_roi_h = getattr(cfg, 'inner_left_roi_h', 100)
+
+    inner_right_roi_x = getattr(cfg, 'inner_right_roi_x', 400)
+    inner_right_roi_y = getattr(cfg, 'inner_right_roi_y', 155)
+    inner_right_roi_w = getattr(cfg, 'inner_right_roi_w', 100)
+    inner_right_roi_h = getattr(cfg, 'inner_right_roi_h', 100)
+
+    line_roi_x = getattr(cfg, 'line_roi_x', 280)
+    line_roi_y = getattr(cfg, 'line_roi_y', 190)
+    line_roi_w = getattr(cfg, 'line_roi_w', 80)
+    line_roi_h = getattr(cfg, 'line_roi_h', 40)
+
+    close_x = getattr(cfg, 'close_x', 140)
+    close_y = getattr(cfg, 'close_y', 110)
+    close_w = getattr(cfg, 'close_w', 360)
+    close_h = getattr(cfg, 'close_h', 10)
+
+    full_frame_roi = getattr(cfg, 'full_frame_roi', (0, 80, 640, 170))
+    close_block_roi = getattr(cfg, 'close_block_roi', (280, 215, 80, 10))
+
+    left_side_job = {'roi': (left_roi_x, left_roi_y, left_roi_w, left_roi_h), 'type': 'wall_left'}
+    right_side_job = {'roi': (right_roi_x, right_roi_y, right_roi_w, right_roi_h), 'type': 'wall_right'}
+    inner_left_side_job = {'roi': (inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h), 'type': 'wall_inner_left'}
+    inner_right_side_job = {'roi': (inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h), 'type': 'wall_inner_right'}
+    WALL_JOBS = [left_side_job, right_side_job, inner_left_side_job, inner_right_side_job]
+
+    roi_mask_walls = getattr(cfg, 'roi_mask_walls', None)
+    if roi_mask_walls is None:
+        roi_mask_walls = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+        for job in WALL_JOBS:
+            jx, jy, jw, jh = job['roi']
+            cv2.rectangle(roi_mask_walls, (jx, jy), (jx + jw, jy + jh), 255, -1)
+
+    roi_mask_line = getattr(cfg, 'roi_mask_line', None)
+    if roi_mask_line is None:
+        roi_mask_line = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+        cv2.rectangle(roi_mask_line, (line_roi_x, line_roi_y), (line_roi_x + line_roi_w, line_roi_y + line_roi_h), 255, -1)
+
+    roi_mask_close_black = getattr(cfg, 'roi_mask_close_black', None)
+    if roi_mask_close_black is None:
+        roi_mask_close_black = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+        cv2.rectangle(roi_mask_close_black, (close_x, close_y), (close_x + close_w, close_y + close_h), 255, -1)
+
+    roi_mask_main_blocks = getattr(cfg, 'roi_mask_main_blocks', None)
+    if roi_mask_main_blocks is None:
+        roi_mask_main_blocks = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+        if full_frame_roi and full_frame_roi[2] > 0 and full_frame_roi[3] > 0:
+            fx, fy, fw, fh = full_frame_roi
+            cv2.rectangle(roi_mask_main_blocks, (fx, fy), (fx + fw, fy + fh), 255, -1)
+
+    roi_mask_close_blocks = getattr(cfg, 'roi_mask_close_blocks', None)
+    if roi_mask_close_blocks is None:
+        roi_mask_close_blocks = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
+        if close_block_roi and close_block_roi[2] > 0 and close_block_roi[3] > 0:
+            cx, cy, cw, ch = close_block_roi
+            cv2.rectangle(roi_mask_close_blocks, (cx, cy), (cx + cw, cy + ch), 255, -1)
+
+    roi_mask_magenta = getattr(cfg, 'roi_mask_magenta', None)
+    if roi_mask_magenta is None:
+        roi_mask_magenta = roi_mask_main_blocks.copy()
+
+    GLOBAL_Y_OFFSET = getattr(cfg, 'GLOBAL_Y_OFFSET', None)
+    if GLOBAL_Y_OFFSET is None:
+        rois_y0 = [left_roi_y, right_roi_y, inner_left_roi_y, inner_right_roi_y, line_roi_y, close_y]
+        if full_frame_roi and full_frame_roi[3] > 0: rois_y0.append(full_frame_roi[1])
+        if close_block_roi and close_block_roi[3] > 0: rois_y0.append(close_block_roi[1])
+        GLOBAL_Y_OFFSET = min(rois_y0)
+
+    GLOBAL_Y_END = getattr(cfg, 'GLOBAL_Y_END', None)
+    if GLOBAL_Y_END is None:
+        rois_y1 = [left_roi_y + left_roi_h, right_roi_y + right_roi_h,
+                   inner_left_roi_y + inner_left_roi_h, inner_right_roi_y + inner_right_roi_h,
+                   line_roi_y + line_roi_h, close_y + close_h]
+        if full_frame_roi and full_frame_roi[3] > 0: rois_y1.append(full_frame_roi[1] + full_frame_roi[3])
+        if close_block_roi and close_block_roi[3] > 0: rois_y1.append(close_block_roi[1] + close_block_roi[3])
+        GLOBAL_Y_END = max(rois_y1)
+
+    SLICE_HEIGHT = GLOBAL_Y_END - GLOBAL_Y_OFFSET
+
+    ARENA_Y_TOP = GLOBAL_Y_OFFSET
+    ARENA_Y_BOTTOM = GLOBAL_Y_END
+    ARENA_BAND_H = ARENA_Y_BOTTOM - ARENA_Y_TOP
+    ARENA_SEED_LOCAL = (float(ARENA_SEED_PT[0]), float(ARENA_SEED_PT[1] - ARENA_Y_TOP))
+    _ARENA_ROWS = np.arange(ARENA_BAND_H, dtype=np.int32)[:, None]
+    _ARENA_WALL_KERNEL = np.ones((MIN_WALL_THICK, 1), np.uint8)
+    _ARENA_WALL_CLOSE_KERNEL = np.ones((WALL_GAP_SEAL, 1), np.uint8)
+    ARENA_PASSTHROUGH = np.full((FRAME_HEIGHT, FRAME_WIDTH), 255, dtype="uint8")
+
+    LINE_SLICE_Y0 = line_roi_y - GLOBAL_Y_OFFSET
+    LINE_SLICE_Y1 = LINE_SLICE_Y0 + line_roi_h
+    LINE_X0 = line_roi_x
+    LINE_X1 = line_roi_x + line_roi_w
+
+# Initialise defaults using obstacle challenge tuning
+configure(_default_tuning)
 
 
 def _sliding_median(arr, window):
@@ -436,19 +634,22 @@ def process_video_frame(frame):
     mask_magenta_close = crop(masks['magenta'], cy_slice, ch, cx, cw)
 
     # Gate each to the arena. All of these ROIs sit inside the arena band.
-    arena_main = arena_mask[my:my + mh, mx:mx + mw]
-    mask_red_main = cv2.bitwise_and(mask_red_main, arena_main)
-    mask_green_main = cv2.bitwise_and(mask_green_main, arena_main)
-    mask_magenta_main = cv2.bitwise_and(mask_magenta_main, arena_main)
+    if mw > 0 and mh > 0:
+        arena_main = arena_mask[my:my + mh, mx:mx + mw]
+        mask_red_main = cv2.bitwise_and(mask_red_main, arena_main)
+        mask_green_main = cv2.bitwise_and(mask_green_main, arena_main)
+        mask_magenta_main = cv2.bitwise_and(mask_magenta_main, arena_main)
 
-    arena_line = arena_mask[ly:ly + lh, lx:lx + lw]
-    mask_orange_line = cv2.bitwise_and(mask_orange_line, arena_line)
-    mask_blue_line = cv2.bitwise_and(mask_blue_line, arena_line)
+    if lw > 0 and lh > 0:
+        arena_line = arena_mask[ly:ly + lh, lx:lx + lw]
+        mask_orange_line = cv2.bitwise_and(mask_orange_line, arena_line)
+        mask_blue_line = cv2.bitwise_and(mask_blue_line, arena_line)
 
-    arena_close = arena_mask[cy:cy + ch, cx:cx + cw]
-    mask_red_close = cv2.bitwise_and(mask_red_close, arena_close)
-    mask_green_close = cv2.bitwise_and(mask_green_close, arena_close)
-    mask_magenta_close = cv2.bitwise_and(mask_magenta_close, arena_close)
+    if cw > 0 and ch > 0:
+        arena_close = arena_mask[cy:cy + ch, cx:cx + cw]
+        mask_red_close = cv2.bitwise_and(mask_red_close, arena_close)
+        mask_green_close = cv2.bitwise_and(mask_green_close, arena_close)
+        mask_magenta_close = cv2.bitwise_and(mask_magenta_close, arena_close)
 
     # --- 2. Reconstruct slice-sized global masks for wall/black detection ---
     global_red_mask = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
@@ -456,15 +657,18 @@ def process_video_frame(frame):
     global_blue_mask = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
     global_magenta_mask = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
 
-    global_red_mask[my_slice:my_slice+mh, mx:mx+mw] = cv2.bitwise_or(global_red_mask[my_slice:my_slice+mh, mx:mx+mw], mask_red_main)
-    global_green_mask[my_slice:my_slice+mh, mx:mx+mw] = cv2.bitwise_or(global_green_mask[my_slice:my_slice+mh, mx:mx+mw], mask_green_main)
-    global_magenta_mask[my_slice:my_slice+mh, mx:mx+mw] = cv2.bitwise_or(global_magenta_mask[my_slice:my_slice+mh, mx:mx+mw], mask_magenta_main)
+    if mw > 0 and mh > 0:
+        global_red_mask[my_slice:my_slice+mh, mx:mx+mw] = cv2.bitwise_or(global_red_mask[my_slice:my_slice+mh, mx:mx+mw], mask_red_main)
+        global_green_mask[my_slice:my_slice+mh, mx:mx+mw] = cv2.bitwise_or(global_green_mask[my_slice:my_slice+mh, mx:mx+mw], mask_green_main)
+        global_magenta_mask[my_slice:my_slice+mh, mx:mx+mw] = cv2.bitwise_or(global_magenta_mask[my_slice:my_slice+mh, mx:mx+mw], mask_magenta_main)
 
-    global_red_mask[cy_slice:cy_slice+ch, cx:cx+cw] = cv2.bitwise_or(global_red_mask[cy_slice:cy_slice+ch, cx:cx+cw], mask_red_close)
-    global_green_mask[cy_slice:cy_slice+ch, cx:cx+cw] = cv2.bitwise_or(global_green_mask[cy_slice:cy_slice+ch, cx:cx+cw], mask_green_close)
-    global_magenta_mask[cy_slice:cy_slice+ch, cx:cx+cw] = cv2.bitwise_or(global_magenta_mask[cy_slice:cy_slice+ch, cx:cx+cw], mask_magenta_close)
+    if cw > 0 and ch > 0:
+        global_red_mask[cy_slice:cy_slice+ch, cx:cx+cw] = cv2.bitwise_or(global_red_mask[cy_slice:cy_slice+ch, cx:cx+cw], mask_red_close)
+        global_green_mask[cy_slice:cy_slice+ch, cx:cx+cw] = cv2.bitwise_or(global_green_mask[cy_slice:cy_slice+ch, cx:cx+cw], mask_green_close)
+        global_magenta_mask[cy_slice:cy_slice+ch, cx:cx+cw] = cv2.bitwise_or(global_magenta_mask[cy_slice:cy_slice+ch, cx:cx+cw], mask_magenta_close)
 
-    global_blue_mask[ly_slice:ly_slice+lh, lx:lx+lw] = cv2.bitwise_or(global_blue_mask[ly_slice:ly_slice+lh, lx:lx+lw], mask_blue_line)
+    if lw > 0 and lh > 0:
+        global_blue_mask[ly_slice:ly_slice+lh, lx:lx+lw] = cv2.bitwise_or(global_blue_mask[ly_slice:ly_slice+lh, lx:lx+lw], mask_blue_line)
 
     # --- 3. Wall and black detection ---
     mask_black = masks['black']
@@ -656,9 +860,11 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
         (inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h),
         (line_roi_x, line_roi_y, line_roi_w, line_roi_h),
         (close_x, close_y, close_w, close_h),
-        full_frame_roi,
-        close_block_roi
     ]
+    if full_frame_roi and full_frame_roi[2] > 0 and full_frame_roi[3] > 0:
+        all_rois.append(full_frame_roi)
+    if close_block_roi and close_block_roi[2] > 0 and close_block_roi[3] > 0:
+        all_rois.append(close_block_roi)
     for x, y, w, h in all_rois:
         cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), light_blue, 2)
 
@@ -740,6 +946,48 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
             cv2.line(annotated_frame, (origin_x, origin_y), (target_pt_x, target_pt_y), (0, 255, 255), 3)
 
     if debug_info:
-        cv2.putText(annotated_frame, str(debug_info), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+        if isinstance(debug_info, (list, tuple)):
+            items = [str(x) for x in debug_info]
+        elif isinstance(debug_info, str):
+            s = debug_info.strip()
+            if s.startswith('[') and s.endswith(']'):
+                try:
+                    parsed = ast.literal_eval(s)
+                    if isinstance(parsed, (list, tuple)):
+                        items = [str(x) for x in parsed]
+                    else:
+                        items = [s]
+                except Exception:
+                    items = [s]
+            elif '\n' in s:
+                items = s.split('\n')
+            else:
+                items = [s]
+        else:
+            items = [str(debug_info)]
+
+        lines = []
+        curr_line = []
+        curr_len = 0
+        max_chars_per_line = 48
+        for item in items:
+            item_len = len(item) + (3 if curr_line else 0)
+            if curr_line and (curr_len + item_len > max_chars_per_line):
+                lines.append(" | ".join(curr_line))
+                curr_line = [item]
+                curr_len = len(item)
+            else:
+                curr_line.append(item)
+                curr_len += item_len
+        if curr_line:
+            lines.append(" | ".join(curr_line))
+
+        y_offset = 25
+        for line in lines:
+            # Draw black outline for high contrast readability
+            cv2.putText(annotated_frame, line, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3, cv2.LINE_AA)
+            # Draw white text
+            cv2.putText(annotated_frame, line, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+            y_offset += 20
 
     return annotated_frame

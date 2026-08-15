@@ -18,6 +18,7 @@ reads.
 Run it from the repo root:  python3 -m src.open_challenge.main
 """
 
+import argparse
 import os
 import threading
 import time
@@ -31,27 +32,26 @@ from gpiozero import Button, LED
 from src.motors import motor, servo
 from src.sensors import bno086, camera
 
-from src.obstacle_challenge import config
+from src.open_challenge import config
+from src.open_challenge.config import *
 from src.obstacle_challenge.control import get_angular_difference
 from src.threads.hw_threads import CameraThread, ImuThread, PerfMonitor
 from src.logs.setup import log, setup_logging, shutdown_logging
-from src.obstacle_challenge.tuning import *
 from src.obstacle_challenge.video import VideoEncoderProcess
 from src.vision import pipeline as vision
 from src.vision.pipeline import annotate_video_frame, process_video_frame
 from src.vision.pool import VisionPool
 
-# Corner trigger, ported from the obstacle loop's hardcoded values (close black
-# band across the front, or the line ROI filling up with wall) -- kept as named
-# constants here since the open track has no pillars to otherwise gate steering.
-CLOSE_BLACK_AREA_THRESHOLD = 3000
-LINE_ROI_WALL_PCT_THRESHOLD = 50
-CORNER_TURN_ANGLE = 35
-
-MOTOR_SPEED = 90
-
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Open Challenge main control program.")
+    parser.add_argument(
+        "-b", "--button",
+        action="store_true",
+        help="Wait for hardware button press before starting the run."
+    )
+    args = parser.parse_args()
+
     run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     base_folder = "open"
     run_folder = os.path.join(base_folder, run_timestamp)
@@ -62,6 +62,9 @@ if __name__ == "__main__":
     setup_logging(log_path)
     log.info("=== Open Challenge | run %s ===", run_timestamp)
     log.info("Logging to %s", log_path)
+
+    # ---- Configure vision pipeline for Open Challenge ----
+    vision.configure(config)
 
     # ---- Child processes FIRST -------------------------------------------
     # Same ordering constraint as the obstacle challenge: fork before any
@@ -84,7 +87,7 @@ if __name__ == "__main__":
     camera.initialize()
     motor.initialize()
     servo.initialize()
-    # button = Button(config.BUTTON_PIN)
+    button = Button(config.BUTTON_PIN)
     led = LED(config.LED_PIN)
 
     camera_thread = CameraThread(camera)
@@ -98,7 +101,10 @@ if __name__ == "__main__":
     log.info("IMU is ready. Proceeding with main logic.")
 
     led.on()
-    # button.wait_for_press()
+    if args.button:
+        log.info("Waiting for button press...")
+        button.wait_for_press()
+        log.info("Button pressed! Starting run.")
     led.off()
     time.sleep(0.5)
 
@@ -178,20 +184,27 @@ if __name__ == "__main__":
             wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
             wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
 
+            # If one side has inner wall and other does not, inflate that inner wall size
+            if wall_inner_left_size > 0 and wall_inner_right_size == 0:
+                wall_inner_left_size = wall_inner_left_size * 2 + 1000
+            elif wall_inner_right_size > 0 and wall_inner_left_size == 0:
+                wall_inner_right_size = wall_inner_right_size * 2 + 1000
+
+            # Combine outer and inner ROIs per side before checking if one side is lost
+            total_left = left_pixel_size + wall_inner_left_size
+            total_right = right_pixel_size + wall_inner_right_size
+
             # One side gone: push the side we CAN see hard, so the robot swings away
             # from the wall it is about to clip rather than drifting on a small error.
-            if left_pixel_size < 700 and (right_pixel_size + wall_inner_right_size) > 100:
-                right_pixel_size *= 2
-                right_pixel_size += 25000
-            elif right_pixel_size < 700 and (left_pixel_size + wall_inner_left_size) > 100:
-                left_pixel_size *= 2
-                left_pixel_size += 25000
+            if total_left < 700 and total_right > 100:
+                total_right = total_right * 2 + 25000
+            elif total_right < 700 and total_left > 100:
+                total_left = total_left * 2 + 25000
 
-            # PD on the left/right area imbalance, inner ROIs included. The +1 is a
-            # small constant bias carried over from v5.
-            wall_error = (left_pixel_size + wall_inner_left_size) - (right_pixel_size + wall_inner_right_size)
+            # PD on the left/right area imbalance
+            wall_error = total_left - total_right
             wall_derivative = wall_error - prev_wall_error
-            angle = (wall_error * WALL_KP) + (wall_derivative * WALL_KD) + 1
+            angle = (wall_error * WALL_KP) + (wall_derivative * WALL_KD)
             prev_wall_error = wall_error
 
             # Corner: a black band right in front, or the line ROI filled with wall.
@@ -203,7 +216,7 @@ if __name__ == "__main__":
                 corner_turn = CORNER_TURN_ANGLE
             else:
                 # Direction not established yet: turn away from the bigger wall.
-                corner_turn = (-CORNER_TURN_ANGLE if left_pixel_size < right_pixel_size
+                corner_turn = (-CORNER_TURN_ANGLE if total_left < total_right
                                else CORNER_TURN_ANGLE)
 
             close_black_area = sum(obj['area'] for obj in detections.get('detected_close_black', []))
@@ -212,7 +225,7 @@ if __name__ == "__main__":
                 angle += corner_turn
             # Both walls out of frame with a floor line under us: mid-corner, keep
             # turning. Stacks with the trigger above, as in v5.
-            if left_pixel_size == 0 and right_pixel_size == 0 and (detected_orange_object or detected_blue_object):
+            if total_left == 0 and total_right == 0 and (detected_orange_object or detected_blue_object):
                 angle += corner_turn
 
             # --- ACTUATE FIRST ---
@@ -241,16 +254,16 @@ if __name__ == "__main__":
                       len(detected_walls), skipped)
 
             annotated_frame = annotate_video_frame(
-                frame, detections, driving_direction, debug_info=str(debug))
+                frame, detections, driving_direction, debug_info=debug)
             video_encoder.write(annotated_frame)
 
             # --- Exit Conditions ---
             if turn_counter == 12 and not final_run_initiated and get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) < 30:
-                log.info("12 turns reached. Stopping in 0.3 seconds")
+                log.info("12 turns reached. Stopping in 0.5 seconds")
                 final_run_initiated = True
                 final_run_start_time = time.monotonic()
 
-            if final_run_initiated and (time.monotonic() - final_run_start_time) >= 0.3:
+            if final_run_initiated and (time.monotonic() - final_run_start_time) >= 0.5:
                 log.info("0.3 second complete. Stopping.")
                 motor.brake()
                 break
