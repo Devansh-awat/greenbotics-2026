@@ -7,7 +7,6 @@ control modules, so every name defined here is part of the public surface.
 
 import cv2
 import numpy as np
-from src.motors import motor
 
 # ---------------------------------------------------------------------------
 # Tuning constants
@@ -17,8 +16,9 @@ from src.motors import motor
 # ORANGE_COOLDOWN_FRAMES = 45
 
 MOTOR_SPEED = 65
-MIN_RPM = 0.5 * motor.MAX_WHEEL_RPM
-MAX_RPM = 0.65 * motor.MAX_WHEEL_RPM
+MAX_WHEEL_RPM = 1800.0 * 13.0 / 38.0  # Pololu 4861 @ 12V with 13/38 external gear (~615.8)
+MIN_RPM = 0.5 * MAX_WHEEL_RPM
+MAX_RPM = 0.65 * MAX_WHEEL_RPM
 MAX_ACCEL_PER_FRAME = 10.0
 MAX_DECEL_PER_FRAME = 200.0
 INITIAL_RPM = 50.0

@@ -166,14 +166,20 @@ def perform_initial_maneuver():
             log.info("Initial maneuver: no block, short forward and return.")
             return
         elif detected_block_color == 'red':
-            # BUG: direct duty -- see above, convert to motor.start_rpm_control().
-            motor.forward(50)
+            motor.start_rpm_control(200, 'forward')
             while get_angular_difference(ninety_degree_heading, imu_thread.get_heading()) > 5:
-                servo.set_angle(steer_with_gyro(imu_thread.get_heading(),ninety_degree_heading))
-            action_taken = "DRIVE_FORWARD_RED_CW for 0.3s"
-            # BUG: timed + direct duty -> drive_distance_with_gyro(drive_target_heading,
-            #      <cm>, rpm=60).
-            drive_straight_with_gyro(drive_target_heading, 0.3, 50, 'forward')
+                servo.set_angle(steer_with_gyro(imu_thread.get_heading(), ninety_degree_heading))
+                time.sleep(0.01)
+            motor.stop_rpm_control()
+            motor.brake()
+            action_taken = "DRIVE_FORWARD_RED_CW for 10cm"
+            drive_distance_with_gyro(drive_target_heading, 15, rpm=200)
+            motor.start_rpm_control(200, 'forward')
+            while get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) > 5:
+                servo.set_angle(steer_with_gyro(imu_thread.get_heading(),INITIAL_HEADING,2))
+            motor.stop_rpm_control()
+            servo.set_angle(0)
+            return
         else:
             # BUG: timed + direct duty -> drive_distance_with_gyro(..., <cm>, rpm=80).
             drive_straight_with_gyro((INITIAL_HEADING+55)%360, 0.5, 70, 'forward')

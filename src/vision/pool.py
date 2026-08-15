@@ -24,48 +24,26 @@ import cv2
 import numpy as np
 
 from src.logs.setup import vlog, _reset_child_logging
-from src.obstacle_challenge.tuning import *
-from src.vision.pipeline import (
-    COLOUR_MASK_NAMES, prepare_colour_slice,
-    build_arena_mask_from_prepared, compute_colour_masks_only,
-)
+from src.vision import pipeline
 
 # ---------------------------------------------------------------------------
 # VisionPool -- fork-join of the two independent halves of the pipeline
 # ---------------------------------------------------------------------------
-#
-# Layout of the shared buffers (all in /dev/shm, never pickled):
-#   hsv_shm    : (SLICE_HEIGHT, 640, 3) uint8   prepare_colour_slice()'s output,
-#                                                written by the main process
-#   arena_shm  : (2, 360, 640) uint8   [arena_mask, floor_mask] from the arena worker
-#   black_shm  : (SLICE_HEIGHT, 640)   uint8   the shared black mask, written by the
-#                                               arena worker (it needs it anyway)
-#   sky_shm    : (640,)        int32   skyline, annotation only
-#   flag_shm   : (2,)          int32   [seeded, generation] from the arena worker
-#   mask_shm   : (5, 200, 640) uint8   the five non-black colour masks from the
-#                                      colour worker
-#
-# Synchronisation is a pair of mp.Events per worker (go / done). Measured round-trip
-# overhead ~0.3 ms, versus ~0.12 ms just to pickle one frame -- which is why the
-# prepared slice travels through shared memory and only the "go" signal travels
-# through IPC.
-
-
 
 
 def _arena_worker(hsv_name, arena_name, black_name, sky_name, flag_name, go, done, stop):
     """Worker process: builds the arena mask AND the shared black threshold."""
     wl = _reset_child_logging("w-arena")
-    cv2.setNumThreads(VISION_WORKER_THREADS)
+    cv2.setNumThreads(pipeline.VISION_WORKER_THREADS)
     h_shm = shared_memory.SharedMemory(name=hsv_name)
     a_shm = shared_memory.SharedMemory(name=arena_name)
     b_shm = shared_memory.SharedMemory(name=black_name)
     s_shm = shared_memory.SharedMemory(name=sky_name)
     fl_shm = shared_memory.SharedMemory(name=flag_name)
-    hsv = np.ndarray((SLICE_HEIGHT, FRAME_WIDTH, 3), np.uint8, buffer=h_shm.buf)
-    arena_out = np.ndarray((2, FRAME_HEIGHT, FRAME_WIDTH), np.uint8, buffer=a_shm.buf)
-    black_out = np.ndarray((SLICE_HEIGHT, FRAME_WIDTH), np.uint8, buffer=b_shm.buf)
-    sky_out = np.ndarray((FRAME_WIDTH,), np.int32, buffer=s_shm.buf)
+    hsv = np.ndarray((pipeline.SLICE_HEIGHT, pipeline.FRAME_WIDTH, 3), np.uint8, buffer=h_shm.buf)
+    arena_out = np.ndarray((2, pipeline.FRAME_HEIGHT, pipeline.FRAME_WIDTH), np.uint8, buffer=a_shm.buf)
+    black_out = np.ndarray((pipeline.SLICE_HEIGHT, pipeline.FRAME_WIDTH), np.uint8, buffer=b_shm.buf)
+    sky_out = np.ndarray((pipeline.FRAME_WIDTH,), np.int32, buffer=s_shm.buf)
     flags = np.ndarray((2,), np.int32, buffer=fl_shm.buf)
     try:
         while True:
@@ -74,7 +52,7 @@ def _arena_worker(hsv_name, arena_name, black_name, sky_name, flag_name, go, don
             if stop.is_set():
                 break
             try:
-                arena_mask, floor_mask, sky, mask_black = build_arena_mask_from_prepared(hsv)
+                arena_mask, floor_mask, sky, mask_black = pipeline.build_arena_mask_from_prepared(hsv)
                 black_out[:] = mask_black
                 if arena_mask is None:
                     flags[0] = 0
@@ -96,11 +74,11 @@ def _arena_worker(hsv_name, arena_name, black_name, sky_name, flag_name, go, don
 def _colour_worker(hsv_name, mask_name, go, done, stop):
     """Worker process: thresholds the five non-black colour masks."""
     wl = _reset_child_logging("w-colour")
-    cv2.setNumThreads(VISION_WORKER_THREADS)
+    cv2.setNumThreads(pipeline.VISION_WORKER_THREADS)
     h_shm = shared_memory.SharedMemory(name=hsv_name)
     m_shm = shared_memory.SharedMemory(name=mask_name)
-    hsv = np.ndarray((SLICE_HEIGHT, FRAME_WIDTH, 3), np.uint8, buffer=h_shm.buf)
-    masks_out = np.ndarray((len(COLOUR_MASK_NAMES), SLICE_HEIGHT, FRAME_WIDTH), np.uint8, buffer=m_shm.buf)
+    hsv = np.ndarray((pipeline.SLICE_HEIGHT, pipeline.FRAME_WIDTH, 3), np.uint8, buffer=h_shm.buf)
+    masks_out = np.ndarray((len(pipeline.COLOUR_MASK_NAMES), pipeline.SLICE_HEIGHT, pipeline.FRAME_WIDTH), np.uint8, buffer=m_shm.buf)
     try:
         while True:
             go.wait()
@@ -108,7 +86,7 @@ def _colour_worker(hsv_name, mask_name, go, done, stop):
             if stop.is_set():
                 break
             try:
-                compute_colour_masks_only(hsv, out=masks_out)
+                pipeline.compute_colour_masks_only(hsv, out=masks_out)
             except Exception:
                 masks_out[:] = 0
                 wl.exception("colour worker failed on a frame")
@@ -137,25 +115,25 @@ class VisionPool:
     def start(self):
         ctx = mp.get_context('fork')
         self.hsv_shm = shared_memory.SharedMemory(
-            create=True, size=SLICE_HEIGHT * FRAME_WIDTH * 3)
+            create=True, size=pipeline.SLICE_HEIGHT * pipeline.FRAME_WIDTH * 3)
         self.arena_shm = shared_memory.SharedMemory(
-            create=True, size=2 * FRAME_HEIGHT * FRAME_WIDTH)
+            create=True, size=2 * pipeline.FRAME_HEIGHT * pipeline.FRAME_WIDTH)
         self.black_shm = shared_memory.SharedMemory(
-            create=True, size=SLICE_HEIGHT * FRAME_WIDTH)
-        self.sky_shm = shared_memory.SharedMemory(create=True, size=FRAME_WIDTH * 4)
+            create=True, size=pipeline.SLICE_HEIGHT * pipeline.FRAME_WIDTH)
+        self.sky_shm = shared_memory.SharedMemory(create=True, size=pipeline.FRAME_WIDTH * 4)
         self.flag_shm = shared_memory.SharedMemory(create=True, size=2 * 4)
         self.mask_shm = shared_memory.SharedMemory(
-            create=True, size=len(COLOUR_MASK_NAMES) * SLICE_HEIGHT * FRAME_WIDTH)
+            create=True, size=len(pipeline.COLOUR_MASK_NAMES) * pipeline.SLICE_HEIGHT * pipeline.FRAME_WIDTH)
 
-        self.hsv = np.ndarray((SLICE_HEIGHT, FRAME_WIDTH, 3), np.uint8,
+        self.hsv = np.ndarray((pipeline.SLICE_HEIGHT, pipeline.FRAME_WIDTH, 3), np.uint8,
                               buffer=self.hsv_shm.buf)
-        self.arena = np.ndarray((2, FRAME_HEIGHT, FRAME_WIDTH), np.uint8,
+        self.arena = np.ndarray((2, pipeline.FRAME_HEIGHT, pipeline.FRAME_WIDTH), np.uint8,
                                 buffer=self.arena_shm.buf)
-        self.black = np.ndarray((SLICE_HEIGHT, FRAME_WIDTH), np.uint8,
+        self.black = np.ndarray((pipeline.SLICE_HEIGHT, pipeline.FRAME_WIDTH), np.uint8,
                                 buffer=self.black_shm.buf)
-        self.sky = np.ndarray((FRAME_WIDTH,), np.int32, buffer=self.sky_shm.buf)
+        self.sky = np.ndarray((pipeline.FRAME_WIDTH,), np.int32, buffer=self.sky_shm.buf)
         self.flags = np.ndarray((2,), np.int32, buffer=self.flag_shm.buf)
-        self.masks = np.ndarray((len(COLOUR_MASK_NAMES), SLICE_HEIGHT, FRAME_WIDTH), np.uint8,
+        self.masks = np.ndarray((len(pipeline.COLOUR_MASK_NAMES), pipeline.SLICE_HEIGHT, pipeline.FRAME_WIDTH), np.uint8,
                                 buffer=self.mask_shm.buf)
 
         self.go_a, self.done_a = ctx.Event(), ctx.Event()
@@ -182,7 +160,7 @@ class VisionPool:
         Returns None if a worker missed its deadline; the caller then falls back to
         inline processing and the pool stays disabled for the rest of the run.
         """
-        cs_slice = prepare_colour_slice(frame)   # shared prep, done once, serially
+        cs_slice = pipeline.prepare_colour_slice(frame)   # shared prep, done once, serially
         np.copyto(self.hsv, cs_slice)
         self.flags[0] = 0
         self.done_a.clear()
@@ -190,16 +168,16 @@ class VisionPool:
         self.go_a.set()
         self.go_c.set()
 
-        if not self.done_a.wait(VISION_POOL_TIMEOUT) or \
-           not self.done_c.wait(VISION_POOL_TIMEOUT):
+        if not self.done_a.wait(pipeline.VISION_POOL_TIMEOUT) or \
+           not self.done_c.wait(pipeline.VISION_POOL_TIMEOUT):
             vlog.error("VisionPool worker missed the %.0f ms deadline -- "
                        "falling back to inline processing for the rest of the run",
-                       VISION_POOL_TIMEOUT * 1000)
+                       pipeline.VISION_POOL_TIMEOUT * 1000)
             self.failed = True
             self.ok = False
             return None
 
-        masks = {name: self.masks[i] for i, name in enumerate(COLOUR_MASK_NAMES)}
+        masks = {name: self.masks[i] for i, name in enumerate(pipeline.COLOUR_MASK_NAMES)}
         masks['black'] = self.black
         seeded = bool(self.flags[0])
         if seeded:

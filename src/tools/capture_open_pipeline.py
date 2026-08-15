@@ -22,13 +22,15 @@ import cv2
 import numpy as np
 
 from src.sensors import camera
-from src.obstacle_challenge import tuning
+from src.open_challenge import config as open_config
 from src.vision import pipeline as vision
+
+vision.configure(open_config)
 
 OUTPUT_DIR = "pipeline_images/open"
 
 
-def pad_slice(slice_img, top_offset=tuning.GLOBAL_Y_OFFSET, target_height=tuning.FRAME_HEIGHT, target_width=tuning.FRAME_WIDTH):
+def pad_slice(slice_img, top_offset=open_config.GLOBAL_Y_OFFSET, target_height=open_config.FRAME_HEIGHT, target_width=open_config.FRAME_WIDTH):
     """Pads a cropped slice image (height = GLOBAL_Y_END - GLOBAL_Y_OFFSET) above and below to match target_height x target_width."""
     h, w = slice_img.shape[:2]
     if h == target_height and w == target_width:
@@ -56,22 +58,22 @@ def process_frame_all_stages(frame):
     images["02_full_hsv.png"] = full_hsv
 
     # --- 3. Full Bilateral Filtered Frame (640x360) ---
-    if getattr(tuning, 'HSV_BEFORE_BLUR', True):
-        full_cs = cv2.cvtColor(frame, cv2.COLOR_BGR2Lab if getattr(tuning, 'USE_LAB', False) else cv2.COLOR_BGR2HSV)
-        if getattr(tuning, 'USE_BILATERAL', True):
+    if getattr(open_config, 'HSV_BEFORE_BLUR', True):
+        full_cs = cv2.cvtColor(frame, cv2.COLOR_BGR2Lab if getattr(open_config, 'USE_LAB', False) else cv2.COLOR_BGR2HSV)
+        if getattr(open_config, 'USE_BILATERAL', True):
             full_bilateral = cv2.bilateralFilter(
-                full_cs, tuning.BILATERAL_D, tuning.BILATERAL_SIGMA_COLOR, tuning.BILATERAL_SIGMA_SPACE
+                full_cs, open_config.BILATERAL_D, open_config.BILATERAL_SIGMA_COLOR, open_config.BILATERAL_SIGMA_SPACE
             )
         else:
             full_bilateral = cv2.GaussianBlur(full_cs, (1, 7), 0)
     else:
-        if getattr(tuning, 'USE_BILATERAL', True):
+        if getattr(open_config, 'USE_BILATERAL', True):
             filtered_bgr = cv2.bilateralFilter(
-                frame, tuning.BILATERAL_D, tuning.BILATERAL_SIGMA_COLOR, tuning.BILATERAL_SIGMA_SPACE
+                frame, open_config.BILATERAL_D, open_config.BILATERAL_SIGMA_COLOR, open_config.BILATERAL_SIGMA_SPACE
             )
         else:
             filtered_bgr = cv2.GaussianBlur(frame, (1, 7), 0)
-        full_bilateral = cv2.cvtColor(filtered_bgr, cv2.COLOR_BGR2Lab if getattr(tuning, 'USE_LAB', False) else cv2.COLOR_BGR2HSV)
+        full_bilateral = cv2.cvtColor(filtered_bgr, cv2.COLOR_BGR2Lab if getattr(open_config, 'USE_LAB', False) else cv2.COLOR_BGR2HSV)
 
     images["03_full_bilateral.png"] = full_bilateral
 
@@ -80,14 +82,14 @@ def process_frame_all_stages(frame):
     arena_mask, floor_mask, sky, mask_black_slice = vision.build_arena_mask_from_prepared(cs_slice)
 
     if mask_black_slice is None:
-        mask_black_slice = cv2.inRange(cs_slice, tuning.LOWER_BLACK, tuning.UPPER_BLACK)
+        mask_black_slice = cv2.inRange(cs_slice, open_config.LOWER_BLACK, open_config.UPPER_BLACK)
 
     # --- 4. Black Mask (Padded to 640x360) ---
     padded_black_mask = pad_slice(mask_black_slice)
     images["04_black_mask.png"] = padded_black_mask
 
     # --- 5. Black Mask Bitwised AND onto ROIs (640x360) ---
-    black_mask_rois = cv2.bitwise_and(padded_black_mask, tuning.roi_mask_walls)
+    black_mask_rois = cv2.bitwise_and(padded_black_mask, open_config.roi_mask_walls)
     images["05_black_mask_rois.png"] = black_mask_rois
 
     # --- 6. Black Mask Bitwised AND with Arena Mask (640x360) ---
@@ -124,8 +126,8 @@ def run_pipeline_capture(input_image_path=None):
         if frame is None:
             print(f"ERROR: Could not read image from {input_image_path}")
             return
-        if frame.shape[:2] != (tuning.FRAME_HEIGHT, tuning.FRAME_WIDTH):
-            frame = cv2.resize(frame, (tuning.FRAME_WIDTH, tuning.FRAME_HEIGHT))
+        if frame.shape[:2] != (open_config.FRAME_HEIGHT, open_config.FRAME_WIDTH):
+            frame = cv2.resize(frame, (open_config.FRAME_WIDTH, open_config.FRAME_HEIGHT))
     else:
         print("Initializing camera...")
         if not camera.initialize():
