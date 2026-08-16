@@ -187,6 +187,11 @@ class VisionPool:
     def stop(self):
         if not self._procs:
             return
+        # Cleared FIRST, and before the shared memory below is unlinked: anything still
+        # holding a reference to this pool must fall back to inline processing rather
+        # than reach into buffers that are about to be freed. process_video_frame()
+        # gates on `.ok`, and a stale pool there is a segfault, not an exception.
+        self.ok = False
         self.stop_ev.set()
         self.go_a.set()
         self.go_c.set()

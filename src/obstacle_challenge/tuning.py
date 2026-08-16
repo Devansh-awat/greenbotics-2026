@@ -18,14 +18,16 @@ import numpy as np
 MOTOR_SPEED = 65
 MAX_WHEEL_RPM = 1800.0 * 13.0 / 38.0  # Pololu 4861 @ 12V with 13/38 external gear (~615.8)
 MIN_RPM = 0.5 * MAX_WHEEL_RPM
-MAX_RPM = 0.65 * MAX_WHEEL_RPM
+MAX_RPM = 0.60 * MAX_WHEEL_RPM
 MAX_ACCEL_PER_FRAME = 10.0
 MAX_DECEL_PER_FRAME = 200.0
 INITIAL_RPM = 50.0
 USE_VARIABLE_SPEED = True  # Set to True to re-enable variable speed based on steering & block height
 BLOCK_TARGET_GRACE_FRAMES = 12
+POST_GREEN_CLIP_FRAMES = 10
+POST_GREEN_MAX_ANGLE = 20
 
-ORANGE_COOLDOWN_FRAMES = 50
+ORANGE_COOLDOWN_FRAMES = 60
 
 #MOTOR_SPEED = 92
 #ORANGE_COOLDOWN_FRAMES = 45
@@ -78,6 +80,10 @@ BILATERAL_SIGMA_COLOR = 50
 BILATERAL_SIGMA_SPACE = 50
 HSV_BEFORE_BLUR = True
 
+USE_BLOCK_MORPH_CLOSE = True
+BLOCK_CLOSE_KERNEL_SIZE = 5
+BLOCK_CLOSE_KERNEL = np.ones((BLOCK_CLOSE_KERNEL_SIZE, BLOCK_CLOSE_KERNEL_SIZE), np.uint8)
+
 # Worker sync timeout. If a vision worker ever misses this the pool is disabled for
 # the rest of the run and we fall back to inline processing -- a slow frame is
 # survivable, a hung control loop on a moving robot is not.
@@ -124,11 +130,11 @@ VIDEO_FPS = 10.0
 PERF_REPORT_PERIOD = 2.0   # seconds between INFO-level perf summaries
 
 HSV_RANGES = {
-    'LOWER_RED_1': np.array([0, 70, 43]), 'UPPER_RED_1': np.array([4, 230, 166]),
-    'LOWER_RED_2': np.array([175, 70, 43]), 'UPPER_RED_2': np.array([180, 230, 140]),
-    'LOWER_GREEN': np.array([42, 85, 38]), 'UPPER_GREEN': np.array([88, 190, 135]),
-    'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 95, 70]),
-    'LOWER_ORANGE': np.array([6, 50, 182]), 'UPPER_ORANGE': np.array([15, 255, 255]),
+    'LOWER_RED_1': np.array([0, 70, 43]), 'UPPER_RED_1': np.array([4, 230, 180]),
+    'LOWER_RED_2': np.array([174, 70, 43]), 'UPPER_RED_2': np.array([180, 230, 180]),
+    'LOWER_GREEN': np.array([45, 65, 38]), 'UPPER_GREEN': np.array([88, 190, 161]),
+    'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 73, 95]),
+    'LOWER_ORANGE': np.array([4, 53, 102]), 'UPPER_ORANGE': np.array([19, 212, 229]),
     'LOWER_BLUE': np.array([114, 50, 110]), 'UPPER_BLUE': np.array([123, 255, 255]),
     'LOWER_MAGENTA': np.array([158, 73, 64]), 'UPPER_MAGENTA': np.array([172, 255, 223])
 }
@@ -141,6 +147,16 @@ LAB_RANGES = {
     'LOWER_ORANGE': np.array([97, 136, 138]), 'UPPER_ORANGE': np.array([177, 169, 172]),
     'LOWER_MAGENTA': np.array([72, 147, 48]), 'UPPER_MAGENTA': np.array([159, 174, 130]),
     'LOWER_BLUE': np.array([28, 136, 44]), 'UPPER_BLUE': np.array([100, 163, 104])
+}
+
+LUV_RANGES = {
+    'LOWER_RED_1': np.array([30, 150, 130]), 'UPPER_RED_1': np.array([220, 255, 230]),
+    'LOWER_RED_2': np.array([30, 150, 130]), 'UPPER_RED_2': np.array([220, 255, 230]),
+    'LOWER_GREEN': np.array([40, 20, 140]), 'UPPER_GREEN': np.array([230, 110, 255]),
+    'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([80, 255, 255]),
+    'LOWER_ORANGE': np.array([80, 130, 160]), 'UPPER_ORANGE': np.array([240, 200, 240]),
+    'LOWER_BLUE': np.array([20, 50, 0]), 'UPPER_BLUE': np.array([180, 130, 90]),
+    'LOWER_MAGENTA': np.array([40, 130, 0]), 'UPPER_MAGENTA': np.array([200, 220, 90])
 }
 
 if USE_LAB:
@@ -172,7 +188,7 @@ CLOSE_BLOCK_MIN_AREA = 15
 left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 130, 135, 150
 right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 130, 135, 150
 inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h = 140, 155, 100, 100
-inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h = 400, 155 , 100, 100
+inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h = 400, 145 , 100, 110
 line_roi_x, line_roi_y, line_roi_w, line_roi_h = 280, 190, 80, 40
 close_x,close_y,close_w,close_h = 140,110,360,10
 full_frame_roi = (0, 80, 640, 170)

@@ -7,7 +7,7 @@ import os
 
 from src.motors import motor, servo
 from src.sensors import camera
-from src.obstacle_challenge import main_v3
+from src.obstacle_challenge import tuning
 
 class CameraThread(threading.Thread):
     def __init__(self, camera_instance):
@@ -36,17 +36,17 @@ class CameraThread(threading.Thread):
 def detect_biggest_block(frame):
     overlay_frame = frame.copy()
     
-    # Use the same ROI as main_v3.full_frame_roi
-    mx, my, mw, mh = main_v3.full_frame_roi
+    # Use the same ROI as tuning.full_frame_roi
+    mx, my, mw, mh = tuning.full_frame_roi
     crop = frame[my:my+mh, mx:mx+mw]
     
     blurred = cv2.GaussianBlur(crop, (1, 7), 0)
     hsv_crop = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
     
-    mask_red1 = cv2.inRange(hsv_crop, main_v3.LOWER_RED_1, main_v3.UPPER_RED_1)
-    mask_red2 = cv2.inRange(hsv_crop, main_v3.LOWER_RED_2, main_v3.UPPER_RED_2)
+    mask_red1 = cv2.inRange(hsv_crop, tuning.LOWER_RED_1, tuning.UPPER_RED_1)
+    mask_red2 = cv2.inRange(hsv_crop, tuning.LOWER_RED_2, tuning.UPPER_RED_2)
     mask_red = cv2.bitwise_or(mask_red1, mask_red2)
-    mask_green = cv2.inRange(hsv_crop, main_v3.LOWER_GREEN, main_v3.UPPER_GREEN)
+    mask_green = cv2.inRange(hsv_crop, tuning.LOWER_GREEN, tuning.UPPER_GREEN)
     
     def get_biggest(mask, color_name):
         if cv2.countNonZero(mask) > 0:
@@ -54,7 +54,7 @@ def detect_biggest_block(frame):
             if contours:
                 biggest_contour = max(contours, key=cv2.contourArea)
                 area = cv2.contourArea(biggest_contour)
-                if area > main_v3.BLOCK_MIN_AREA:
+                if area > tuning.BLOCK_MIN_AREA:
                     M = cv2.moments(biggest_contour)
                     if M["m00"] != 0:
                         cx = int(M["m10"] / M["m00"]) + mx

@@ -18,8 +18,9 @@ adafruit-circuitpython-vl53l4cd==2.0.9
 adafruit-circuitpython-pioasm==1.4.0
 adafruit-circuitpython-rp1pio==1.0.4
 
-# ---- Status LED (NeoPixel over SPI, tools/neopixel.py) ----
-adafruit-circuitpython-neopixel-spi==1.1.6
+# ---- Status LED (NeoPixel on GPIO 4 / RP1 PIO, tools/neopixel_led.py) ----
+adafruit-circuitpython-neopixel==6.4.2
+Adafruit-Blinka-Raspberry-Pi5-Neopixel==1.0.0rc2
 
 # ---- Live telemetry/control server (tools/server.py) ----
 flask==3.0.3
