@@ -10,6 +10,7 @@ saved frames. Shared by both the obstacle and open challenges.
 """
 
 import ast
+import base64
 import math
 import cv2
 import numpy as np
@@ -45,6 +46,8 @@ BILATERAL_D = 5
 BILATERAL_SIGMA_COLOR = 50
 BILATERAL_SIGMA_SPACE = 50
 HSV_BEFORE_BLUR = True
+USE_BLOCK_MORPH_CLOSE = True
+BLOCK_CLOSE_KERNEL = np.ones((5, 5), np.uint8)
 USE_VISION_POOL = True
 VISION_POOL_TIMEOUT = 0.050
 VISION_WORKER_THREADS = 2
@@ -114,6 +117,7 @@ def configure(cfg):
     """Dynamically configure the vision pipeline with parameters from the specified config/tuning module."""
     global FRAME_WIDTH, FRAME_HEIGHT, FRAME_MIDPOINT_X
     global USE_LAB, USE_BILATERAL, BILATERAL_D, BILATERAL_SIGMA_COLOR, BILATERAL_SIGMA_SPACE, HSV_BEFORE_BLUR
+    global USE_BLOCK_MORPH_CLOSE, BLOCK_CLOSE_KERNEL
     global USE_VISION_POOL, VISION_POOL_TIMEOUT, VISION_WORKER_THREADS
     global LOWER_BLACK, UPPER_BLACK, LOWER_ORANGE, UPPER_ORANGE, LOWER_BLUE, UPPER_BLUE
     global LOWER_RED_1, UPPER_RED_1, LOWER_RED_2, UPPER_RED_2, LOWER_GREEN, UPPER_GREEN, LOWER_MAGENTA, UPPER_MAGENTA
@@ -141,6 +145,8 @@ def configure(cfg):
     BILATERAL_SIGMA_COLOR = getattr(cfg, 'BILATERAL_SIGMA_COLOR', 50)
     BILATERAL_SIGMA_SPACE = getattr(cfg, 'BILATERAL_SIGMA_SPACE', 50)
     HSV_BEFORE_BLUR = getattr(cfg, 'HSV_BEFORE_BLUR', True)
+    USE_BLOCK_MORPH_CLOSE = getattr(cfg, 'USE_BLOCK_MORPH_CLOSE', True)
+    BLOCK_CLOSE_KERNEL = getattr(cfg, 'BLOCK_CLOSE_KERNEL', np.ones((5, 5), np.uint8))
     USE_VISION_POOL = getattr(cfg, 'USE_VISION_POOL', True)
     VISION_POOL_TIMEOUT = getattr(cfg, 'VISION_POOL_TIMEOUT', 0.050)
     VISION_WORKER_THREADS = getattr(cfg, 'VISION_WORKER_THREADS', 2)
@@ -321,6 +327,16 @@ def build_arena_mask_from_prepared(cs_slice):
     # 1. Floor candidate. Black walls are the only thing excluded -- pillars, floor
     #    lines and magenta parking walls all pass and stay part of the blob.
     mask_black = cv2.inRange(cs_slice, LOWER_BLACK, UPPER_BLACK)
+    # UPPER_BLACK's S/V ceiling was widened to still catch the near wall under glare
+    # (see the frame-293 investigation), and that ceiling now also catches shadowed
+    # green block pixels (low S/V, but not black). A green pixel misread as black can
+    # form its own >=MIN_WALL_THICK run in the skyline scan below, planting a false
+    # wall boundary on the block's own edge -- the block gates itself out. One extra
+    # inRange() call is cheap; recomputing the block's actual boundary from that false
+    # "wall" is not something the smoothing below can be relied on to always erase.
+    mask_black = cv2.bitwise_and(
+        mask_black, cv2.bitwise_not(cv2.inRange(cs_slice, LOWER_GREEN, UPPER_GREEN))
+    )
     floor_cand = cv2.bitwise_not(mask_black)
     # Closing seals seams/glare/cable shadows in the mat. Careful raising this: a
     # kernel wide enough to bridge the arena wall merges the far section into our
@@ -385,8 +401,20 @@ def build_arena_mask_from_prepared(cs_slice):
     # ragged BOTTOM edge, which is where the jagged mid-wall boundary came from.
     # Mark the column untrusted instead and let neighbours supply the value.
     trusted = has & ((lowest - wall_top) <= MAX_WALL_RUN)
+
+    # `has` False means no black run >= MIN_WALL_THICK turned up anywhere in the
+    # column -- e.g. glare washing out the near wall -- so there is no candidate
+    # boundary to distrust in the first place. The old code filled these with the
+    # median of trusted columns, borrowed from wherever a wall WAS found elsewhere in
+    # the frame; that value has no relation to this column and can (and did, on a
+    # real run) land below a floor object here, gating it out of every colour mask.
+    # Leave the column fully open instead -- sky=0 excludes nothing -- so an
+    # undetectable wall degrades to "don't gate this column" rather than "silently
+    # gate it wrong". `has` True but untrusted (wall merged into background) is a
+    # different failure -- there IS a wall, just not a locatable top edge -- and
+    # still borrows the trusted-column median, unchanged from before.
     fill = int(np.median(wall_top[trusted])) if trusted.any() else 0
-    sky = np.where(trusted, wall_top, fill).astype(np.int32)
+    sky = np.where(has, np.where(trusted, wall_top, fill), 0).astype(np.int32)
     sky = sky + ARENA_TOP_MARGIN
     sky = _sliding_median(sky, ARENA_SKY_SMOOTH)
     sky = np.clip(sky, 0, ARENA_BAND_H)
@@ -502,6 +530,12 @@ def compute_colour_masks_only(cs_slice, out=None):
         # In LAB red is continuous and the first range is the whole story.
         cv2.bitwise_or(red, cv2.inRange(cs_slice, LOWER_RED_2, UPPER_RED_2), dst=red)
 
+    green = cv2.inRange(cs_slice, LOWER_GREEN, UPPER_GREEN)
+
+    if USE_BLOCK_MORPH_CLOSE:
+        red = cv2.morphologyEx(red, cv2.MORPH_CLOSE, BLOCK_CLOSE_KERNEL)
+        green = cv2.morphologyEx(green, cv2.MORPH_CLOSE, BLOCK_CLOSE_KERNEL)
+
     if out is None:
         orange = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), np.uint8)
         blue = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), np.uint8)
@@ -518,7 +552,7 @@ def compute_colour_masks_only(cs_slice, out=None):
 
     masks = {
         'red': red,
-        'green': cv2.inRange(cs_slice, LOWER_GREEN, UPPER_GREEN),
+        'green': green,
         'magenta': cv2.inRange(cs_slice, LOWER_MAGENTA, UPPER_MAGENTA),
         'orange': orange,
         'blue': blue,
@@ -743,12 +777,18 @@ def process_video_frame(frame):
                                        'centroid': (bcx, bcy), 'contour': cnt_global})
         return blocks
 
+    mask_black_close = crop(pure_black_mask, cy_slice, ch, cx, cw)
+    if cw > 0 and ch > 0:
+        arena_close = arena_mask[cy:cy + ch, cx:cx + cw]
+        mask_black_close = cv2.bitwise_and(mask_black_close, arena_close)
+
     all_detected_blocks = []
     all_detected_blocks.extend(process_block_contours(mask_red_main, mx, GLOBAL_Y_OFFSET + my_slice, 'block', 'red', BLOCK_MIN_AREA))
     all_detected_blocks.extend(process_block_contours(mask_green_main, mx, GLOBAL_Y_OFFSET + my_slice, 'block', 'green', BLOCK_MIN_AREA))
     all_detected_blocks.extend(process_block_contours(mask_red_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'red', CLOSE_BLOCK_MIN_AREA))
     all_detected_blocks.extend(process_block_contours(mask_green_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'green', CLOSE_BLOCK_MIN_AREA))
     all_detected_blocks.extend(process_block_contours(mask_magenta_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'magenta', CLOSE_BLOCK_MIN_AREA))
+    all_detected_blocks.extend(process_block_contours(mask_black_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'black', CLOSE_BLOCK_MIN_AREA))
 
     main_blocks = [b for b in all_detected_blocks if b['type'] == 'block']
     other_blocks = [b for b in all_detected_blocks if b['type'] != 'block']
@@ -848,6 +888,105 @@ def process_video_frame(frame):
     return processed_data
 
 
+# ---------------------------------------------------------------------------
+# Detection serialisation (for the offline annotator)
+# ---------------------------------------------------------------------------
+# Under `main.py -v` the run stores untouched frames and the annotated video is
+# rebuilt later. Re-running process_video_frame() over the recording ALMOST works --
+# it is stateless per frame -- but not quite, because H.264 is lossy and inRange() is
+# a hard threshold: a pixel sitting on an HSV boundary flips on a change of 1, and the
+# contour edge moves with it. Measured over 200 frames, a lossless (PNG) round trip
+# reproduces detections 100% of the time while H.264 manages 23.5%, and JPEG at
+# quality 100 is no better than H.264. Only *exactly* lossless helps, and lossless
+# recording is not affordable here (uncompressed is 19.4 MB/s against an SD card that
+# sustains 23.1 MB/s; the lossless codecs cost 11-17 ms/frame, worse than the x264
+# encode whose removal is what got the loop back to 56 fps).
+#
+# So the detections are logged rather than re-derived. The rebuilt video is then exact
+# by construction, whatever the video codec does to the pixels, and the recording can
+# be compressed harder rather than less.
+#
+# Contours dominate the size (median 245 points/frame), so they go out as base64 int16
+# rather than JSON integer lists: 0.04 ms/frame instead of 0.14, and coordinates are
+# 0..640 so int16 is lossless here. Median 3.2 KB/frame, 0.09 MB/s at 28 fps.
+
+DETECTION_LISTS = (
+    'detected_blocks', 'detected_walls', 'detected_orange', 'detected_blue',
+    'detected_magenta', 'detected_close_black', 'detected_line_roi_wall',
+)
+# Per-object scalars worth keeping. Absent keys are skipped rather than written null:
+# detected_line_roi_wall entries carry only a contour, and magenta alone has target_x.
+_OBJ_SCALARS = ('color', 'area', 'centroid', 'type', 'target_x')
+
+
+def _enc_pts(arr):
+    return base64.b64encode(np.ascontiguousarray(arr, dtype=np.int16)).decode('ascii')
+
+
+def _dec_pts(s):
+    return np.frombuffer(base64.b64decode(s), dtype=np.int16).reshape(-1, 1, 2).astype(np.int32)
+
+
+def detections_to_record(detections):
+    """Everything annotate_video_frame() reads, as a JSON-serialisable dict.
+
+    Called on the control loop, so it stays cheap: no findContours beyond the one the
+    arena overlay needs, no copies of the full arena mask (which is 230 KB/frame and
+    is only ever used to derive that outline).
+    """
+    rec = {}
+    for key in DETECTION_LISTS:
+        objs = []
+        for o in detections.get(key, []):
+            e = {'c': _enc_pts(o['contour'])}
+            for s in _OBJ_SCALARS:
+                if s in o:
+                    v = o[s]
+                    e[s] = [int(v[0]), int(v[1])] if s == 'centroid' else (
+                        float(v) if s == 'area' else (int(v) if s == 'target_x' else v))
+            objs.append(e)
+        rec[key] = objs
+
+    arena_mask = detections.get('arena_mask')
+    if arena_mask is not None:
+        # Store the outline, not the mask. This is the same call the annotator would
+        # have made, just made once here instead -- 0.09 ms.
+        band = arena_mask[ARENA_Y_TOP:ARENA_Y_BOTTOM, :]
+        cnts, _ = cv2.findContours(band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        rec['arena_contours'] = [_enc_pts(c) for c in cnts]
+    sky = detections.get('arena_sky')
+    if sky is not None:
+        rec['arena_sky'] = _enc_pts(sky)
+    rec['arena_seeded'] = bool(detections.get('arena_seeded', False))
+    rec['line_roi_wall_pct'] = float(detections.get('line_roi_wall_pct', 0))
+    return rec
+
+
+def record_to_detections(rec):
+    """Inverse of detections_to_record(). Returns a dict annotate_video_frame() accepts.
+
+    'arena_mask' is deliberately absent -- the outline it was only ever used for is
+    carried directly as 'arena_contours', which annotate_video_frame() prefers.
+    """
+    out = {}
+    for key in DETECTION_LISTS:
+        objs = []
+        for e in rec.get(key, []):
+            o = {'contour': _dec_pts(e['c'])}
+            for s in _OBJ_SCALARS:
+                if s in e:
+                    o[s] = tuple(e[s]) if s == 'centroid' else e[s]
+            objs.append(o)
+        out[key] = objs
+    if 'arena_contours' in rec:
+        out['arena_contours'] = [_dec_pts(c) for c in rec['arena_contours']]
+    if rec.get('arena_sky') is not None:
+        out['arena_sky'] = np.frombuffer(base64.b64decode(rec['arena_sky']), dtype=np.int16)
+    out['arena_seeded'] = rec.get('arena_seeded', False)
+    out['line_roi_wall_pct'] = rec.get('line_roi_wall_pct', 0)
+    return out
+
+
 def annotate_video_frame(frame, detections, driving_direction, debug_info="", visual_target_x=None, visual_target_line=None):
     annotated_frame = frame.copy()
     light_blue = (255, 255, 0)
@@ -869,16 +1008,23 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
         cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), light_blue, 2)
 
     # --- Arena mask overlay (v5) ---
+    # Live, the mask is on hand and the outline is derived here. Replayed from a
+    # detection record there is no mask, only the outline it produced -- the mask is
+    # 230 KB/frame and this is the sole thing it was used for.
     arena_mask = detections.get('arena_mask')
-    if arena_mask is not None and USE_ARENA_MASK:
+    arena_cnts_pre = detections.get('arena_contours')
+    if (arena_mask is not None or arena_cnts_pre is not None) and USE_ARENA_MASK:
         # band limits + chassis rect, as static reference
         cv2.line(annotated_frame, (0, ARENA_Y_TOP), (FRAME_WIDTH, ARENA_Y_TOP), (90, 90, 90), 1)
         cv2.line(annotated_frame, (0, ARENA_Y_BOTTOM), (FRAME_WIDTH, ARENA_Y_BOTTOM), (90, 90, 90), 1)
         cv2.rectangle(annotated_frame, (180, 250), (460, 359), (90, 90, 90), 1)
 
         # accepted region outline
-        band = arena_mask[ARENA_Y_TOP:ARENA_Y_BOTTOM, :]
-        arena_cnts, _ = cv2.findContours(band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if arena_cnts_pre is not None:
+            arena_cnts = arena_cnts_pre
+        else:
+            band = arena_mask[ARENA_Y_TOP:ARENA_Y_BOTTOM, :]
+            arena_cnts, _ = cv2.findContours(band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for c in arena_cnts:
             cv2.drawContours(annotated_frame, [c + [0, ARENA_Y_TOP]], -1, (0, 255, 255), 1)
 
@@ -909,6 +1055,8 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
             draw_color = (0, 255, 0)
         elif block['color'] == 'magenta':
             draw_color = (255, 0, 255)
+        elif block['color'] == 'black':
+            draw_color = (0, 0, 0)
         cv2.drawContours(annotated_frame, [block['contour']], -1, draw_color, 2)
 
     for orange_obj in detections['detected_orange']:

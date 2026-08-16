@@ -53,6 +53,7 @@ Run it from the repo root:  python3 -m src.obstacle_challenge.main
 import argparse
 import math
 import os
+import sys
 import time
 from collections import deque
 from datetime import datetime
@@ -72,7 +73,8 @@ from src.threads.hw_threads import (
 )
 from src.logs.setup import log, setup_logging, shutdown_logging
 from src.obstacle_challenge.tuning import *
-from src.obstacle_challenge.video import VideoEncoderProcess
+from src.obstacle_challenge.video import OverlayLog, VideoEncoderProcess
+from src.tools.annotate_run import annotate_run
 from src.vision import pipeline as vision
 from src.vision.pipeline import annotate_video_frame, process_video_frame
 from src.vision.pool import VisionPool
@@ -85,6 +87,30 @@ if __name__ == "__main__":
         action="store_true",
         help="Wait for hardware button press before starting the run."
     )
+    parser.add_argument(
+        "-v", "--raw-video",
+        action="store_true",
+        help="Record raw.mp4 -- untouched camera frames -- INSTEAD OF the annotated "
+             "obstacle.mp4, and log what was detected alongside it. obstacle.mp4 is "
+             "rebuilt automatically once the run ends (see --no-annotate), so you still "
+             "get both videos. Cheaper on the control loop than annotating live, and "
+             "raw.mp4 is what the colour tuners want."
+    )
+    parser.add_argument(
+        "--no-annotate",
+        action="store_true",
+        help="With -v, do NOT rebuild obstacle.mp4 when the run ends. The rebuild "
+             "happens after the robot has parked and everything else has shut down, so "
+             "it costs the run nothing; use this only if you want the run to exit "
+             "immediately and will rebuild later."
+    )
+    parser.add_argument(
+        "--every-n", type=int, default=None, metavar="N",
+        help=f"Record every Nth frame (default {VIDEO_EVERY_N}). N=1 records all 56 fps "
+             "but measurably starves the vision workers -- loop work p50 goes 8.6 -> "
+             "12.2 ms and p95 to 20.2 ms, past the 17.9 ms frame budget -- so expect to "
+             "drop below 56 fps. Raise it to shrink the recording instead."
+    )
     args = parser.parse_args()
 
     run_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -92,11 +118,17 @@ if __name__ == "__main__":
     run_folder = os.path.join(base_folder, run_timestamp)
     os.makedirs(run_folder, exist_ok=True)
     video_path = os.path.join(run_folder, 'obstacle.mp4')
+    raw_video_path = os.path.join(run_folder, 'raw.mp4')
     log_path = os.path.join(run_folder, 'obstacle_output.txt')
 
     setup_logging(log_path)
     log.info("=== Obstacle Challenge v5 | run %s ===", run_timestamp)
     log.info("Logging to %s", log_path)
+    if args.raw_video:
+        log.info("Raw video recording (-v): storing untouched frames -> %s. "
+                 "Rebuild the annotated video with "
+                 "`python3 -m src.obstacle_challenge.annotate_run %s`",
+                 raw_video_path, run_folder)
 
     # ---- Child processes FIRST -------------------------------------------
     # These are forked, and fork copies the parent's whole address space. Forking
@@ -104,6 +136,7 @@ if __name__ == "__main__":
     # exist, hands the child invalid state -- hangs and double-frees. So the pool
     # and the encoder are created before any hardware is touched and before any
     # thread is started.
+    vision_pool = None
     if USE_VISION_POOL:
         vision_pool = VisionPool()
         vision_pool.start()
@@ -117,12 +150,41 @@ if __name__ == "__main__":
         cv2.setNumThreads(4)
         log.info("VisionPool disabled; processing inline.")
 
-    video_encoder = VideoEncoderProcess(video_path, VIDEO_FOURCC)
+    # Exactly ONE encoder either way. -v swaps what it stores (untouched frames rather
+    # than annotated ones) instead of adding a second process; see video.py for why a
+    # second x264 instance is not affordable on 4 cores.
+    record_raw = args.raw_video
+    video_encoder = VideoEncoderProcess(
+        raw_video_path if record_raw else video_path, VIDEO_FOURCC,
+        every_n=args.every_n)
     video_encoder.start()
-    log.info("Recording to %s (%s)", video_path, VIDEO_FOURCC)
+    log.info("Recording %s to %s (%s)", "raw" if record_raw else "annotated",
+             video_encoder.path, VIDEO_FOURCC)
+    # Control state the rebuilt annotation needs and cannot recover from pixels.
+    overlay_log = OverlayLog(raw_video_path) if record_raw else None
 
     # ---- Hardware ---------------------------------------------------------
-    camera.initialize()
+    if not camera.initialize():
+        # Most common cause: something else (a colour tuner, another run) still has
+        # the camera open -- picamera2 fails init but capture_frame() would then just
+        # return None forever, so the run would drive fully blind instead of erroring.
+        # Bail out now, before any motor/servo/thread is touched, and clean up the
+        # two processes already started above.
+        log.error("Camera failed to initialize (already in use by another process?). "
+                  "Aborting run before touching motors/threads.")
+        try:
+            video_encoder.stop()
+        except Exception:
+            log.exception("Error stopping encoder")
+        if overlay_log is not None:
+            overlay_log.close()
+        if vision_pool is not None:
+            try:
+                vision_pool.stop()
+            except Exception:
+                log.exception("Error stopping vision pool")
+        shutdown_logging()
+        sys.exit(1)
     motor.initialize()
     servo.initialize()
     button = Button(config.BUTTON_PIN)
@@ -198,6 +260,12 @@ if __name__ == "__main__":
         imu_thread=imu_thread,
         sensor_thread=sensor_thread,
         video_encoder=video_encoder,
+        # Tells the maneuvers to record untouched frames too -- several of them draw
+        # straight onto the frame they write, which would poison raw.mp4.
+        RECORD_RAW=record_raw,
+        # Parking stores its drawn frames and marks them here, so the rebuild leaves
+        # them alone instead of drawing detections over the top.
+        overlay_log=overlay_log,
         INITIAL_HEADING=INITIAL_HEADING,
         driving_direction=driving_direction,
     )
@@ -216,6 +284,8 @@ if __name__ == "__main__":
         last_block_target_rpm = INITIAL_RPM
         frames_since_block_seen = BLOCK_TARGET_GRACE_FRAMES
         loop_frames = 0
+        tracking_green_block = False
+        green_post_pass_frames = 0
 
         while True:
             target_rpm = INITIAL_RPM
@@ -250,6 +320,7 @@ if __name__ == "__main__":
             detected_walls = detections['detected_walls']
             detected_orange_object = detections['detected_orange']
             detected_blue_object = detections['detected_blue']
+            close_black_area = sum(obj['area'] for obj in detections.get('detected_close_black', []))
 
             blue_detected_this_frame = bool(detected_blue_object)
             orange_detected_this_frame = bool(detected_orange_object)
@@ -277,6 +348,12 @@ if __name__ == "__main__":
                             angle = -25
                         elif block['color'] == 'green':
                             angle = 30
+                        # elif block['color'] == 'black':
+                        #     # Temporarily disabled reverse on close black
+                        #     if driving_direction == 'clockwise':
+                        #         angle = 30
+                        #     else:
+                        #         angle = -25
                         else:
                             is_close_block = False
                             break
@@ -304,6 +381,9 @@ if __name__ == "__main__":
                         target_rpm = INITIAL_RPM
                         last_block_target_rpm = INITIAL_RPM
                         frames_since_block_seen = BLOCK_TARGET_GRACE_FRAMES
+                        if block['color'] == 'green' or (block['color'] == 'black' and driving_direction == 'clockwise'):
+                            green_post_pass_frames = POST_GREEN_CLIP_FRAMES
+                        tracking_green_block = False
                         break
 
                 if not is_close_block:
@@ -313,7 +393,7 @@ if __name__ == "__main__":
                         b0 = candidate_blocks[0]
                         if b0['centroid'][1] >= 212 and len(candidate_blocks) > 1:
                             b1 = candidate_blocks[1]
-                            if b0['color'] == 'red' and b1['color'] == 'red' and b0['centroid'][0] < 170:
+                            if b0['color'] == 'red' and b1['color'] == 'red' and b0['centroid'][0] < 150:
                                 block = b1
                             elif b0['color'] == 'green' and b1['color'] == 'green':
                                 block = b1
@@ -325,11 +405,13 @@ if __name__ == "__main__":
                     if block is not None:
                         block_color = block['color']
                         block_x, block_y = block['centroid']
-                        debug.append((block_x, block_y))
                         active_block_y = block_y
                         frames_since_block_seen = 0
 
                         if block_color == 'red':
+                            if tracking_green_block:
+                                tracking_green_block = False
+                                green_post_pass_frames = POST_GREEN_CLIP_FRAMES
                             # TUNING PARAMETERS
                             RED_OTHER_X = 297
                             RED_OTHER_Y = 0
@@ -340,8 +422,10 @@ if __name__ == "__main__":
                             wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
                             wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
                             target = 300 if block_y > 170 and 200 < block_x < 440 else 150
-                            debug.append(target)
-                            if detections['detected_magenta'] and driving_direction == 'counter-clockwise' and abs(detections['detected_magenta'][0]['target_y']-block_y) < 70 and abs(detections['detected_magenta'][0]['centroid'][0]-block_x) > 70:
+                            if (detections['detected_magenta'] 
+                                    and driving_direction == 'counter-clockwise' 
+                                    and abs(detections['detected_magenta'][0]['target_y'] - block_y) < 70 
+                                    and (detections['detected_magenta'][0]['centroid'][0] - block_x) > 70):
                                 target_x = detections['detected_magenta'][0]['target_x']
                                 midpoint_x = (block_x + target_x) // 2
                                 visual_target_x = midpoint_x
@@ -351,14 +435,22 @@ if __name__ == "__main__":
                                 current_angle = math.degrees(math.atan2(block_x - RED_ORIGIN_X, RED_ORIGIN_Y - block_y))
                                 angle = (current_angle - RED_IDEAL_ANGLE) * 1.5
                             if wall_inner_left_size > 3000: angle = np.clip(angle, 15, 45)
-                            elif wall_inner_right_size > 3000: angle = np.clip(angle, -45, -10)
+                            elif wall_inner_right_size > 3000: angle = np.clip(angle, -45, -15)
                             else: angle = np.clip(angle, -45, 35)
 
+                            debug.append(f"Blk:R({int(block_x)},{int(block_y)})")
+                            if visual_target_x is not None:
+                                debug.append(f"MidX:{int(visual_target_x)}")
+                            debug.append(f"Tgt:{int(target)}")
+                            debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
+
                         elif block_color == 'green':
+                            tracking_green_block = True
+                            green_post_pass_frames = 0
                             # TUNING PARAMETERS
-                            GREEN_OTHER_X = 352
+                            GREEN_OTHER_X = 400
                             GREEN_OTHER_Y = 0
-                            GREEN_ORIGIN_X = FRAME_WIDTH+20
+                            GREEN_ORIGIN_X = FRAME_WIDTH+0
                             GREEN_ORIGIN_Y = FRAME_HEIGHT
                             GREEN_IDEAL_ANGLE = math.degrees(math.atan2(GREEN_OTHER_X - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - GREEN_OTHER_Y))
 
@@ -375,13 +467,23 @@ if __name__ == "__main__":
                             visual_target_line = ((GREEN_ORIGIN_X, GREEN_ORIGIN_Y), (block_x, block_y), GREEN_IDEAL_ANGLE, (GREEN_OTHER_X, GREEN_OTHER_Y))
                             current_angle = math.degrees(math.atan2(block_x - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - block_y))
                             angle = (current_angle - GREEN_IDEAL_ANGLE) * 1.5
-                            if wall_inner_left_size > 3000: angle = np.clip(angle, 15, 45)
+                            if wall_inner_left_size > 3000: angle = np.clip(angle, 10, 45)
                             elif wall_inner_right_size > 3000: angle = np.clip(angle, -45, -10)
                             else: angle = np.clip(angle, -45, 45)
+
+                            debug.append(f"Blk:G({int(block_x)},{int(block_y)})")
+                            debug.append(f"Tgt:{int(target)}")
+                            debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
                     else:
+                        if tracking_green_block:
+                            tracking_green_block = False
+                            green_post_pass_frames = POST_GREEN_CLIP_FRAMES
                         if frames_since_block_seen < BLOCK_TARGET_GRACE_FRAMES:
                             frames_since_block_seen += 1
             else:
+                if tracking_green_block:
+                    tracking_green_block = False
+                    green_post_pass_frames = POST_GREEN_CLIP_FRAMES
                 if frames_since_block_seen < BLOCK_TARGET_GRACE_FRAMES:
                     frames_since_block_seen += 1
                 left_pixel_size,right_pixel_size,wall_inner_left_size,wall_inner_right_size,target=0,0,0,0,0
@@ -398,12 +500,14 @@ if __name__ == "__main__":
                 elif total_right < 700 and total_left > 100:
                     total_left = total_left * 2 + 25000
 
-                debug.extend([left_pixel_size, right_pixel_size])
+                debug.extend([f"L:{int(left_pixel_size)}", f"R:{int(right_pixel_size)}"])
+                debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
                 wall_error = total_left - total_right
                 wall_derivative = wall_error - prev_wall_error
+                debug.append(f"Err:{int(wall_error)}")
+                debug.append(f"Wall%:{int(detections.get('line_roi_wall_pct', 0))}")
                 angle = (wall_error * WALL_KP) + (wall_derivative * WALL_KD) + 1
                 prev_wall_error = wall_error
-                close_black_area = sum(obj['area'] for obj in detections.get('detected_close_black', []))
                 if close_black_area > 3000 or detections.get('line_roi_wall_pct', 0) > 50:
                     if driving_direction == 'clockwise':
                         angle += 35
@@ -419,13 +523,26 @@ if __name__ == "__main__":
                         angle += 20
                     else:
                         angle += -20
+                elif left_pixel_size==0 and driving_direction=='counter-clockwise':
+                    angle += -20
+                elif right_pixel_size==0 and driving_direction=='clockwise':
+                    angle += 20
 
             # ---- ACTUATE FIRST ------------------------------------------
             # Steering happens here, immediately after the decision. Annotation,
             # recording and telemetry all come afterwards. The old loop did the
             # opposite -- annotate, write, then sleep(1/60 - elapsed), THEN steer --
             # which put up to ~25 ms between seeing a frame and reacting to it.
-            angle = np.clip(angle, -40, 40)
+            if green_post_pass_frames > 0:
+                if close_black_area > 3000 or detections.get('line_roi_wall_pct', 0) > 50:
+                    angle = np.clip(angle, -40, 40)
+                    debug.append(f"GClipOvr:{green_post_pass_frames}")
+                else:
+                    angle = np.clip(angle, -POST_GREEN_MAX_ANGLE, POST_GREEN_MAX_ANGLE)
+                    debug.append(f"GClip:{green_post_pass_frames}")
+                green_post_pass_frames -= 1
+            else:
+                angle = np.clip(angle, -40, 40)
             if angle != prevangle:
                 servo.set_angle(angle)
             prevangle = angle
@@ -468,11 +585,12 @@ if __name__ == "__main__":
             perf.add(latency_ms, proc_ms, skipped)
             perf.maybe_report()
 
-            debug.append(round(float(angle)))
-            debug.append(turn_counter)
-            debug.append(round(target_rpm))
-            debug.append(round(latency_ms))
-            debug.append(frame_counter)
+            debug.append(f"Angle:{int(angle)}")
+            debug.append(f"Turns:{turn_counter}")
+            debug.append(f"RPM:{int(commanded_rpm)}")
+            debug.append(f"Lat:{int(latency_ms)}ms")
+            debug.append(f"F:{frame_counter}")
+            debug.append(f"Dir:{driving_direction or '?'}")
 
             blocks_detail = ",".join(f"{b['color']}:{int(b['area'])}@y={b['centroid'][1]}" for b in detected_blocks) if detected_blocks else "-"
 
@@ -482,10 +600,25 @@ if __name__ == "__main__":
                       latency_ms, proc_ms, len(detected_blocks), blocks_detail, len(detected_walls),
                       skipped)
 
-            annotated_frame = annotate_video_frame(
-                frame, detections, driving_direction, debug_info=str(debug),
-                visual_target_x=visual_target_x, visual_target_line=visual_target_line)
-            video_encoder.write(annotated_frame)
+            if record_raw:
+                # The frame goes in untouched -- no annotation, no filtering. Both are
+                # reapplied offline by annotate_run.py, which is the whole point: the
+                # loop pays for a memcpy instead of a draw pass.
+                if video_encoder.write(frame, tag=frame_counter):
+                    # tags gets one entry per accepted frame, so its last index IS the
+                    # video frame number this overlay record belongs to.
+                    overlay_log.append(
+                        len(video_encoder.tags) - 1, driving_direction, debug,
+                        visual_target_x, visual_target_line, detections)
+            else:
+                # Annotation is handed to write() rather than done first, so the 1.88 ms
+                # is only spent on frames that actually get recorded.
+                video_encoder.write(
+                    frame, tag=frame_counter,
+                    prepare=lambda f: annotate_video_frame(
+                        f, detections, driving_direction, debug_info=debug,
+                        visual_target_x=visual_target_x,
+                        visual_target_line=visual_target_line))
 
             angle = 0
 
@@ -502,6 +635,9 @@ if __name__ == "__main__":
                 if driving_direction == 'clockwise':
                     maneuvers.parking()
                 else:
+                    # offset_heading = (INITIAL_HEADING - 5) % 360
+                    # log.info("Offsetting initial heading for CCW parking2: %.1f° -> %.1f°", INITIAL_HEADING, offset_heading)
+                    # maneuvers.bind(INITIAL_HEADING=offset_heading)
                     maneuvers.parking2()
                 run_end_time = time.monotonic()
                 log.info("--- Time spent in parking: %.2fs ---", run_end_time - parking_start_time)
@@ -542,6 +678,8 @@ if __name__ == "__main__":
             video_encoder.stop()
         except Exception:
             log.exception("Error stopping encoder")
+        if overlay_log is not None:
+            overlay_log.close()
         if vision_pool is not None:
             try:
                 vision_pool.stop()
@@ -551,5 +689,20 @@ if __name__ == "__main__":
         camera.cleanup()
         cv2.destroyAllWindows()
         subprocess.run(["pinctrl", "FAN_PWM", "a0"], check=False)
+
+        # Rebuild the annotated video. Deliberately the LAST thing: the robot has
+        # parked, the encoder has flushed, and the vision workers and hardware threads
+        # are all gone, so this has the machine to itself and costs the run nothing.
+        if record_raw and not args.no_annotate:
+            try:
+                cv2.setNumThreads(0)   # 0 = all cores; nothing is competing for them now
+                log.info("Rebuilding annotated video from %s...", raw_video_path)
+                annotate_run(raw_video_path, video_path)
+                log.info("Annotated video written to %s", video_path)
+            except Exception:
+                log.exception("Could not rebuild the annotated video. The run itself is "
+                              "fine -- rerun `python3 -m src.obstacle_challenge."
+                              "annotate_run %s` to retry", run_folder)
+
         log.info("Run complete. Log saved to %s", log_path)
         shutdown_logging()

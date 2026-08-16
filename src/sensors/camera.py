@@ -108,13 +108,15 @@ def find_objects_in_rois(frame, detection_jobs):
                 mask = cv2.inRange(hsv_roi, color_def['lower'], color_def['upper'])
                 combined_mask = cv2.bitwise_or(combined_mask, mask)
             if color_name == 'black':
-                from src.obstacle_challenge import main_v3
-                red_1 = cv2.inRange(hsv_roi, main_v3.LOWER_RED_1, main_v3.UPPER_RED_1)
-                red_2 = cv2.inRange(hsv_roi, main_v3.LOWER_RED_2, main_v3.UPPER_RED_2)
+                from src.obstacle_challenge import tuning
+                red_1 = cv2.inRange(hsv_roi, tuning.LOWER_RED_1, tuning.UPPER_RED_1)
+                red_2 = cv2.inRange(hsv_roi, tuning.LOWER_RED_2, tuning.UPPER_RED_2)
                 red = cv2.bitwise_or(red_1, red_2)
-                green = cv2.inRange(hsv_roi, main_v3.LOWER_GREEN, main_v3.UPPER_GREEN)
+                green = cv2.inRange(hsv_roi, tuning.LOWER_GREEN, tuning.UPPER_GREEN)
                 combined_mask = cv2.subtract(combined_mask, red)
                 combined_mask = cv2.subtract(combined_mask, green)
+            if color_name in ('red', 'green'):
+                combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, morph_kernel)
             cleaned_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, morph_kernel)
 
             if should_return_mask:
@@ -190,15 +192,17 @@ def find_biggest_block(frame):
 
     hsv = cv2.cvtColor(cropped_frame, cv2.COLOR_BGR2HSV)
 
-    from src.obstacle_challenge import main_v3
-    mask_r1 = cv2.inRange(hsv, main_v3.LOWER_RED_1, main_v3.UPPER_RED_1)
-    mask_r2 = cv2.inRange(hsv, main_v3.LOWER_RED_2, main_v3.UPPER_RED_2)
+    from src.obstacle_challenge import tuning
+    mask_r1 = cv2.inRange(hsv, tuning.LOWER_RED_1, tuning.UPPER_RED_1)
+    mask_r2 = cv2.inRange(hsv, tuning.LOWER_RED_2, tuning.UPPER_RED_2)
     red_mask = cv2.bitwise_or(mask_r1, mask_r2)
-    green_mask = cv2.inRange(hsv, main_v3.LOWER_GREEN, main_v3.UPPER_GREEN)
+    green_mask = cv2.inRange(hsv, tuning.LOWER_GREEN, tuning.UPPER_GREEN)
 
     kernel = np.ones((5, 5), np.uint8)
-    red_mask_cleaned = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, kernel)
-    green_mask_cleaned = cv2.morphologyEx(green_mask, cv2.MORPH_OPEN, kernel)
+    red_mask_cleaned = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, kernel)
+    red_mask_cleaned = cv2.morphologyEx(red_mask_cleaned, cv2.MORPH_OPEN, kernel)
+    green_mask_cleaned = cv2.morphologyEx(green_mask, cv2.MORPH_CLOSE, kernel)
+    green_mask_cleaned = cv2.morphologyEx(green_mask_cleaned, cv2.MORPH_OPEN, kernel)
 
     contours_red, _ = cv2.findContours(
         red_mask_cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -212,7 +216,7 @@ def find_biggest_block(frame):
         for cnt in contours:
             area = cv2.contourArea(cnt)
 
-            if not (main_v3.BLOCK_MIN_AREA < area < max_allowed_area):
+            if not (tuning.BLOCK_MIN_AREA < area < max_allowed_area):
                 continue
 
             x, y, cw, ch = cv2.boundingRect(cnt)
@@ -268,9 +272,9 @@ def cleanup():
 
 
 if __name__ == "__main__":
-    from src.obstacle_challenge import main_v4
+    from src.obstacle_challenge import tuning
 
-    print("--- Testing Camera ROIs (from main_v4, no detection) ---")
+    print("--- Testing Camera ROIs (from tuning, no detection) ---")
     if not initialize():
         print("Camera test failed during initialization.")
     else:
@@ -279,14 +283,14 @@ if __name__ == "__main__":
 
         light_blue = (255, 255, 0)
         all_rois = [
-            (main_v4.left_roi_x, main_v4.left_roi_y, main_v4.left_roi_w, main_v4.left_roi_h),
-            (main_v4.right_roi_x, main_v4.right_roi_y, main_v4.right_roi_w, main_v4.right_roi_h),
-            (main_v4.inner_left_roi_x, main_v4.inner_left_roi_y, main_v4.inner_left_roi_w, main_v4.inner_left_roi_h),
-            (main_v4.inner_right_roi_x, main_v4.inner_right_roi_y, main_v4.inner_right_roi_w, main_v4.inner_right_roi_h),
-            main_v4.full_frame_roi,
-            main_v4.close_block_roi,
-            (main_v4.line_roi_x, main_v4.line_roi_y, main_v4.line_roi_w, main_v4.line_roi_h),
-            (main_v4.close_x, main_v4.close_y, main_v4.close_w, main_v4.close_h),
+            (tuning.left_roi_x, tuning.left_roi_y, tuning.left_roi_w, tuning.left_roi_h),
+            (tuning.right_roi_x, tuning.right_roi_y, tuning.right_roi_w, tuning.right_roi_h),
+            (tuning.inner_left_roi_x, tuning.inner_left_roi_y, tuning.inner_left_roi_w, tuning.inner_left_roi_h),
+            (tuning.inner_right_roi_x, tuning.inner_right_roi_y, tuning.inner_right_roi_w, tuning.inner_right_roi_h),
+            tuning.full_frame_roi,
+            tuning.close_block_roi,
+            (tuning.line_roi_x, tuning.line_roi_y, tuning.line_roi_w, tuning.line_roi_h),
+            (tuning.close_x, tuning.close_y, tuning.close_w, tuning.close_h),
         ]
 
         try:

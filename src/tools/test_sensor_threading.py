@@ -3,7 +3,7 @@ from src.sensors import distance
 import threading
 import time
 from src.sensors import bno055, distance
-from src.obstacle_challenge.main_v3 import SensorThread
+from src.threads.hw_threads import SensorThread
 
 if __name__ == "__main__":
     sensors_initialized_event = threading.Event()

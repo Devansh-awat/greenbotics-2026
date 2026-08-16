@@ -39,6 +39,8 @@ camera_thread = None      # CameraThread
 imu_thread = None         # ImuThread
 sensor_thread = None      # SensorThread
 video_encoder = None      # VideoEncoderProcess
+overlay_log = None        # OverlayLog, or None when not recording raw
+RECORD_RAW = False        # True when the encoder is storing untouched frames (-v)
 INITIAL_HEADING = None    # float, the heading locked in at the start of the run
 driving_direction = None  # 'clockwise' | 'counter-clockwise'
 
@@ -46,6 +48,47 @@ driving_direction = None  # 'clockwise' | 'counter-clockwise'
 def bind(**kwargs):
     """Inject the run-level objects and values listed above."""
     globals().update(kwargs)
+
+
+# --- Recording ---------------------------------------------------------------
+# Under -v the encoder holds untouched camera frames for annotate_run.py to rebuild
+# from, so in general nothing drawn on may reach it -- hence separate raw/annotated
+# helpers rather than one, since these routines draw straight onto the frame they
+# write (in place, via cv2.rectangle/putText) and the raw write has to happen first.
+#
+# Parking is the exception and uses _record_parking(): see its docstring.
+
+def _record_raw(frame):
+    """Write an untouched frame. No-op unless recording raw."""
+    if RECORD_RAW and video_encoder is not None:
+        video_encoder.write(frame)
+
+
+def _record_annotated(frame):
+    """Write a drawn-on frame. No-op when recording raw."""
+    if not RECORD_RAW and video_encoder is not None:
+        video_encoder.write(frame)
+
+
+def _record_parking(frame):
+    """Write a parking frame -- always the drawn-on one, in both modes.
+
+    The parking loops draw their own telemetry (servo angle, magenta pixel count,
+    "Armed to Stop", the tracked line) and never call process_video_frame, so a raw
+    parking frame has nothing the rebuild could replay: annotate_run.py would run the
+    detection pipeline over it and draw blocks and walls the robot never looked for,
+    losing the telemetry that makes the footage worth having.
+
+    Storing the drawn frame is much less machinery than logging every telemetry value
+    and duplicating the drawing offline, and the CPU does not matter here -- the run is
+    over and the robot is parking. The cost is that raw.mp4 ends with ~57 drawn-on
+    frames; colour tuning reads the driving footage, not the parking tail.
+    """
+    if video_encoder is None:
+        return
+    if video_encoder.write(frame) and RECORD_RAW and overlay_log is not None:
+        overlay_log.append_passthrough(len(video_encoder.tags) - 1)
+
 
 def perform_initial_maneuver():
     log.info("--- Executing Full Initial Maneuver ---")
@@ -105,9 +148,11 @@ def perform_initial_maneuver():
         frame, frame_counter = camera_thread.get_frame()
         if frame is None: continue
 
+        _record_raw(frame)
         detections = process_video_frame(frame)
-        annotated_frame = annotate_video_frame(frame, detections, driving_direction)
-        video_encoder.write(annotated_frame)
+        if not RECORD_RAW:
+            _record_annotated(
+                annotate_video_frame(frame, detections, driving_direction))
         main_blocks = [b for b in detections.get('detected_blocks', []) if b['type'] == 'block']
 
         if main_blocks:
@@ -137,11 +182,11 @@ def perform_initial_maneuver():
             motor.brake()
             drive_distance_with_gyro((INITIAL_HEADING - 110) % 360,23,200)
             motor.reverse(50)
-            while get_angular_difference(INITIAL_HEADING, imu_thread.get_heading()) > 5:
-                servo.set_angle(-steer_with_gyro(imu_thread.get_heading(), INITIAL_HEADING))
+            while get_angular_difference(INITIAL_HEADING-15, imu_thread.get_heading()) > 5:
+                servo.set_angle(-steer_with_gyro(imu_thread.get_heading(), INITIAL_HEADING-15))
                 time.sleep(0.01)
             motor.brake()
-            drive_distance_with_gyro(INITIAL_HEADING,10,120,'reverse')
+            drive_distance_with_gyro(INITIAL_HEADING-15,10,120,'reverse')
             servo.set_angle(0)
             log.info("Initial maneuver: green block reverse turn to 0° completed.")
             return
@@ -162,7 +207,7 @@ def perform_initial_maneuver():
 
     else:
         if detected_block_color == 'green':
-            drive_straight_with_gyro((INITIAL_HEADING+55)%360, 0.2, 70, 'forward')
+            drive_straight_with_gyro((INITIAL_HEADING+30)%360, 0.5, 70, 'forward',2)
             log.info("Initial maneuver: no block, short forward and return.")
             return
         elif detected_block_color == 'red':
@@ -173,7 +218,7 @@ def perform_initial_maneuver():
             motor.stop_rpm_control()
             motor.brake()
             action_taken = "DRIVE_FORWARD_RED_CW for 10cm"
-            drive_distance_with_gyro(drive_target_heading, 15, rpm=200)
+            drive_distance_with_gyro(drive_target_heading, 17, rpm=200)
             motor.start_rpm_control(200, 'forward')
             while get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) > 5:
                 servo.set_angle(steer_with_gyro(imu_thread.get_heading(),INITIAL_HEADING,2))
@@ -182,7 +227,7 @@ def perform_initial_maneuver():
             return
         else:
             # BUG: timed + direct duty -> drive_distance_with_gyro(..., <cm>, rpm=80).
-            drive_straight_with_gyro((INITIAL_HEADING+55)%360, 0.5, 70, 'forward')
+            drive_straight_with_gyro((INITIAL_HEADING+55)%360, 0.3, 70, 'forward')
             log.info("Initial maneuver: no block, short forward and return.")
             return
 
@@ -307,7 +352,7 @@ def parking():
         state_text = f"Armed to Stop: {first_magenta_line_passed}"
         cv2.putText(frame, state_text, (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
-        video_encoder.write(frame)
+        _record_parking(frame)
 
         if first_magenta_line_passed:
             if magenta_pixel_count > MAGENTA_HIGH_THRESHOLD:
@@ -454,7 +499,7 @@ def parking2():
         heading = imu_thread.get_heading()
         if throttle:
             plog.debug("reverse: back=%s heading=%s", _fmt(sensor_readings['distance_back']), _fmt(heading))
-        target_turn_heading = (INITIAL_HEADING - 90) % 360
+        target_turn_heading = (INITIAL_HEADING - 80) % 360
         has_turned = get_angular_difference(target_turn_heading, heading) < 15
         if sensor_readings['distance_back'] is not None:
             if has_turned and sensor_readings['distance_back'] < 155:
@@ -462,7 +507,7 @@ def parking2():
         if time.monotonic() - parking_start > 6.0:
             plog.warning("Parking2 reverse timeout reached!")
             break
-        servo.set_angle_unlimited(-steer_with_gyro(heading, (INITIAL_HEADING-90)%360, kp=1, min_servo_angle=-60, max_servo_angle=60))
+        servo.set_angle_unlimited(-steer_with_gyro(heading, (INITIAL_HEADING-80)%360, kp=1, min_servo_angle=-60, max_servo_angle=60))
         time.sleep(0.01)
 
     motor.stop_rpm_control()
@@ -548,10 +593,10 @@ def parking2():
                     plog.info("Detected what seems to be the first magenta line (%d px).", magenta_pixel_count)
                     on_first_line = True
 
-        video_encoder.write(frame)
+        _record_parking(frame)
 
     servo.set_angle(1)
-    time.sleep(0.25)
+    time.sleep(0.22)
     motor.stop_rpm_control()
     plog.info("[Parking2 4/10] Completed in %.2fs", time.monotonic() - t_step)
     time.sleep(0.3)
@@ -598,7 +643,7 @@ def parking2():
         heading = imu_thread.get_heading()
         if throttle:
             plog.debug("forward for parking: back=%s heading=%s", _fmt(dist), _fmt(heading))
-        if dist is not None and dist > 170:
+        if dist is not None and dist > 160:
             break
         if time.monotonic() - parking_start > 5.0:
             plog.warning("Parking2 forward drive timeout reached!")
@@ -612,7 +657,7 @@ def parking2():
 
     t_step = time.monotonic()
     plog.info("[Parking2 8/10] Reverse 2 to back distance <= 120 (100 RPM)...")
-    motor.start_rpm_control(60, "reverse")
+    motor.start_rpm_control(50, "reverse")
     servo.set_angle_unlimited(65)
     manuver_start_time = time.monotonic()
     throttle = Throttle(0.2)
@@ -635,13 +680,13 @@ def parking2():
 
     t_step = time.monotonic()
     plog.info("[Parking2 9/10] Forward center alignment < 135 (60 RPM)...")
-    motor.start_rpm_control(60, "forward")
-    throttle = Throttle(0.2)
+    motor.start_rpm_control(50, "forward")
+    throttle = Throttle(0.05)
     while True:
         dist_center = sensor_thread.get_readings()['distance_center']
         if throttle:
-            plog.debug("forward alignment: center=%s", _fmt(dist_center))
-        if dist_center is not None and dist_center < 135:
+            plog.debug("forward alignment: center=%s heading=%s", _fmt(dist_center), _fmt(imu_thread.get_heading()))
+        if dist_center is not None and dist_center < 100:
             break
         if get_angular_difference(imu_thread.get_heading(), (INITIAL_HEADING-180)%360) < 2:
             break
@@ -649,24 +694,26 @@ def parking2():
         time.sleep(0.01)
 
     motor.stop_rpm_control()
+    plog.info("[Parking2 9/10] heading at exit: %s", _fmt(imu_thread.get_heading()))
     plog.info("[Parking2 9/10] Completed in %.2fs", time.monotonic() - t_step)
     time.sleep(0.3)
 
     t_step = time.monotonic()
     plog.info("[Parking2 10/10] Final reverse docking (60 RPM)...")
-    motor.start_rpm_control(60, "reverse")
-    throttle = Throttle(0.2)
+    motor.start_rpm_control(50, "reverse")
+    throttle = Throttle(0.05)
     while True:
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
-            plog.debug("final reverse: back=%s", _fmt(dist))
+            plog.debug("final reverse: back=%s heading=%s", _fmt(dist), _fmt(imu_thread.get_heading()))
         servo.set_angle(-steer_with_gyro(imu_thread.get_heading(), (INITIAL_HEADING-180)%360, kp=1.5))
         if dist is not None:
-            if dist <= 105:
+            if dist <= 120:
                 break
         if get_angular_difference((INITIAL_HEADING-180)%360, imu_thread.get_heading()) < 2:
             break
         time.sleep(0.01)
     motor.stop_rpm_control()
+    plog.info("[Parking2 10/10] heading at exit: %s", _fmt(imu_thread.get_heading()))
     plog.info("[Parking2 10/10] Completed in %.2fs", time.monotonic() - t_step)
     plog.info("--- parking2() completed in %.2fs ---", time.monotonic() - fn_start)
