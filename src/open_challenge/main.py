@@ -38,6 +38,7 @@ from src.obstacle_challenge.control import get_angular_difference
 from src.threads.hw_threads import CameraThread, ImuThread, PerfMonitor
 from src.logs.setup import log, setup_logging, shutdown_logging
 from src.obstacle_challenge.video import VideoEncoderProcess
+from src.tools.power_mode import ensure_performance
 from src.vision import pipeline as vision
 from src.vision.pipeline import annotate_video_frame, process_video_frame
 from src.vision.pool import VisionPool
@@ -62,6 +63,10 @@ if __name__ == "__main__":
     setup_logging(log_path)
     log.info("=== Open Challenge | run %s ===", run_timestamp)
     log.info("Logging to %s", log_path)
+
+    # If the between-runs idle-power trim is still active (powersave governor),
+    # undo it now -- before any latency-sensitive work starts.
+    ensure_performance(log)
 
     # ---- Configure vision pipeline for Open Challenge ----
     vision.configure(config)

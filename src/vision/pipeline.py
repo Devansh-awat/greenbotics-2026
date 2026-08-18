@@ -112,6 +112,12 @@ LINE_SLICE_Y1 = LINE_SLICE_Y0 + line_roi_h
 LINE_X0 = line_roi_x
 LINE_X1 = line_roi_x + line_roi_w
 
+# Scratch planes for the slice-sized global masks process_video_frame() rebuilds
+# every frame (red, green, blue, magenta, in that order). The ROI regions written
+# into them are fixed by the config, so they are zeroed once here and only the ROI
+# regions are overwritten per frame -- everything outside stays zero forever.
+_GLOBAL_MASK_SCRATCH = np.zeros((4, SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
+
 
 def configure(cfg):
     """Dynamically configure the vision pipeline with parameters from the specified config/tuning module."""
@@ -134,6 +140,7 @@ def configure(cfg):
     global GLOBAL_Y_OFFSET, GLOBAL_Y_END, SLICE_HEIGHT
     global ARENA_Y_TOP, ARENA_Y_BOTTOM, ARENA_BAND_H, _ARENA_ROWS, _ARENA_WALL_KERNEL, _ARENA_WALL_CLOSE_KERNEL, ARENA_PASSTHROUGH, ARENA_SEED_LOCAL
     global LINE_SLICE_Y0, LINE_SLICE_Y1, LINE_X0, LINE_X1
+    global _GLOBAL_MASK_SCRATCH
 
     FRAME_WIDTH = getattr(cfg, 'FRAME_WIDTH', 640)
     FRAME_HEIGHT = getattr(cfg, 'FRAME_HEIGHT', 360)
@@ -277,6 +284,8 @@ def configure(cfg):
     LINE_SLICE_Y1 = LINE_SLICE_Y0 + line_roi_h
     LINE_X0 = line_roi_x
     LINE_X1 = line_roi_x + line_roi_w
+
+    _GLOBAL_MASK_SCRATCH = np.zeros((4, SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
 
 # Initialise defaults using obstacle challenge tuning
 configure(_default_tuning)
@@ -686,23 +695,29 @@ def process_video_frame(frame):
         mask_magenta_close = cv2.bitwise_and(mask_magenta_close, arena_close)
 
     # --- 2. Reconstruct slice-sized global masks for wall/black detection ---
-    global_red_mask = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
-    global_green_mask = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
-    global_blue_mask = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
-    global_magenta_mask = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
+    # Preallocated scratch, zero outside the ROI regions by construction: the ROIs
+    # are fixed at configure() time, so exactly the same regions are overwritten
+    # every frame and nothing stale can survive outside them. Plain assignment
+    # replaces the old zeros()+bitwise_or per plane -- OR into a zeroed buffer is
+    # assignment. Where the main and close-block ROIs overlap, both crops come from
+    # the same source mask gated by the same arena mask, so their values are
+    # identical and write order does not matter (tests/test_vision_pipeline.py
+    # checks this equivalence against the old composition on real frames).
+    global_red_mask, global_green_mask, global_blue_mask, global_magenta_mask = \
+        _GLOBAL_MASK_SCRATCH
 
     if mw > 0 and mh > 0:
-        global_red_mask[my_slice:my_slice+mh, mx:mx+mw] = cv2.bitwise_or(global_red_mask[my_slice:my_slice+mh, mx:mx+mw], mask_red_main)
-        global_green_mask[my_slice:my_slice+mh, mx:mx+mw] = cv2.bitwise_or(global_green_mask[my_slice:my_slice+mh, mx:mx+mw], mask_green_main)
-        global_magenta_mask[my_slice:my_slice+mh, mx:mx+mw] = cv2.bitwise_or(global_magenta_mask[my_slice:my_slice+mh, mx:mx+mw], mask_magenta_main)
+        global_red_mask[my_slice:my_slice+mh, mx:mx+mw] = mask_red_main
+        global_green_mask[my_slice:my_slice+mh, mx:mx+mw] = mask_green_main
+        global_magenta_mask[my_slice:my_slice+mh, mx:mx+mw] = mask_magenta_main
 
     if cw > 0 and ch > 0:
-        global_red_mask[cy_slice:cy_slice+ch, cx:cx+cw] = cv2.bitwise_or(global_red_mask[cy_slice:cy_slice+ch, cx:cx+cw], mask_red_close)
-        global_green_mask[cy_slice:cy_slice+ch, cx:cx+cw] = cv2.bitwise_or(global_green_mask[cy_slice:cy_slice+ch, cx:cx+cw], mask_green_close)
-        global_magenta_mask[cy_slice:cy_slice+ch, cx:cx+cw] = cv2.bitwise_or(global_magenta_mask[cy_slice:cy_slice+ch, cx:cx+cw], mask_magenta_close)
+        global_red_mask[cy_slice:cy_slice+ch, cx:cx+cw] = mask_red_close
+        global_green_mask[cy_slice:cy_slice+ch, cx:cx+cw] = mask_green_close
+        global_magenta_mask[cy_slice:cy_slice+ch, cx:cx+cw] = mask_magenta_close
 
     if lw > 0 and lh > 0:
-        global_blue_mask[ly_slice:ly_slice+lh, lx:lx+lw] = cv2.bitwise_or(global_blue_mask[ly_slice:ly_slice+lh, lx:lx+lw], mask_blue_line)
+        global_blue_mask[ly_slice:ly_slice+lh, lx:lx+lw] = mask_blue_line
 
     # --- 3. Wall and black detection ---
     mask_black = masks['black']

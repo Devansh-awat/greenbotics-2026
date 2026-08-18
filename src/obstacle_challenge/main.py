@@ -75,6 +75,7 @@ from src.logs.setup import log, setup_logging, shutdown_logging
 from src.obstacle_challenge.tuning import *
 from src.obstacle_challenge.video import OverlayLog, VideoEncoderProcess
 from src.tools.annotate_run import annotate_run
+from src.tools.power_mode import ensure_performance
 from src.vision import pipeline as vision
 from src.vision.pipeline import annotate_video_frame, process_video_frame
 from src.vision.pool import VisionPool
@@ -129,6 +130,10 @@ if __name__ == "__main__":
                  "Rebuild the annotated video with "
                  "`python3 -m src.obstacle_challenge.annotate_run %s`",
                  raw_video_path, run_folder)
+
+    # If the between-runs idle-power trim is still active (powersave governor),
+    # undo it now -- before any latency-sensitive work starts.
+    ensure_performance(log)
 
     # ---- Child processes FIRST -------------------------------------------
     # These are forked, and fork copies the parent's whole address space. Forking
@@ -222,24 +227,94 @@ if __name__ == "__main__":
         log.info("Waiting for button press...")
         button.wait_for_press()
         log.info("Button pressed! Starting run.")
+        led.off()
+        time.sleep(1)
     led.off()
     subprocess.run(["pinctrl", "FAN_PWM", "op", "dl"], check=False)
     driving_direction = 'clockwise'
     past_frame_counter = 0
-    for _ in range(10):
+    max_direction_frames = 60
+    consecutive_required = 3
+    candidate_direction = None
+    consecutive_count = 0
+
+    log.info("Detecting start driving direction from camera frames...")
+    for _ in range(max_direction_frames):
         frame, past_frame_counter, _ = camera_thread.get_next_frame(past_frame_counter)
-        if frame is not None:
-            detections = process_video_frame(frame)
-            wall_inner_left_size = sum(obj['area'] for obj in detections.get('detected_walls', []) if obj['type'] == 'wall_inner_left')
-            wall_inner_right_size = sum(obj['area'] for obj in detections.get('detected_walls', []) if obj['type'] == 'wall_inner_right')
-            log.info("Initial inner wall black areas - left: %.0f, right: %.0f",
-                     wall_inner_left_size, wall_inner_right_size)
-            if wall_inner_left_size > wall_inner_right_size:
-                driving_direction = 'clockwise'
+        if frame is None:
+            continue
+
+        detections = process_video_frame(frame)
+        wall_inner_left_size = sum(obj['area'] for obj in detections.get('detected_walls', []) if obj['type'] == 'wall_inner_left')
+        wall_inner_right_size = sum(obj['area'] for obj in detections.get('detected_walls', []) if obj['type'] == 'wall_inner_right')
+
+        if wall_inner_left_size == 0 and wall_inner_right_size == 0:
+            current_dir_label = "unknown"
+            consecutive_count = 0
+            log.debug("Direction detect: 0 px on both sides (left=0, right=0), waiting for more frames...")
+        elif wall_inner_left_size > wall_inner_right_size:
+            current_dir_label = "clockwise"
+            if candidate_direction == current_dir_label:
+                consecutive_count += 1
             else:
-                driving_direction = 'counter-clockwise'
+                candidate_direction = current_dir_label
+                consecutive_count = 1
+        elif wall_inner_right_size > wall_inner_left_size:
+            current_dir_label = "counter-clockwise"
+            if candidate_direction == current_dir_label:
+                consecutive_count += 1
+            else:
+                candidate_direction = current_dir_label
+                consecutive_count = 1
+        else:
+            current_dir_label = "equal"
+            consecutive_count = 0
+
+        debug_items = [
+            f"StartDir:{current_dir_label}",
+            f"L:{int(wall_inner_left_size)}",
+            f"R:{int(wall_inner_right_size)}",
+        ]
+
+        # Record direction detection frames into the video
+        if record_raw:
+            if video_encoder.write(frame, tag=past_frame_counter):
+                if overlay_log is not None:
+                    overlay_log.append(
+                        len(video_encoder.tags) - 1,
+                        current_dir_label,
+                        debug_items,
+                        visual_target_x=None,
+                        visual_target_line=None,
+                        detections=detections,
+                    )
+        else:
+            video_encoder.write(
+                frame, tag=past_frame_counter,
+                prepare=lambda f, det=detections, d_dir=current_dir_label, dbg=debug_items: annotate_video_frame(
+                    f, det, d_dir,
+                    debug_info=dbg,
+                    visual_target_x=None,
+                    visual_target_line=None,
+                ),
+            )
+
+        log.info("Direction detect frame - left: %.0f, right: %.0f -> candidate: %s (%d/%d)",
+                 wall_inner_left_size, wall_inner_right_size,
+                 current_dir_label, consecutive_count, consecutive_required)
+
+        if candidate_direction is not None and consecutive_count >= consecutive_required:
+            driving_direction = candidate_direction
             break
-        time.sleep(0.05)
+
+    if candidate_direction is not None and consecutive_count < consecutive_required:
+        driving_direction = candidate_direction
+        log.warning("Direction detection reached max frames without full consensus, using last candidate: %s", driving_direction)
+    elif candidate_direction is None:
+        log.warning("Direction detection found 0 px on both sides across %d frames, defaulting to clockwise",
+                    max_direction_frames)
+        driving_direction = 'clockwise'
+
     log.info("Decided driving direction: %s", driving_direction)
 
     INITIAL_HEADING = None
@@ -286,6 +361,8 @@ if __name__ == "__main__":
         loop_frames = 0
         tracking_green_block = False
         green_post_pass_frames = 0
+        tracking_red_block = False
+        red_post_pass_frames = 0
 
         while True:
             target_rpm = INITIAL_RPM
@@ -383,7 +460,10 @@ if __name__ == "__main__":
                         frames_since_block_seen = BLOCK_TARGET_GRACE_FRAMES
                         if block['color'] == 'green' or (block['color'] == 'black' and driving_direction == 'clockwise'):
                             green_post_pass_frames = POST_GREEN_CLIP_FRAMES
+                        elif block['color'] == 'red' or (block['color'] == 'black' and driving_direction == 'counter-clockwise'):
+                            red_post_pass_frames = POST_RED_CLIP_FRAMES
                         tracking_green_block = False
+                        tracking_red_block = False
                         break
 
                 if not is_close_block:
@@ -395,7 +475,7 @@ if __name__ == "__main__":
                             b1 = candidate_blocks[1]
                             if b0['color'] == 'red' and b1['color'] == 'red' and b0['centroid'][0] < 150:
                                 block = b1
-                            elif b0['color'] == 'green' and b1['color'] == 'green':
+                            elif b0['color'] == 'green' and b1['color'] == 'green' and b0['centroid'][0] > 490:
                                 block = b1
                             else:
                                 block = b0
@@ -412,6 +492,8 @@ if __name__ == "__main__":
                             if tracking_green_block:
                                 tracking_green_block = False
                                 green_post_pass_frames = POST_GREEN_CLIP_FRAMES
+                            tracking_red_block = True
+                            red_post_pass_frames = 0
                             # TUNING PARAMETERS
                             RED_OTHER_X = 297
                             RED_OTHER_Y = 0
@@ -422,14 +504,17 @@ if __name__ == "__main__":
                             wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
                             wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
                             target = 300 if block_y > 170 and 200 < block_x < 440 else 150
-                            if (detections['detected_magenta'] 
-                                    and driving_direction == 'counter-clockwise' 
-                                    and abs(detections['detected_magenta'][0]['target_y'] - block_y) < 70 
-                                    and (detections['detected_magenta'][0]['centroid'][0] - block_x) > 70):
-                                target_x = detections['detected_magenta'][0]['target_x']
-                                midpoint_x = (block_x + target_x) // 2
-                                visual_target_x = midpoint_x
-                                angle = ((midpoint_x - FRAME_MIDPOINT_X) * 0.20)
+                            candidate_magentas = [
+                                m for m in detections.get('detected_magenta', [])
+                                if (m['centroid'][0] - block_x) >= 30 and abs(m['target_y'] - block_y) < 45
+                            ]
+                            if candidate_magentas and driving_direction == 'counter-clockwise':
+                                chosen_magenta = min(candidate_magentas, key=lambda m: m['centroid'][0] - block_x)
+                                magenta_left_x = chosen_magenta['contour'][:, 0, 0].min()
+                                red_right_x = block['contour'][:, 0, 0].max()
+                                target_x_line = int(0.55 * magenta_left_x + 0.45 * red_right_x)
+                                visual_target_x = target_x_line
+                                angle = ((target_x_line - FRAME_MIDPOINT_X) * 0.35)
                             else:
                                 visual_target_line = ((RED_ORIGIN_X, RED_ORIGIN_Y), (block_x, block_y), RED_IDEAL_ANGLE, (RED_OTHER_X, RED_OTHER_Y))
                                 current_angle = math.degrees(math.atan2(block_x - RED_ORIGIN_X, RED_ORIGIN_Y - block_y))
@@ -445,45 +530,61 @@ if __name__ == "__main__":
                             debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
 
                         elif block_color == 'green':
+                            if tracking_red_block:
+                                tracking_red_block = False
+                                red_post_pass_frames = POST_RED_CLIP_FRAMES
                             tracking_green_block = True
                             green_post_pass_frames = 0
                             # TUNING PARAMETERS
-                            GREEN_OTHER_X = 400
+                            GREEN_OTHER_X = 343
                             GREEN_OTHER_Y = 0
-                            GREEN_ORIGIN_X = FRAME_WIDTH+0
+                            GREEN_ORIGIN_X = FRAME_WIDTH
                             GREEN_ORIGIN_Y = FRAME_HEIGHT
                             GREEN_IDEAL_ANGLE = math.degrees(math.atan2(GREEN_OTHER_X - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - GREEN_OTHER_Y))
 
                             wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
                             wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
-                            target = 300 if block_y > 160 and 240 < block_x < 400 else 150
-                            # if detections['detected_magenta'] and driving_direction == 'clockwise' and (block_x - detections['detected_magenta'][0]['centroid'][0]) >= 30:
-                            #     magenta_right_x = detections['detected_magenta'][0]['contour'][:, 0, 0].max()
-                            #     green_left_x = block['contour'][:, 0, 0].min()
-                            #     target_x_line = int(0.55 * magenta_right_x + 0.45 * green_left_x)
-                            #     visual_target_x = target_x_line
-                            #     angle = ((target_x_line - FRAME_MIDPOINT_X) * 0.35)
-                            # else:
-                            visual_target_line = ((GREEN_ORIGIN_X, GREEN_ORIGIN_Y), (block_x, block_y), GREEN_IDEAL_ANGLE, (GREEN_OTHER_X, GREEN_OTHER_Y))
-                            current_angle = math.degrees(math.atan2(block_x - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - block_y))
-                            angle = (current_angle - GREEN_IDEAL_ANGLE) * 1.5
-                            if wall_inner_left_size > 3000: angle = np.clip(angle, 10, 45)
-                            elif wall_inner_right_size > 3000: angle = np.clip(angle, -45, -10)
-                            else: angle = np.clip(angle, -45, 45)
+                            target = 300 if block_y > 170 and 200 < block_x < 440 else 150
+                            candidate_magentas = [
+                                m for m in detections.get('detected_magenta', [])
+                                if (block_x - m['centroid'][0]) >= 30 and abs(m['target_y'] - block_y) < 45
+                            ]
+                            if candidate_magentas and driving_direction == 'clockwise':
+                                chosen_magenta = min(candidate_magentas, key=lambda m: block_x - m['centroid'][0])
+                                magenta_right_x = chosen_magenta['contour'][:, 0, 0].max()
+                                green_left_x = block['contour'][:, 0, 0].min()
+                                target_x_line = int(0.55 * magenta_right_x + 0.45 * green_left_x)
+                                visual_target_x = target_x_line
+                                angle = ((target_x_line - FRAME_MIDPOINT_X) * 0.35)
+                            else:
+                                visual_target_line = ((GREEN_ORIGIN_X, GREEN_ORIGIN_Y), (block_x, block_y), GREEN_IDEAL_ANGLE, (GREEN_OTHER_X, GREEN_OTHER_Y))
+                                current_angle = math.degrees(math.atan2(block_x - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - block_y))
+                                angle = (current_angle - GREEN_IDEAL_ANGLE) * 1.5
+                            if wall_inner_left_size > 3000: angle = np.clip(angle, 15, 45)
+                            elif wall_inner_right_size > 3000: angle = np.clip(angle, -45, -15)
+                            else: angle = np.clip(angle, -35, 45)
 
                             debug.append(f"Blk:G({int(block_x)},{int(block_y)})")
+                            if visual_target_x is not None:
+                                debug.append(f"MidX:{int(visual_target_x)}")
                             debug.append(f"Tgt:{int(target)}")
                             debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
                     else:
                         if tracking_green_block:
                             tracking_green_block = False
                             green_post_pass_frames = POST_GREEN_CLIP_FRAMES
+                        if tracking_red_block:
+                            tracking_red_block = False
+                            red_post_pass_frames = POST_RED_CLIP_FRAMES
                         if frames_since_block_seen < BLOCK_TARGET_GRACE_FRAMES:
                             frames_since_block_seen += 1
             else:
                 if tracking_green_block:
                     tracking_green_block = False
                     green_post_pass_frames = POST_GREEN_CLIP_FRAMES
+                if tracking_red_block:
+                    tracking_red_block = False
+                    red_post_pass_frames = POST_RED_CLIP_FRAMES
                 if frames_since_block_seen < BLOCK_TARGET_GRACE_FRAMES:
                     frames_since_block_seen += 1
                 left_pixel_size,right_pixel_size,wall_inner_left_size,wall_inner_right_size,target=0,0,0,0,0
@@ -541,6 +642,14 @@ if __name__ == "__main__":
                     angle = np.clip(angle, -POST_GREEN_MAX_ANGLE, POST_GREEN_MAX_ANGLE)
                     debug.append(f"GClip:{green_post_pass_frames}")
                 green_post_pass_frames -= 1
+            elif red_post_pass_frames > 0:
+                if close_black_area > 3000 or detections.get('line_roi_wall_pct', 0) > 50:
+                    angle = np.clip(angle, -40, 40)
+                    debug.append(f"RClipOvr:{red_post_pass_frames}")
+                else:
+                    angle = np.clip(angle, -POST_RED_MAX_ANGLE, POST_RED_MAX_ANGLE)
+                    debug.append(f"RClip:{red_post_pass_frames}")
+                red_post_pass_frames -= 1
             else:
                 angle = np.clip(angle, -40, 40)
             if angle != prevangle:
