@@ -221,7 +221,7 @@ def run_full_processing(stop_event):
     IMU reads -> process_video_frame -> annotate -> video encode -> 60 fps
     cap). The drive motor is initialized but NEVER commanded to move.
     """
-    from src.obstacle_challenge import main_v2
+    from src.obstacle_challenge.legacy import main_v2
     from src.sensors import bno055, camera, distance
     from src.motors import motor, servo
     import cv2

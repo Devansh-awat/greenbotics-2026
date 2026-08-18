@@ -49,9 +49,10 @@ class CameraThread(threading.Thread):
         clog.info("Camera thread stopped.")
 
     def get_frame(self):
+        # Zero-copy handoff -- see get_next_frame() for the immutability contract.
         with self.cond:
             if self.latest_frame is not None:
-                return self.latest_frame.copy(), self.frame_counter
+                return self.latest_frame, self.frame_counter
             return None, self.frame_counter
 
     def get_next_frame(self, last_counter, timeout=1.0):
@@ -61,6 +62,18 @@ class CameraThread(threading.Thread):
         called get_frame() and `continue`d when the counter hadn't moved, which
         spun a core flat out and starved this thread -- the main reason the run
         sat at 40-50 fps instead of the camera's 56.
+
+        The returned frame is a ZERO-COPY reference, not a copy: capture_frame()
+        (picamera2 capture_array) allocates a fresh array per capture and this
+        thread only ever swaps the reference, never writes into an old array, so
+        handing the reference out is safe as long as consumers treat frames as
+        read-only. They do: process_video_frame() only reads,
+        annotate_video_frame() copies before drawing, and
+        VideoEncoderProcess.write() copies into its shared-memory slot before
+        returning. Anything new that wants to draw on a frame must .copy() first
+        (tests/test_vision_pipeline.py pins the annotate invariant). Copying here
+        cost a 0.7 MB memcpy per fetch INSIDE the lock, stalling the capture
+        thread's notify path.
         """
         with self.cond:
             self.cond.wait_for(
@@ -68,7 +81,7 @@ class CameraThread(threading.Thread):
                 timeout=timeout,
             )
             if self.latest_frame is not None:
-                return self.latest_frame.copy(), self.frame_counter, self.capture_time
+                return self.latest_frame, self.frame_counter, self.capture_time
             return None, self.frame_counter, 0.0
 
     def stop(self):
@@ -146,7 +159,7 @@ class SensorThread(threading.Thread):
             distance.LEFT_CHANNEL,
             distance.RIGHT_CHANNEL,
         ]
-        self.history = {ch: deque(maxlen=5) for ch in self.channels}
+        self.history = {ch: deque(maxlen=4) for ch in self.channels}
 
     def run(self):
         try:

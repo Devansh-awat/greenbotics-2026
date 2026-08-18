@@ -476,10 +476,10 @@ def parking2():
         distance_center = sensor_readings.get('distance_center')
         heading = imu_thread.get_heading()
         target_heading = (INITIAL_HEADING + 5) % 360
-        is_aligned = get_angular_difference(target_heading, heading) < 5
+        is_aligned = get_angular_difference(target_heading, heading) < 8
         if throttle:
             plog.debug("forward: center=%s heading=%s aligned=%s", _fmt(distance_center), _fmt(heading), is_aligned)
-        if is_aligned and distance_center is not None and distance_center <= 200:
+        if is_aligned and distance_center is not None and distance_center <= 220:
             plog.info("Distance is %.1f with heading aligned (%.1f vs %.1f). Exiting loop.", distance_center, heading, target_heading)
             break
         servo.set_angle(steer_with_gyro(heading, target_heading, kp=1))
