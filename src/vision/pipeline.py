@@ -891,6 +891,7 @@ def process_video_frame(frame):
 
     processed_data['line_roi_wall_pct'] = line_roi_wall_pct
     processed_data['detected_line_roi_wall'] = []
+    processed_data['pure_black_mask'] = pure_black_mask
 
     if wall_pixels > 0:
         contours, _ = cv2.findContours(wall_line_crop, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)

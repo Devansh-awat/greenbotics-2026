@@ -34,10 +34,12 @@ import argparse
 import glob
 import os
 import sys
+import threading
 import time
 
 import cv2
 
+from src.logs.setup import log
 from src.obstacle_challenge.tuning import VIDEO_FOURCC, VIDEO_FPS
 from src.obstacle_challenge.video import OverlayLog
 from src.vision import pipeline as vision
@@ -68,7 +70,15 @@ def resolve_target(target):
     return target
 
 
-def annotate_run(raw_path, out_path=None, fps=None, progress_every=100):
+def annotate_run(raw_path, out_path=None, fps=None, progress_every=100, pause_check=None):
+    """Rebuild obstacle.mp4 from raw.mp4 + the overlay sidecar.
+
+    `pause_check`, if given, is called once per frame before it is processed. Pass
+    `threading.Event().wait` (or similar) to make the rebuild pausable -- the caller
+    clears the event to freeze this function between frames with zero CPU use (it's
+    parked in a blocking wait, not polling), and sets it again to resume. Used by
+    BackgroundAnnotator below to get out of the way of parking's own camera work.
+    """
     # Force inline vision. main.py calls this from its cleanup handler, AFTER
     # vision_pool.stop() has unlinked the workers' shared memory -- but the module
     # global still points at that dead pool, and process_video_frame() would happily
@@ -127,6 +137,8 @@ def annotate_run(raw_path, out_path=None, fps=None, progress_every=100):
     t0 = time.monotonic()
     try:
         while True:
+            if pause_check is not None:
+                pause_check()
             ok, frame = cap.read()
             if not ok:
                 break
@@ -176,6 +188,86 @@ def annotate_run(raw_path, out_path=None, fps=None, progress_every=100):
           f"{passthrough} already annotated (parking, passed through), "
           f"{idx - replayed - passthrough} re-derived from pixels (approximate)")
     return out_path
+
+
+class BackgroundAnnotator:
+    """Runs annotate_run() on a background thread, pausable and joinable.
+
+    Started as soon as the driving portion of a run ends (turn 13 / parking begins)
+    so the ~9s rebuild overlaps with parking's idle CPU time instead of blocking
+    exit after the robot stops. A thread, not a process: main.py already forks its
+    child processes (vision pool, video encoder) before any hardware or thread
+    exists, specifically to avoid forking a live picamera2/gpiozero/thread state --
+    by the time parking starts, all of that is up, so a new process here would be
+    exactly the hazard that comment warns about. A thread has no such restriction,
+    and OpenCV's per-frame work releases the GIL, so it costs real cores without
+    needing process-level isolation.
+
+    Pausing is cooperative, not preemptive: pause() just clears an Event, and the
+    annotation loop blocks on it between frames via `pause_check`. A blocked
+    thread burns 0% CPU (it's not polling), so this is a real pause, not a
+    slowdown -- exactly what parking's Step 4 magenta-line tracking needs while
+    it owns the camera's latency budget.
+
+    `finalize`, if given, is called on the background thread before annotate_run()
+    starts -- NOT by the caller of start(). It exists for video_encoder.stop(): an
+    mp4 only becomes readable once the encoder's child process has actually joined,
+    which can take anywhere from tens of ms to over a second depending on its queue
+    backlog. Calling that from the control thread right before parking's first move
+    (motor.move(14, ...) in parking()) turned into a variable-length, unbraked pause
+    with the robot still coasting on momentum from the drive -- i.e. exactly the
+    "pauses then overshoots forward" bug this replaced. Doing it here instead keeps
+    the control thread's stop_rpm_control() -> parking() transition instant; whatever
+    the flush costs is paid entirely on this thread, which the caller never waits on
+    except via join() (see below).
+    """
+
+    def __init__(self, raw_path, out_path, finalize=None):
+        self.raw_path = raw_path
+        self.out_path = out_path
+        self.error = None
+        self._finalize = finalize
+        self._resume_event = threading.Event()
+        self._resume_event.set()   # not paused
+        self._done_event = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run, name="bg-annotate", daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def _run(self):
+        try:
+            if self._finalize is not None:
+                self._finalize()
+            annotate_run(self.raw_path, self.out_path,
+                         pause_check=self._resume_event.wait)
+        except Exception as exc:
+            self.error = exc
+            log.exception("Background annotation failed for %s", self.raw_path)
+        finally:
+            self._done_event.set()
+
+    def pause(self):
+        self._resume_event.clear()
+
+    def resume(self):
+        self._resume_event.set()
+
+    def is_done(self):
+        return self._done_event.is_set()
+
+    def join(self, timeout=None):
+        """Block until the rebuild finishes. Returns immediately if already done."""
+        already_done = self.is_done()
+        # A caller might invoke join() while paused (e.g. run aborted mid-Step-4) --
+        # resume first or this would hang forever waiting on a frozen thread.
+        self.resume()
+        finished = self._done_event.wait(timeout)
+        if not already_done:
+            log.info("Background annotation %s.",
+                     "finished" if finished else "did not finish before timeout")
+        return finished
 
 
 def main():

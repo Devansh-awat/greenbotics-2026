@@ -4,17 +4,23 @@ Each of these owns one piece of hardware and publishes its latest reading behind
 lock, so the control loop never blocks on I2C, SPI or the camera.
 """
 
+import re
+import subprocess
 import threading
 import time
 from collections import deque
 
 import numpy as np
 
+from src.motors import motor
 from src.sensors import distance
 from src.logs.setup import (
-    Throttle, _fmt, clog, ilog, perflog, slog,
+    Throttle, _fmt, clog, hlog, ilog, perflog, slog,
 )
-from src.obstacle_challenge.tuning import PERF_REPORT_PERIOD
+from src.obstacle_challenge.tuning import (
+    HEALTH_POLL_PERIOD, HEALTH_TEMP_WARN_C, PERF_REPORT_PERIOD,
+    WATCHDOG_POLL_S, WATCHDOG_TIMEOUT_S,
+)
 
 # ---------------------------------------------------------------------------
 # Sensor / camera threads
@@ -176,7 +182,6 @@ class SensorThread(threading.Thread):
 
             consecutive_none = {ch: 0 for ch in self.channels}
             reinit_threshold = 30
-            throttle = Throttle(1.0)
             while not self.stop_event.is_set():
                 try:
                     readings = {}
@@ -212,11 +217,6 @@ class SensorThread(threading.Thread):
                             #consecutive_none[ch] = 0 if ok else count
                             pass
 
-                    if throttle:
-                        slog.debug("dist front=%s back=%s left=%s right=%s",
-                                   _fmt(self.distance_center), _fmt(self.distance_back),
-                                   _fmt(self.distance_left), _fmt(self.distance_right))
-
                     time.sleep(0.02)  # account for timing budget
                 except Exception:
                     slog.exception("ERROR during sensor reading")
@@ -247,6 +247,137 @@ class SensorThread(threading.Thread):
 
     def stop(self):
         self.stop_event.set()
+
+class Heartbeat:
+    """A timestamp the control loop pets and a watchdog thread reads.
+
+    Plain attribute get/set on a CPython object is atomic under the GIL, so this
+    needs no lock: one thread writes `.ts`, another only ever reads it.
+    """
+
+    def __init__(self):
+        self.ts = time.monotonic()
+
+    def pet(self):
+        self.ts = time.monotonic()
+
+    def age(self):
+        return time.monotonic() - self.ts
+
+
+class WatchdogThread(threading.Thread):
+    """Dead-man's switch: cuts motor power if the control loop stops petting.
+
+    This is the piece that can act *during* a stall, not just clean up after one --
+    it runs in its own thread, so it keeps polling even while the main loop is stuck
+    inside a single blocking call (CPython releases the GIL around blocking I/O, so
+    this thread still gets scheduled). A same-thread check in the control loop
+    (`skipped >= LOOP_STALL_SKIP_THRESHOLD` in main.py) cannot do this: it only runs
+    once the stuck call has already returned, by which point the stall is over.
+
+    Added after the 2026-08-19_20-50-33 run stalled ~1.3s (74 frames) for a cause the
+    per-frame logs couldn't pin down.
+    """
+
+    def __init__(self, heartbeat, timeout=WATCHDOG_TIMEOUT_S, poll=WATCHDOG_POLL_S):
+        super().__init__(name="watchdog")
+        self.heartbeat = heartbeat
+        self.timeout = timeout
+        self.poll = poll
+        self.stop_event = threading.Event()
+        self.daemon = True
+        self.tripped = False
+
+    def run(self):
+        hlog.info("Watchdog thread running (timeout %.2fs, poll %.2fs).",
+                   self.timeout, self.poll)
+        while not self.stop_event.wait(self.poll):
+            age = self.heartbeat.age()
+            if age > self.timeout:
+                if not self.tripped:
+                    hlog.critical(
+                        "WATCHDOG: control loop heartbeat stale for %.2fs (> %.2fs) -- "
+                        "cutting motor power now, main loop is unresponsive.",
+                        age, self.timeout)
+                    try:
+                        motor.stop_rpm_control()
+                    except Exception:
+                        hlog.exception("Watchdog failed to stop motor")
+                    self.tripped = True
+            elif self.tripped:
+                hlog.warning("WATCHDOG: heartbeat resumed after %.2fs stale.", age)
+                self.tripped = False
+
+    def stop(self):
+        self.stop_event.set()
+
+
+_THROTTLE_BITS = {
+    0: "under-voltage now", 1: "arm-freq-capped now", 2: "throttled now", 3: "soft-temp-limit now",
+    16: "under-voltage occurred", 17: "arm-freq-capped occurred",
+    18: "throttled occurred", 19: "soft-temp-limit occurred",
+}
+
+
+class SystemHealthThread(threading.Thread):
+    """Polls `vcgencmd` for under-voltage / thermal throttling, off the control loop.
+
+    Added after a run (2026-08-19_20-50-33) showed a ~1.3s control-loop stall with no
+    clear cause in the per-frame logs. Runs `vcgencmd` in a subprocess with a timeout
+    so a hung/slow vcgencmd call can never itself block steering -- exactly the
+    mistake this thread exists to help rule out for other subsystems.
+    """
+
+    def __init__(self, period=HEALTH_POLL_PERIOD, temp_warn_c=HEALTH_TEMP_WARN_C):
+        super().__init__(name="health")
+        self.period = period
+        self.temp_warn_c = temp_warn_c
+        self.stop_event = threading.Event()
+        self.daemon = True
+        self.last_throttled = 0
+        self._clear_log_throttle = Throttle(60.0)
+
+    @staticmethod
+    def _vcgencmd(*args, timeout=1.0):
+        try:
+            out = subprocess.run(["vcgencmd", *args], capture_output=True,
+                                  text=True, timeout=timeout, check=False).stdout
+            return out.strip()
+        except Exception:
+            return None
+
+    def run(self):
+        hlog.info("Health thread running (poll every %.1fs).", self.period)
+        while not self.stop_event.wait(self.period):
+            raw = self._vcgencmd("get_throttled")
+            temp_raw = self._vcgencmd("measure_temp")
+            throttled = None
+            if raw and "=" in raw:
+                try:
+                    throttled = int(raw.split("=", 1)[1], 0)
+                except ValueError:
+                    pass
+            temp_c = None
+            if temp_raw:
+                m = re.search(r"[\d.]+", temp_raw)
+                if m:
+                    temp_c = float(m.group())
+
+            if throttled is not None and throttled != 0:
+                active = [msg for bit, msg in _THROTTLE_BITS.items() if throttled & (1 << bit)]
+                hlog.warning("vcgencmd throttled=0x%x (%s) temp=%s", throttled,
+                              ", ".join(active) or "unknown bits", temp_raw or "?")
+            elif temp_c is not None and temp_c >= self.temp_warn_c:
+                hlog.warning("CPU temp %.1fC (throttled=0x%s)", temp_c,
+                              format(throttled, "x") if throttled is not None else "?")
+            elif self._clear_log_throttle:
+                hlog.debug("throttled=0x%s temp=%s", format(throttled, "x") if throttled is not None else "?",
+                           temp_raw or "?")
+            self.last_throttled = throttled or 0
+
+    def stop(self):
+        self.stop_event.set()
+
 
 class PerfMonitor:
     """Rolling FPS and latency stats, reported at INFO every PERF_REPORT_PERIOD.

@@ -43,6 +43,9 @@ WALL_KD = 0.0003
 GYRO_KP = 0.85
 GYRO_KD = 0.1
 
+TARGET_LINE_KP = 0.22
+TARGET_LINE_KD = 0.10
+
 
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 360
@@ -131,11 +134,51 @@ VIDEO_FPS = 10.0
 
 PERF_REPORT_PERIOD = 2.0   # seconds between INFO-level perf summaries
 
+# Post-hoc stall accounting: if the control loop's own frame-fetch reports this many
+# camera frames skipped since the last one it actually processed, log/resume cleanly
+# on the way back in. This runs IN the control loop, so it can only ever react after
+# a stall has already ended -- it cannot cut power *during* one, because the code
+# that would do so is blocked by the same call that caused the stall. See
+# WATCHDOG_TIMEOUT_S below for the thread that actually can. 15 frames (~270ms at
+# 56fps) is comfortably above ordinary 1-2 frame jitter but well below the known
+# CLOSE BLOCK reverse-and-swerve pause, which is exempted explicitly (see
+# `last_frame_was_known_blind` in main.py) rather than by threshold.
+LOOP_STALL_SKIP_THRESHOLD = 15
+
+# Dead-man's-switch watchdog: a SEPARATE thread (WatchdogThread in hw_threads.py)
+# polls a heartbeat timestamp the control loop updates every iteration. If the
+# heartbeat goes stale for longer than this, the watchdog thread -- not the stuck
+# main loop -- cuts motor power immediately, because it is not blocked by whatever
+# stalled the main loop (CPython releases the GIL around blocking I/O, so a separate
+# thread keeps running even while the main thread is stuck inside one call). This is
+# the piece that can actually shorten a stall like the 2026-08-19_20-50-33 one instead
+# of just cleaning up after it.
+#
+# The known CLOSE BLOCK reverse-and-swerve pause (~0.8s of scripted time.sleep) does
+# NOT need headroom baked into this number: main.py calls heartbeat.pet() around each
+# leg of that maneuver instead, so the watchdog stays tight for genuinely unexplained
+# stalls. The parking maneuvers (which run many seconds open-loop after the main loop
+# exits) fully stop the watchdog thread first rather than petting through them.
+WATCHDOG_TIMEOUT_S = 0.5
+WATCHDOG_POLL_S = 0.05
+
+# Any single instrumented stage of the control loop (vision, sensor read, video/
+# overlay recording) taking longer than this logs a WARNING with a stage name, so a
+# stall like the one on 2026-08-19 (74 frames / ~1.3s, cause unconfirmed) leaves a
+# trail pointing at which stage actually blocked next time it happens.
+STAGE_WARN_MS = 50.0
+
+# How often the background health thread polls `vcgencmd get_throttled` /
+# `measure_temp` (undervoltage, thermal throttling). Kept independent of the frame
+# loop so a slow vcgencmd call can never itself stall steering.
+HEALTH_POLL_PERIOD = 2.0
+HEALTH_TEMP_WARN_C = 75.0
+
 HSV_RANGES = {
     'LOWER_RED_1': np.array([0, 70, 43]), 'UPPER_RED_1': np.array([4, 230, 180]),
     'LOWER_RED_2': np.array([175, 70, 43]), 'UPPER_RED_2': np.array([180, 230, 180]),
     'LOWER_GREEN': np.array([45, 65, 38]), 'UPPER_GREEN': np.array([88, 190, 161]),
-    'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 73, 85]),
+    'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 110, 85]),
     'LOWER_ORANGE': np.array([4, 53, 102]), 'UPPER_ORANGE': np.array([19, 212, 229]),
     'LOWER_BLUE': np.array([114, 50, 110]), 'UPPER_BLUE': np.array([123, 255, 255]),
     'LOWER_MAGENTA': np.array([158, 73, 64]), 'UPPER_MAGENTA': np.array([172, 255, 223])
@@ -166,12 +209,23 @@ if USE_LAB:
 else:
     COLOR_RANGES = HSV_RANGES
 
-LOWER_RED_1 = COLOR_RANGES['LOWER_RED_1']
-UPPER_RED_1 = COLOR_RANGES['UPPER_RED_1']
-LOWER_RED_2 = COLOR_RANGES['LOWER_RED_2']
-UPPER_RED_2 = COLOR_RANGES['UPPER_RED_2']
-LOWER_GREEN = COLOR_RANGES['LOWER_GREEN']
-UPPER_GREEN = COLOR_RANGES['UPPER_GREEN']
+# Set to True to swap Red and Green (Surprise Rule):
+SWAP_RED_GREEN = False
+
+if not SWAP_RED_GREEN:
+    LOWER_RED_1 = COLOR_RANGES['LOWER_RED_1']
+    UPPER_RED_1 = COLOR_RANGES['UPPER_RED_1']
+    LOWER_RED_2 = COLOR_RANGES['LOWER_RED_2']
+    UPPER_RED_2 = COLOR_RANGES['UPPER_RED_2']
+    LOWER_GREEN = COLOR_RANGES['LOWER_GREEN']
+    UPPER_GREEN = COLOR_RANGES['UPPER_GREEN']
+else:
+    LOWER_RED_1 = COLOR_RANGES['LOWER_GREEN']
+    UPPER_RED_1 = COLOR_RANGES['UPPER_GREEN']
+    LOWER_RED_2 = COLOR_RANGES['LOWER_GREEN']
+    UPPER_RED_2 = COLOR_RANGES['UPPER_GREEN']
+    LOWER_GREEN = COLOR_RANGES['LOWER_RED_1']
+    UPPER_GREEN = COLOR_RANGES['UPPER_RED_1']
 LOWER_BLACK = COLOR_RANGES['LOWER_BLACK']
 UPPER_BLACK = COLOR_RANGES['UPPER_BLACK']
 LOWER_ORANGE = COLOR_RANGES['LOWER_ORANGE']
@@ -189,7 +243,7 @@ CLOSE_BLOCK_MIN_AREA = 15
 
 left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 130, 135, 150
 right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 130, 135, 150
-inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h = 150, 155, 100, 100
+inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h = 140, 155, 100, 100
 inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h = 400, 145 , 100, 110
 line_roi_x, line_roi_y, line_roi_w, line_roi_h = 280, 190, 80, 40
 close_x,close_y,close_w,close_h = 140,110,360,10

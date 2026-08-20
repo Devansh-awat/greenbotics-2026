@@ -207,9 +207,6 @@ def initialise(i2c_bus_num=I2C_BUS, **_ignored):
     ok = True
     for channel in SENSOR_CHANNELS:
         _, label, required = SENSORS[channel]
-        if not required:
-            print(f"distance.py: {label} not present (optional) — skipping.")
-            continue
         try:
             _bring_up(channel)
         except Exception as e:
@@ -218,7 +215,7 @@ def initialise(i2c_bus_num=I2C_BUS, **_ignored):
                 traceback.print_exc()
                 ok = False
             else:
-                print(f"distance.py: {label} not present (optional) — skipping.")
+                print(f"distance.py: {label} not present (optional) — skipping. ({e})")
 
     print(f"INFO: Sensor initialization complete. Status: {ok}. "
           f"Live channels: {sorted(_sensors.keys())}")

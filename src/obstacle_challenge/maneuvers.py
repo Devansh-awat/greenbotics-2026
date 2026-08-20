@@ -38,11 +38,13 @@ from src.vision.pipeline import annotate_video_frame, process_video_frame
 camera_thread = None      # CameraThread
 imu_thread = None         # ImuThread
 sensor_thread = None      # SensorThread
-video_encoder = None      # VideoEncoderProcess
+video_encoder = None      # VideoEncoderProcess -- the driving video (raw or annotated)
+parking_video_encoder = None  # VideoEncoderProcess -- parking.mp4, always separate
 overlay_log = None        # OverlayLog, or None when not recording raw
 RECORD_RAW = False        # True when the encoder is storing untouched frames (-v)
 INITIAL_HEADING = None    # float, the heading locked in at the start of the run
 driving_direction = None  # 'clockwise' | 'counter-clockwise'
+bg_annotator = None       # BackgroundAnnotator rebuilding obstacle.mp4, or None
 
 
 def bind(**kwargs):
@@ -71,23 +73,24 @@ def _record_annotated(frame):
 
 
 def _record_parking(frame):
-    """Write a parking frame -- always the drawn-on one, in both modes.
+    """Write a parking frame to the standalone parking.mp4 -- never the driving video.
 
     The parking loops draw their own telemetry (servo angle, magenta pixel count,
-    "Armed to Stop", the tracked line) and never call process_video_frame, so a raw
-    parking frame has nothing the rebuild could replay: annotate_run.py would run the
-    detection pipeline over it and draw blocks and walls the robot never looked for,
-    losing the telemetry that makes the footage worth having.
+    "Armed to Stop", the tracked line) and never call process_video_frame, so there is
+    nothing here for annotate_run.py to replay -- stitching these into raw.mp4 used to
+    need passthrough bookkeeping (append_passthrough) just so the rebuild knew to leave
+    them alone. Keeping them in a separate video removes that bookkeeping entirely and
+    lets the driving video (raw.mp4/obstacle.mp4) be finalised the moment turn 13
+    completes, before parking starts -- see main.py's turn_counter >= 13 branch, which
+    is what lets the background re-annotation start immediately instead of waiting for
+    parking to also finish writing to it.
 
-    Storing the drawn frame is much less machinery than logging every telemetry value
-    and duplicating the drawing offline, and the CPU does not matter here -- the run is
-    over and the robot is parking. The cost is that raw.mp4 ends with ~57 drawn-on
-    frames; colour tuning reads the driving footage, not the parking tail.
+    parking_video_encoder sits idle (0 frames, 0% CPU) for the entire drive and only
+    starts writing here, so it never competes with anything on the way to turn 13.
     """
-    if video_encoder is None:
+    if parking_video_encoder is None:
         return
-    if video_encoder.write(frame) and RECORD_RAW and overlay_log is not None:
-        overlay_log.append_passthrough(len(video_encoder.tags) - 1)
+    parking_video_encoder.write(frame)
 
 
 def perform_initial_maneuver():
@@ -262,17 +265,13 @@ def perform_initial_maneuver():
 def parking():
     fn_start = time.monotonic()
     plog.info("--- Parking (clockwise) sequence started ---")
-    servo.set_angle(3)
-    # OK (encoder-based already): motor.move() is closed-loop PID on the encoder, so
-    # the 14 cm is real. min_speed/max_speed are duty limits for that loop, not a
-    # commanded speed -- this is the pattern the BUG sites above should end up as.
-    motor.move(14, min_speed=45)
+    drive_distance_with_gyro(INITIAL_HEADING,14,200)
     motor.brake()
     servo.set_angle_unlimited(-60)
     motor.stop_rpm_control()
     motor.start_rpm_control(80, "reverse")
     parking_start = time.monotonic()
-    throttle = Throttle(0.2)
+    throttle = Throttle(0.1)
     while True:
         sensor_readings = sensor_thread.get_readings()
         heading = imu_thread.get_heading()
@@ -311,6 +310,11 @@ def parking():
     motor.start_rpm_control(100, "forward")
     past_frame_counter = 0
     plog.info("Tracking line to magenta stop...")
+    # Step 4: this is the one part of parking that reads the camera in real time, so
+    # it owns the frame-to-servo latency budget the way the main control loop did.
+    # Freeze the background rebuild for the duration -- see BackgroundAnnotator.
+    if bg_annotator is not None:
+        bg_annotator.pause()
     while True:
         frame, frame_counter, _ = camera_thread.get_next_frame(past_frame_counter)
         if frame is None:
@@ -367,6 +371,8 @@ def parking():
                 if magenta_pixel_count > MAGENTA_HIGH_THRESHOLD:
                     plog.info("Detected what seems to be the first magenta line (%d px).", magenta_pixel_count)
                     on_first_line = True
+    if bg_annotator is not None:
+        bg_annotator.resume()
     servo.set_angle(0)
     time.sleep(0.47)  # INCREASING MAKES ROBOT STOP MORE FORWARD
     motor.stop_rpm_control()
@@ -377,10 +383,10 @@ def parking():
         time.sleep(0.01)
     motor.stop_rpm_control()
     plog.debug("first reverse turn done: %s", sensor_thread.get_readings())
-    motor.start_rpm_control(60, "reverse")
+    motor.start_rpm_control(40, "reverse")
     servo.set_angle(0)
     parking_start = time.monotonic()
-    throttle = Throttle(0.2)
+    throttle = Throttle(0.1)
     while True:
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
@@ -393,10 +399,10 @@ def parking():
         time.sleep(0.01)
     motor.stop_rpm_control()
     time.sleep(0.3)
-    motor.start_rpm_control(60, "forward")
+    motor.start_rpm_control(40, "forward")
     time.sleep(0.1)
     parking_start = time.monotonic()
-    throttle = Throttle(0.2)
+    throttle = Throttle(0.1)
     while True:
         sensor_readings = sensor_thread.get_readings()
         dist = sensor_readings['distance_back']
@@ -413,9 +419,9 @@ def parking():
     motor.stop_rpm_control()
     time.sleep(0.3)
     servo.set_angle_unlimited(-65)
-    motor.start_rpm_control(60, "reverse")
+    motor.start_rpm_control(40, "reverse")
     manuver_start_time = time.monotonic()
-    throttle = Throttle(0.2)
+    throttle = Throttle(0.1)
     while True:
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
@@ -430,8 +436,8 @@ def parking():
         time.sleep(0.01)
     motor.stop_rpm_control()
     time.sleep(0.3)
-    motor.start_rpm_control(60, "forward")
-    throttle = Throttle(0.2)
+    motor.start_rpm_control(40, "forward")
+    throttle = Throttle(0.1)
     while True:
         dist_center = sensor_thread.get_readings()['distance_center']
         if throttle:
@@ -445,8 +451,8 @@ def parking():
     motor.stop_rpm_control()
     time.sleep(0.3)
 
-    motor.start_rpm_control(60, "reverse")
-    throttle = Throttle(0.2)
+    motor.start_rpm_control(40, "reverse")
+    throttle = Throttle(0.1)
     while True:
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
@@ -470,7 +476,7 @@ def parking2():
     t_step = time.monotonic()
     plog.info("[Parking2 1/10] Forward approach (200 RPM)...")
     motor.start_rpm_control(200, "forward")
-    throttle = Throttle(0.2)
+    throttle = Throttle(0.1)
     while True:
         sensor_readings = sensor_thread.get_readings()
         distance_center = sensor_readings.get('distance_center')
@@ -493,7 +499,7 @@ def parking2():
     servo.set_angle_unlimited(60)
     motor.start_rpm_control(120, "reverse")
     parking_start = time.monotonic()
-    throttle = Throttle(0.2)
+    throttle = Throttle(0.1)
     while True:
         sensor_readings = sensor_thread.get_readings()
         heading = imu_thread.get_heading()
@@ -539,6 +545,10 @@ def parking2():
     plog.info("[Parking2 4/10] Tracking line to magenta stop (200 RPM)...")
     motor.start_rpm_control(200, "forward")
     past_frame_counter = 0
+    # Step 4: the one part of parking2 that reads the camera in real time. Freeze the
+    # background rebuild for the duration -- see BackgroundAnnotator.
+    if bg_annotator is not None:
+        bg_annotator.pause()
     while True:
         frame, frame_counter, _ = camera_thread.get_next_frame(past_frame_counter)
         if frame is None:
@@ -595,6 +605,8 @@ def parking2():
 
         _record_parking(frame)
 
+    if bg_annotator is not None:
+        bg_annotator.resume()
     servo.set_angle(1)
     time.sleep(0.22)
     motor.stop_rpm_control()
@@ -615,7 +627,7 @@ def parking2():
     motor.start_rpm_control(120, "reverse")
     servo.set_angle(0)
     parking_start = time.monotonic()
-    throttle = Throttle(0.2)
+    throttle = Throttle(0.1)
     while True:
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
@@ -636,7 +648,7 @@ def parking2():
     motor.start_rpm_control(120, "forward")
     time.sleep(0.1)
     parking_start = time.monotonic()
-    throttle = Throttle(0.2)
+    throttle = Throttle(0.1)
     while True:
         sensor_readings = sensor_thread.get_readings()
         dist = sensor_readings['distance_back']
@@ -657,10 +669,10 @@ def parking2():
 
     t_step = time.monotonic()
     plog.info("[Parking2 8/10] Reverse 2 to back distance <= 120 (100 RPM)...")
-    motor.start_rpm_control(50, "reverse")
+    motor.start_rpm_control(40, "reverse")
     servo.set_angle_unlimited(65)
     manuver_start_time = time.monotonic()
-    throttle = Throttle(0.2)
+    throttle = Throttle(0.1)
     while True:
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
@@ -680,7 +692,7 @@ def parking2():
 
     t_step = time.monotonic()
     plog.info("[Parking2 9/10] Forward center alignment < 135 (60 RPM)...")
-    motor.start_rpm_control(50, "forward")
+    motor.start_rpm_control(40, "forward")
     throttle = Throttle(0.05)
     while True:
         dist_center = sensor_thread.get_readings()['distance_center']
@@ -700,7 +712,7 @@ def parking2():
 
     t_step = time.monotonic()
     plog.info("[Parking2 10/10] Final reverse docking (60 RPM)...")
-    motor.start_rpm_control(50, "reverse")
+    motor.start_rpm_control(40, "reverse")
     throttle = Throttle(0.05)
     while True:
         dist = sensor_thread.get_readings()['distance_back']
