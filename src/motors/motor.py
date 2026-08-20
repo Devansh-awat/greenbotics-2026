@@ -7,6 +7,8 @@ from src.sensors.encoder import IncrementalEncoder
 import board
 import logging
 
+from src.logs.setup import Throttle
+
 # Part of the "robot" logger tree set up by the challenge mains (see
 # main_v5.setup_logging). Nothing is configured here: if no handler is installed --
 # e.g. motor.py run standalone -- logging falls back to stderr at WARNING, so the
@@ -496,7 +498,7 @@ def _rpm_loop(stop_event, period, kwargs):
     """Background worker: holds the current target until stopped."""
     global _rpm_measured
     reset_rpm_control()
-    step_count = 0
+    debug_throttle = Throttle(1.5)
     while not stop_event.is_set():
         with _rpm_lock:
             target = _rpm_target
@@ -505,10 +507,8 @@ def _rpm_loop(stop_event, period, kwargs):
         if rpm is not None:
             with _rpm_lock:
                 _rpm_measured = _rpm_state["ema_rpm"]
-        
-        step_count += 1
-        if step_count >= 10:
-            step_count = 0
+
+        if debug_throttle:
             duty = _rpm_state.get("duty", 0.0)
             broke_free = _rpm_state.get("broke_free", False)
             measured = _rpm_measured

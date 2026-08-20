@@ -69,12 +69,13 @@ from src.sensors import bno086, camera, distance
 
 from src.obstacle_challenge import config, control, maneuvers
 from src.threads.hw_threads import (
-    CameraThread, ImuThread, PerfMonitor, SensorThread,
+    CameraThread, Heartbeat, ImuThread, PerfMonitor, SensorThread,
+    SystemHealthThread, WatchdogThread,
 )
-from src.logs.setup import log, setup_logging, shutdown_logging
+from src.logs.setup import Throttle, log, setup_logging, shutdown_logging
 from src.obstacle_challenge.tuning import *
 from src.obstacle_challenge.video import OverlayLog, VideoEncoderProcess
-from src.tools.annotate_run import annotate_run
+from src.tools.annotate_run import BackgroundAnnotator, annotate_run
 from src.tools.power_mode import ensure_performance
 from src.vision import pipeline as vision
 from src.vision.pipeline import annotate_video_frame, process_video_frame
@@ -93,17 +94,19 @@ if __name__ == "__main__":
         action="store_true",
         help="Record raw.mp4 -- untouched camera frames -- INSTEAD OF the annotated "
              "obstacle.mp4, and log what was detected alongside it. obstacle.mp4 is "
-             "rebuilt automatically once the run ends (see --no-annotate), so you still "
-             "get both videos. Cheaper on the control loop than annotating live, and "
-             "raw.mp4 is what the colour tuners want."
+             "rebuilt automatically in the background as soon as turn 13 completes and "
+             "parking begins (see --no-annotate), so you still get both videos and the "
+             "program exits the instant parking finishes. Cheaper on the control loop "
+             "than annotating live, and raw.mp4 is what the colour tuners want."
     )
     parser.add_argument(
         "--no-annotate",
         action="store_true",
-        help="With -v, do NOT rebuild obstacle.mp4 when the run ends. The rebuild "
-             "happens after the robot has parked and everything else has shut down, so "
-             "it costs the run nothing; use this only if you want the run to exit "
-             "immediately and will rebuild later."
+        help="With -v, do NOT rebuild obstacle.mp4 at all. Normally the rebuild starts "
+             "in the background the moment parking begins and overlaps with parking's "
+             "idle CPU time (pausing during parking's own camera-tracking step), so it "
+             "already costs the run nothing; use this only if you don't want "
+             "obstacle.mp4 this run and will rebuild later."
     )
     parser.add_argument(
         "--every-n", type=int, default=None, metavar="N",
@@ -168,19 +171,36 @@ if __name__ == "__main__":
     # Control state the rebuilt annotation needs and cannot recover from pixels.
     overlay_log = OverlayLog(raw_video_path) if record_raw else None
 
+    # A second, always-idle encoder for parking's own footage. Started here (before
+    # any hardware/thread exists) for the same fork-safety reason as video_encoder
+    # above -- parking begins mid-run, long after threads and picamera2 are up, so
+    # this cannot be created lazily at that point. It sits at 0 frames/0% CPU for the
+    # entire drive; parking.py only starts writing to it once turn 13 is reached, so
+    # the driving video never has to share space with parking's telemetry overlay --
+    # see _record_parking() in maneuvers.py.
+    parking_video_path = os.path.join(run_folder, 'parking.mp4')
+    parking_video_encoder = VideoEncoderProcess(
+        parking_video_path, VIDEO_FOURCC, every_n=args.every_n)
+    parking_video_encoder.start()
+    log.info("Recording parking footage to %s (%s)", parking_video_path, VIDEO_FOURCC)
+
     # ---- Hardware ---------------------------------------------------------
     if not camera.initialize():
         # Most common cause: something else (a colour tuner, another run) still has
         # the camera open -- picamera2 fails init but capture_frame() would then just
         # return None forever, so the run would drive fully blind instead of erroring.
         # Bail out now, before any motor/servo/thread is touched, and clean up the
-        # two processes already started above.
+        # three processes already started above.
         log.error("Camera failed to initialize (already in use by another process?). "
                   "Aborting run before touching motors/threads.")
         try:
             video_encoder.stop()
         except Exception:
             log.exception("Error stopping encoder")
+        try:
+            parking_video_encoder.stop()
+        except Exception:
+            log.exception("Error stopping parking encoder")
         if overlay_log is not None:
             overlay_log.close()
         if vision_pool is not None:
@@ -214,6 +234,13 @@ if __name__ == "__main__":
     imu_initialized_event = threading.Event()
     imu_thread = ImuThread(bno086, imu_initialized_event)
     imu_thread.start()
+
+    health_thread = SystemHealthThread()
+    health_thread.start()
+
+    heartbeat = Heartbeat()
+    watchdog_thread = WatchdogThread(heartbeat)
+    watchdog_thread.start()
 
     log.info("Waiting for distance sensors and IMU to initialize...")
     sensors_initialized_event.wait()
@@ -335,17 +362,23 @@ if __name__ == "__main__":
         imu_thread=imu_thread,
         sensor_thread=sensor_thread,
         video_encoder=video_encoder,
+        parking_video_encoder=parking_video_encoder,
         # Tells the maneuvers to record untouched frames too -- several of them draw
         # straight onto the frame they write, which would poison raw.mp4.
         RECORD_RAW=record_raw,
-        # Parking stores its drawn frames and marks them here, so the rebuild leaves
-        # them alone instead of drawing detections over the top.
         overlay_log=overlay_log,
         INITIAL_HEADING=INITIAL_HEADING,
         driving_direction=driving_direction,
     )
 
     perf = PerfMonitor()
+
+    # Set once turn 13 starts the background rebuild (see the turn_counter >= 13
+    # branch below). Declared here, before the run can fail, so the `finally` block
+    # can tell "rebuild already started in the background" apart from "never reached
+    # turn 13" -- an aborted run (exception, or the stop button before turn 13) needs
+    # the old synchronous rebuild as a fallback, since nothing else will have done it.
+    bg_annotator = None
 
     try:
         run_start_time = time.monotonic()
@@ -355,6 +388,10 @@ if __name__ == "__main__":
         log.info("Initial maneuver done; entering main control loop.")
 
         motor.start_rpm_control(INITIAL_RPM, "forward")
+        # Same detail is already in the overlay JSON (one record per recorded frame,
+        # replayable by annotate_run.py), so this is just a coarse human-readable
+        # heartbeat -- throttled hard to keep the log file grep-able.
+        frame_debug_throttle = Throttle(1.0)
         prev_rpm = INITIAL_RPM
         last_block_target_rpm = INITIAL_RPM
         frames_since_block_seen = BLOCK_TARGET_GRACE_FRAMES
@@ -363,8 +400,14 @@ if __name__ == "__main__":
         green_post_pass_frames = 0
         tracking_red_block = False
         red_post_pass_frames = 0
+        prev_target_error = 0.0
+        # Set right before the one deliberate blocking maneuver still inline in this
+        # loop (CLOSE BLOCK reverse-and-swerve below) so the stall watchdog on the
+        # next iteration knows the resulting skip was expected, not a hang.
+        last_frame_was_known_blind = False
 
         while True:
+            heartbeat.pet()
             target_rpm = INITIAL_RPM
             angle = 0
             active_block_y = None
@@ -382,18 +425,62 @@ if __name__ == "__main__":
             past_frame_counter = frame_counter
             loop_frames += 1
 
+            # Post-hoc stall accounting, run on the same thread as the stall itself --
+            # by the time this executes the stall is already over (the real-time cut
+            # happens in WatchdogThread, a separate thread that can act *during* a
+            # stall; see WATCHDOG_TIMEOUT_S in tuning.py). This just makes sure we
+            # resume from a known state (fresh stop+restart) and log it, whether or
+            # not the watchdog already tripped. `skipped` camera frames flew past
+            # between this iteration and the last one actually processed -- if that
+            # wasn't the known CLOSE BLOCK pause, log loud; added after the
+            # 2026-08-19_20-50-33 run stalled 74 frames (~1.3s) for no maneuver-
+            # related reason found in the logs.
+            if skipped >= LOOP_STALL_SKIP_THRESHOLD:
+                stall_ms = skipped / CAMERA_FPS * 1000.0
+                if last_frame_was_known_blind:
+                    log.info("Loop resumed after a known blocking maneuver: "
+                             "%d frames skipped (~%.0fms) before f=%d.",
+                             skipped, stall_ms, frame_counter)
+                else:
+                    log.error("CONTROL LOOP STALL: %d frames skipped (~%.0fms blind) "
+                              "before f=%d with no known cause -- emergency-stopping "
+                              "motor and resuming.", skipped, stall_ms, frame_counter)
+                    motor.stop_rpm_control()
+                    motor.start_rpm_control(prev_rpm or INITIAL_RPM, "forward")
+            last_frame_was_known_blind = False
+
             sensor_readings = sensor_thread.get_readings()
 
             t_proc = time.perf_counter()
             detections = process_video_frame(frame)
             proc_ms = (time.perf_counter() - t_proc) * 1000.0
+            if proc_ms > STAGE_WARN_MS:
+                log.warning("Vision stage slow: %.1fms (frame=%d)", proc_ms, frame_counter)
 
             if detections.get('detected_magenta'):
                 if driving_direction == 'clockwise':
                     detections['detected_magenta'].sort(key=lambda x: x['centroid'][0])
                 else:
                     detections['detected_magenta'].sort(key=lambda x: x['centroid'][0], reverse=True)
-            detected_blocks = detections['detected_blocks']
+            detected_blocks = [
+                b for b in detections['detected_blocks']
+                if not (
+                    (
+                        b.get('color') == 'green'
+                        and b.get('centroid', (0, 0))[0] < 200
+                        and b.get('contour') is not None
+                        and len(b['contour']) > 0
+                        and b['contour'].reshape(-1, 2)[:, 1].min() <= full_frame_roi[1] + 2
+                    )
+                    or (
+                        b.get('color') == 'red'
+                        and b.get('centroid', (0, 0))[0] > 440
+                        and b.get('contour') is not None
+                        and len(b['contour']) > 0
+                        and b['contour'].reshape(-1, 2)[:, 1].min() <= full_frame_roi[1] + 2
+                    )
+                )
+            ]
             detected_walls = detections['detected_walls']
             detected_orange_object = detections['detected_orange']
             detected_blue_object = detections['detected_blue']
@@ -436,6 +523,7 @@ if __name__ == "__main__":
                             break
                         log.warning("CLOSE BLOCK (%s) -- reverse-and-swerve, angle=%d",
                                     block['color'], angle)
+                        last_frame_was_known_blind = True
                         motor.stop_rpm_control()
                         servo.set_angle(angle)
                         # BUG: direct duty + stopwatch. This is the reflex that backs
@@ -449,10 +537,14 @@ if __name__ == "__main__":
                         # then the same 12 cm comes back every time. Needs a heading to
                         # hold -- capture imu_thread.get_heading() before the swerve.
                         motor.reverse(60)
-                        time.sleep(0.5)
+                        time.sleep(0.2)
+                        heartbeat.pet()
+                        time.sleep(0.3)
+                        heartbeat.pet()   # each leg alone is under WATCHDOG_TIMEOUT_S
                         motor.forward(60)
                         servo.set_angle(-angle)
                         time.sleep(0.3)
+                        heartbeat.pet()
                         motor.start_rpm_control(INITIAL_RPM, "forward")
                         prev_rpm = INITIAL_RPM
                         target_rpm = INITIAL_RPM
@@ -475,7 +567,7 @@ if __name__ == "__main__":
                             b1 = candidate_blocks[1]
                             if b0['color'] == 'red' and b1['color'] == 'red' and b0['centroid'][0] < 150:
                                 block = b1
-                            elif b0['color'] == 'green' and b1['color'] == 'green' and b0['centroid'][0] > 490:
+                            elif b0['color'] == 'green' and b1['color'] == 'green' and b0['centroid'][0] > 450:
                                 block = b1
                             else:
                                 block = b0
@@ -514,8 +606,52 @@ if __name__ == "__main__":
                                 red_right_x = block['contour'][:, 0, 0].max()
                                 target_x_line = int(0.55 * magenta_left_x + 0.45 * red_right_x)
                                 visual_target_x = target_x_line
-                                angle = ((target_x_line - FRAME_MIDPOINT_X) * 0.35)
+                                target_error = target_x_line - FRAME_MIDPOINT_X
+                                target_derivative = target_error - prev_target_error
+                                angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
+                                prev_target_error = target_error
+                            elif driving_direction == 'clockwise' and wall_inner_right_size > 0:
+                                pts = block['contour'].reshape(-1, 2)
+                                bottom_pts = pts[pts[:, 1] >= pts[:, 1].max() - 2]
+                                corner_x = int(bottom_pts[:, 0].max()) if len(bottom_pts) > 0 else int(pts[:, 0].max())
+                                corner_y = int(pts[:, 1].max())
+
+                                found_black_x = None
+                                pure_black_mask = detections.get('pure_black_mask')
+                                if pure_black_mask is not None:
+                                    y_min_bound = inner_right_roi_y
+                                    y_max_bound = inner_right_roi_y + inner_right_roi_h - 1
+                                    y_start = max(y_min_bound, corner_y - 10)
+                                    y_end = min(y_max_bound, corner_y + 10)
+                                    scan_start_x = max(corner_x + 1, inner_right_roi_x)
+                                    scan_end_x = inner_right_roi_x + inner_right_roi_w - 1
+                                    ys_min = max(1, y_start - GLOBAL_Y_OFFSET)
+                                    ys_max = min(pure_black_mask.shape[0] - 2, y_end - GLOBAL_Y_OFFSET)
+                                    xs_min = max(1, scan_start_x)
+                                    xs_max = min(pure_black_mask.shape[1] - 2, scan_end_x)
+                                    if ys_min <= ys_max and xs_min <= xs_max:
+                                        crop = pure_black_mask[ys_min - 1 : ys_max + 2, xs_min - 1 : xs_max + 2]
+                                        eroded = cv2.erode(crop, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
+                                        valid_eroded = eroded[1:-1, 1:-1]
+                                        col_has_black = np.any(valid_eroded > 0, axis=0)
+                                        cols = np.where(col_has_black)[0]
+                                        if len(cols) > 0:
+                                            found_black_x = int(xs_min + cols[0])
+
+                                if found_black_x is not None:
+                                    target_x_line = int((corner_x + found_black_x) / 2)
+                                    visual_target_x = target_x_line
+                                    target_error = target_x_line - FRAME_MIDPOINT_X
+                                    target_derivative = target_error - prev_target_error
+                                    angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
+                                    prev_target_error = target_error
+                                else:
+                                    prev_target_error = 0.0
+                                    visual_target_line = ((RED_ORIGIN_X, RED_ORIGIN_Y), (block_x, block_y), RED_IDEAL_ANGLE, (RED_OTHER_X, RED_OTHER_Y))
+                                    current_angle = math.degrees(math.atan2(block_x - RED_ORIGIN_X, RED_ORIGIN_Y - block_y))
+                                    angle = (current_angle - RED_IDEAL_ANGLE) * 1.5
                             else:
+                                prev_target_error = 0.0
                                 visual_target_line = ((RED_ORIGIN_X, RED_ORIGIN_Y), (block_x, block_y), RED_IDEAL_ANGLE, (RED_OTHER_X, RED_OTHER_Y))
                                 current_angle = math.degrees(math.atan2(block_x - RED_ORIGIN_X, RED_ORIGIN_Y - block_y))
                                 angle = (current_angle - RED_IDEAL_ANGLE) * 1.5
@@ -555,8 +691,52 @@ if __name__ == "__main__":
                                 green_left_x = block['contour'][:, 0, 0].min()
                                 target_x_line = int(0.55 * magenta_right_x + 0.45 * green_left_x)
                                 visual_target_x = target_x_line
-                                angle = ((target_x_line - FRAME_MIDPOINT_X) * 0.35)
+                                target_error = target_x_line - FRAME_MIDPOINT_X
+                                target_derivative = target_error - prev_target_error
+                                angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
+                                prev_target_error = target_error
+                            elif driving_direction == 'counter-clockwise' and wall_inner_left_size > 0:
+                                pts = block['contour'].reshape(-1, 2)
+                                bottom_pts = pts[pts[:, 1] >= pts[:, 1].max() - 2]
+                                corner_x = int(bottom_pts[:, 0].min()) if len(bottom_pts) > 0 else int(pts[:, 0].min())
+                                corner_y = int(pts[:, 1].max())
+
+                                found_black_x = None
+                                pure_black_mask = detections.get('pure_black_mask')
+                                if pure_black_mask is not None:
+                                    y_min_bound = inner_left_roi_y
+                                    y_max_bound = inner_left_roi_y + inner_left_roi_h - 1
+                                    y_start = max(y_min_bound, corner_y - 10)
+                                    y_end = min(y_max_bound, corner_y + 10)
+                                    scan_start_x = min(corner_x - 1, inner_left_roi_x + inner_left_roi_w - 1)
+                                    scan_end_x = inner_left_roi_x
+                                    ys_min = max(1, y_start - GLOBAL_Y_OFFSET)
+                                    ys_max = min(pure_black_mask.shape[0] - 2, y_end - GLOBAL_Y_OFFSET)
+                                    xs_min = max(1, scan_end_x)
+                                    xs_max = min(pure_black_mask.shape[1] - 2, scan_start_x)
+                                    if ys_min <= ys_max and xs_min <= xs_max:
+                                        crop = pure_black_mask[ys_min - 1 : ys_max + 2, xs_min - 1 : xs_max + 2]
+                                        eroded = cv2.erode(crop, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
+                                        valid_eroded = eroded[1:-1, 1:-1]
+                                        col_has_black = np.any(valid_eroded > 0, axis=0)
+                                        cols = np.where(col_has_black)[0]
+                                        if len(cols) > 0:
+                                            found_black_x = int(xs_min + cols[-1])
+
+                                if found_black_x is not None:
+                                    target_x_line = int((corner_x + found_black_x) / 2)
+                                    visual_target_x = target_x_line
+                                    target_error = target_x_line - FRAME_MIDPOINT_X
+                                    target_derivative = target_error - prev_target_error
+                                    angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
+                                    prev_target_error = target_error
+                                else:
+                                    prev_target_error = 0.0
+                                    visual_target_line = ((GREEN_ORIGIN_X, GREEN_ORIGIN_Y), (block_x, block_y), GREEN_IDEAL_ANGLE, (GREEN_OTHER_X, GREEN_OTHER_Y))
+                                    current_angle = math.degrees(math.atan2(block_x - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - block_y))
+                                    angle = (current_angle - GREEN_IDEAL_ANGLE) * 1.5
                             else:
+                                prev_target_error = 0.0
                                 visual_target_line = ((GREEN_ORIGIN_X, GREEN_ORIGIN_Y), (block_x, block_y), GREEN_IDEAL_ANGLE, (GREEN_OTHER_X, GREEN_OTHER_Y))
                                 current_angle = math.degrees(math.atan2(block_x - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - block_y))
                                 angle = (current_angle - GREEN_IDEAL_ANGLE) * 1.5
@@ -587,6 +767,7 @@ if __name__ == "__main__":
                     red_post_pass_frames = POST_RED_CLIP_FRAMES
                 if frames_since_block_seen < BLOCK_TARGET_GRACE_FRAMES:
                     frames_since_block_seen += 1
+                prev_target_error = 0.0
                 left_pixel_size,right_pixel_size,wall_inner_left_size,wall_inner_right_size,target=0,0,0,0,0
                 left_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
                 right_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
@@ -703,22 +884,36 @@ if __name__ == "__main__":
 
             blocks_detail = ",".join(f"{b['color']}:{int(b['area'])}@y={b['centroid'][1]}" for b in detected_blocks) if detected_blocks else "-"
 
-            log.debug("f=%d angle=%+6.1f rpm=%4.0f turns=%d lat=%5.2fms vis=%4.2fms "
-                      "blocks=%d[%s] walls=%d skip=%d",
-                      frame_counter, float(angle), commanded_rpm, turn_counter,
-                      latency_ms, proc_ms, len(detected_blocks), blocks_detail, len(detected_walls),
-                      skipped)
+            if frame_debug_throttle:
+                log.debug("f=%d angle=%+6.1f rpm=%4.0f turns=%d lat=%5.2fms vis=%4.2fms "
+                          "blocks=%d[%s] walls=%d skip=%d",
+                          frame_counter, float(angle), commanded_rpm, turn_counter,
+                          latency_ms, proc_ms, len(detected_blocks), blocks_detail, len(detected_walls),
+                          skipped)
 
+            # Timed separately from everything above: this is off the actuation path
+            # (steering already went out at ~line 706) but it still gates how soon the
+            # loop gets back to `get_next_frame()` for the *next* frame, so a slow
+            # write here is exactly the kind of thing that could produce a stall like
+            # the untraced one in the 2026-08-19_20-50-33 run. overlay_log.append() is
+            # a synchronous json.dumps() + file write (not the non-blocking, drop-on-
+            # full video_encoder.write()), so it's the prime suspect -- timed alone.
+            t_rec = time.perf_counter()
             if record_raw:
                 # The frame goes in untouched -- no annotation, no filtering. Both are
                 # reapplied offline by annotate_run.py, which is the whole point: the
                 # loop pays for a memcpy instead of a draw pass.
                 if video_encoder.write(frame, tag=frame_counter):
+                    t_overlay = time.perf_counter()
                     # tags gets one entry per accepted frame, so its last index IS the
                     # video frame number this overlay record belongs to.
                     overlay_log.append(
                         len(video_encoder.tags) - 1, driving_direction, debug,
                         visual_target_x, visual_target_line, detections)
+                    overlay_ms = (time.perf_counter() - t_overlay) * 1000.0
+                    if overlay_ms > STAGE_WARN_MS:
+                        log.warning("Overlay log write slow: %.1fms (frame=%d)",
+                                    overlay_ms, frame_counter)
             else:
                 # Annotation is handed to write() rather than done first, so the 1.88 ms
                 # is only spent on frames that actually get recorded.
@@ -728,6 +923,10 @@ if __name__ == "__main__":
                         f, detections, driving_direction, debug_info=debug,
                         visual_target_x=visual_target_x,
                         visual_target_line=visual_target_line))
+            rec_ms = (time.perf_counter() - t_rec) * 1000.0
+            if rec_ms > STAGE_WARN_MS:
+                log.warning("Recording stage slow: %.1fms (frame=%d, record_raw=%s)",
+                            rec_ms, frame_counter, record_raw)
 
             angle = 0
 
@@ -737,10 +936,43 @@ if __name__ == "__main__":
                 motor.brake()
                 break
             if turn_counter >= 13:
+                # Parking runs open-loop for many seconds with no per-frame heartbeat
+                # to pet -- stop the watchdog rather than have it "cut power" mid
+                # parking maneuver for a stall that isn't one.
+                watchdog_thread.stop()
                 motor.stop_rpm_control()
                 parking_start_time = time.monotonic()
                 time_before_parking = parking_start_time - run_start_time
                 log.info("--- Time before parking (13 turns complete): %.2fs ---", time_before_parking)
+
+                if record_raw and not args.no_annotate:
+                    # Finalising the driving video (video_encoder.stop(), which joins
+                    # the encoder's child process) and closing overlay_log both have to
+                    # happen before annotate_run() can open raw.mp4 -- but NOT on this
+                    # thread: video_encoder.stop() blocks until the encoder's queue is
+                    # flushed, which is a few hundred ms of unpredictable length, and
+                    # doing that here -- right before parking's first move -- turned
+                    # into a variable, unbraked coast (robot pauses, then overshoots
+                    # forward by however long the flush took). finalize= runs both
+                    # calls on the background thread instead, so this thread hands off
+                    # to maneuvers.parking()/parking2() immediately. parking() itself
+                    # never touches video_encoder any more -- _record_parking() writes
+                    # to parking_video_encoder instead -- so deferring the stop here
+                    # does not race parking's own recording.
+                    def _finalize_driving_video():
+                        video_encoder.stop()
+                        overlay_log.close()
+                    bg_annotator = BackgroundAnnotator(
+                        raw_video_path, video_path, finalize=_finalize_driving_video)
+                    bg_annotator.start()
+                    # Only rebindable exception to "nothing below may rebind these"
+                    # above: bg_annotator cannot exist until the driving video it
+                    # rebuilds is finalised, which only happens here. Lets parking's
+                    # Step 4 magenta-line tracking pause/resume it around the one
+                    # part of parking that is itself latency-sensitive on the camera.
+                    maneuvers.bind(bg_annotator=bg_annotator)
+                    log.info("Re-annotation started in the background during parking.")
+
                 if driving_direction == 'clockwise':
                     maneuvers.parking()
                 else:
@@ -752,6 +984,20 @@ if __name__ == "__main__":
                 log.info("--- Time spent in parking: %.2fs ---", run_end_time - parking_start_time)
                 log.info("--- Total run time: %.2fs ---", run_end_time - run_start_time)
                 motor.brake()
+
+                if bg_annotator is not None:
+                    # 0s delay if the rebuild already finished during parking; only
+                    # actually waits if parking was too short to cover the ~9s of work.
+                    t_join = time.monotonic()
+                    bg_annotator.join()
+                    join_s = time.monotonic() - t_join
+                    if bg_annotator.error is None:
+                        log.info("Background annotation joined (%.2fs wait); %s ready.",
+                                 join_s, video_path)
+                    else:
+                        log.warning("Background annotation failed (%.2fs wait); rerun "
+                                    "`python3 -m src.obstacle_challenge.annotate_run "
+                                    "%s` to retry.", join_s, run_folder)
                 break
 
     except Exception:
@@ -775,18 +1021,28 @@ if __name__ == "__main__":
         camera_thread.stop()
         sensor_thread.stop()
         imu_thread.stop()
+        health_thread.stop()
+        watchdog_thread.stop()   # no-op if parking() already stopped it
 
         log.info("Waiting for threads to complete...")
         camera_thread.join(timeout=5)
         sensor_thread.join(timeout=5)
         imu_thread.join(timeout=5)
+        health_thread.join(timeout=5)
+        watchdog_thread.join(timeout=5)
         log.info("All threads have completed.")
 
-        # Child processes last: the encoder still has queued frames to flush.
+        # Child processes last: the encoders still have queued frames to flush.
+        # video_encoder.stop() is a no-op if the turn_counter >= 13 branch already
+        # stopped it -- VideoEncoderProcess.stop() tolerates being called twice.
         try:
             video_encoder.stop()
         except Exception:
             log.exception("Error stopping encoder")
+        try:
+            parking_video_encoder.stop()
+        except Exception:
+            log.exception("Error stopping parking encoder")
         if overlay_log is not None:
             overlay_log.close()
         if vision_pool is not None:
@@ -799,19 +1055,35 @@ if __name__ == "__main__":
         cv2.destroyAllWindows()
         subprocess.run(["pinctrl", "FAN_PWM", "a0"], check=False)
 
-        # Rebuild the annotated video. Deliberately the LAST thing: the robot has
-        # parked, the encoder has flushed, and the vision workers and hardware threads
-        # are all gone, so this has the machine to itself and costs the run nothing.
         if record_raw and not args.no_annotate:
-            try:
-                cv2.setNumThreads(0)   # 0 = all cores; nothing is competing for them now
-                log.info("Rebuilding annotated video from %s...", raw_video_path)
-                annotate_run(raw_video_path, video_path)
-                log.info("Annotated video written to %s", video_path)
-            except Exception:
-                log.exception("Could not rebuild the annotated video. The run itself is "
-                              "fine -- rerun `python3 -m src.obstacle_challenge."
-                              "annotate_run %s` to retry", run_folder)
+            if bg_annotator is not None:
+                # Normal path already joined this right after parking finished; this
+                # is just a safety net for the abnormal one -- an exception raised
+                # from inside maneuvers.parking()/parking2() itself would have skipped
+                # that join and landed straight here instead.
+                if not bg_annotator.is_done():
+                    log.warning("Reached shutdown with the background rebuild still "
+                                "running (parking() likely raised) -- joining now.")
+                bg_annotator.join()
+                if bg_annotator.error is not None:
+                    log.warning("Background annotation failed; rerun "
+                                "`python3 -m src.obstacle_challenge.annotate_run %s` "
+                                "to retry.", run_folder)
+            else:
+                # turn 13 was never reached -- stop button pressed early, or an
+                # exception before then -- so nothing has rebuilt obstacle.mp4 yet.
+                # Deliberately the last thing done here: the vision workers and
+                # hardware threads are all gone, so this has the machine to itself.
+                try:
+                    cv2.setNumThreads(0)   # 0 = all cores; nothing competing for them
+                    log.info("Rebuilding annotated video from %s...", raw_video_path)
+                    annotate_run(raw_video_path, video_path)
+                    log.info("Annotated video written to %s", video_path)
+                except Exception:
+                    log.exception("Could not rebuild the annotated video. The run "
+                                  "itself is fine -- rerun `python3 -m "
+                                  "src.obstacle_challenge.annotate_run %s` to retry",
+                                  run_folder)
 
         log.info("Run complete. Log saved to %s", log_path)
         shutdown_logging()
