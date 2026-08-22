@@ -116,6 +116,14 @@ VIDEO_FOURCC = 'avc1'      # H.264. Opens in QuickTime; mp4v does not.
 
 CAMERA_FPS = 56.0          # the sensor's hard ceiling, see the module docstring
 
+# How long CameraThread.get_next_frame() waits for a NEW frame before reporting the
+# one it holds as stale. Measured, not guessed: across 308k frame intervals from 245
+# archived runs the median is 17.9 ms, p99.9 31 ms, p99.99 38.6 ms; only 5 intervals
+# exceeded 50 ms and the largest ever recorded was 110 ms. 50 ms is ~2.8 frame times
+# -- 30% clear of the worst routine jitter, and at MAX_RPM (~1 m/s) it caps blind
+# travel at ~5 cm before the control loop cuts power.
+CAMERA_STALE_TIMEOUT_S = 0.020
+
 # Record only every Nth frame. This is the single biggest performance lever in the
 # whole program, and it is not obvious why.
 #

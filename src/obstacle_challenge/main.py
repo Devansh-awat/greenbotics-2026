@@ -259,8 +259,10 @@ if __name__ == "__main__":
 
     log.info("Detecting start driving direction from camera frames...")
     for _ in range(max_direction_frames):
-        frame, past_frame_counter, _ = camera_thread.get_next_frame(past_frame_counter)
-        if frame is None:
+        frame, past_frame_counter, _, fresh = camera_thread.get_next_frame(past_frame_counter)
+        if frame is None or not fresh:
+            # Stale frame -- re-running detection on pixels already counted would
+            # let one frame satisfy `consecutive_required` on its own.
             continue
 
         detections = process_video_frame(frame)
@@ -393,6 +395,7 @@ if __name__ == "__main__":
         tracking_red_block = False
         red_post_pass_frames = 0
         prev_target_error = 0.0
+        camera_stalled = False
 
         while True:
             target_rpm = INITIAL_RPM
@@ -405,10 +408,41 @@ if __name__ == "__main__":
             # Blocking wait -- no busy-spin. `capture_ts` is when the camera thread
             # actually received this frame, which is what capture->servo latency is
             # measured against.
-            frame, frame_counter, capture_ts = camera_thread.get_next_frame(past_frame_counter)
-            if frame is None:
+            frame, frame_counter, capture_ts, fresh = camera_thread.get_next_frame(past_frame_counter)
+            if frame is None or not fresh:
+                # No new frame within CAMERA_STALE_TIMEOUT_S. `frame` is the one we
+                # already steered on, so acting again means acting on pixels that
+                # are at least that old while the robot keeps rolling at ~1 m/s.
+                # Cut power and hold here -- unlike a post-hoc `skipped` check this
+                # runs DURING the stall, which is the only time it can help.
+                if not camera_stalled:
+                    camera_stalled = True
+                    log.critical(
+                        "CAMERA STALL: no new frame for >%.0f ms after f=%d -- "
+                        "stopping motor and holding until frames resume.",
+                        CAMERA_STALE_TIMEOUT_S * 1000.0, past_frame_counter)
+                    motor.stop_rpm_control()
+                    motor.brake()
+                # Still honour the stop button, or a dead camera would hang the run
+                # with no way out.
+                if button.is_pressed:
+                    log.info("Stop button pressed during camera stall -- ending run.")
+                    break
                 continue
+
             skipped = max(0, frame_counter - past_frame_counter - 1)
+            if camera_stalled:
+                camera_stalled = False
+                log.warning("CAMERA STALL over: frames resumed after %d skipped "
+                            "(~%.0f ms blind); restarting motor control.",
+                            skipped, skipped / CAMERA_FPS * 1000.0)
+                # Restart from the same state entry into the loop uses, so the rate
+                # limiter ramps back up from INITIAL_RPM rather than jumping to
+                # whatever target was in flight when the camera died.
+                motor.start_rpm_control(INITIAL_RPM, "forward")
+                prev_rpm = INITIAL_RPM
+                last_block_target_rpm = INITIAL_RPM
+                frames_since_block_seen = BLOCK_TARGET_GRACE_FRAMES
             past_frame_counter = frame_counter
             loop_frames += 1
 

@@ -36,6 +36,7 @@ from src.sensors import bno086, camera
 from src.open_challenge import config
 from src.open_challenge.config import *
 from src.obstacle_challenge.control import get_angular_difference
+from src.obstacle_challenge.tuning import CAMERA_STALE_TIMEOUT_S
 from src.threads.hw_threads import CameraThread, ImuThread, PerfMonitor
 from src.logs.setup import Throttle, log, setup_logging, shutdown_logging
 from src.obstacle_challenge.video import VideoEncoderProcess
@@ -150,15 +151,29 @@ if __name__ == "__main__":
     try:
         run_start_time = time.monotonic()
         motor.start_rpm_control(TARGET_RPM, direction="forward")
+        camera_stalled = False
 
         while True:
             angle = 0
             debug = []
 
             # Blocking wait -- no busy-spin, same as the obstacle loop.
-            frame, frame_counter, capture_ts = camera_thread.get_next_frame(past_frame_counter)
-            if frame is None:
+            frame, frame_counter, capture_ts, fresh = camera_thread.get_next_frame(past_frame_counter)
+            if frame is None or not fresh:
+                # Stale frame -- see CameraThread.get_next_frame(). Cut power rather
+                # than steer on pixels we already used.
+                if not camera_stalled:
+                    camera_stalled = True
+                    log.critical("CAMERA STALL: no new frame for >%.0f ms after f=%d "
+                                 "-- stopping motor.",
+                                 CAMERA_STALE_TIMEOUT_S * 1000.0, past_frame_counter)
+                    motor.stop_rpm_control()
+                    motor.brake()
                 continue
+            if camera_stalled:
+                camera_stalled = False
+                log.warning("CAMERA STALL over -- restarting motor control.")
+                motor.start_rpm_control(TARGET_RPM, direction="forward")
             skipped = max(0, frame_counter - past_frame_counter - 1)
             past_frame_counter = frame_counter
 

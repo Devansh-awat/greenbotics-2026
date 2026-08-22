@@ -302,9 +302,11 @@ def parking():
     ROI_X_START = 600
     TARGET_Y_OFFSET_FROM_BOTTOM = 180
 
+    TRACK_RPM = 150
     motor.stop_rpm_control()
-    motor.start_rpm_control(150, "forward")
+    motor.start_rpm_control(TRACK_RPM, "forward")
     past_frame_counter = 0
+    stalled = False
     plog.info("Tracking line to magenta stop...")
     # Step 4: this is the one part of parking that reads the camera in real time, so
     # it owns the frame-to-servo latency budget the way the main control loop did.
@@ -312,10 +314,24 @@ def parking():
     if bg_annotator is not None:
         bg_annotator.pause()
     while True:
-        frame, frame_counter, _ = camera_thread.get_next_frame(past_frame_counter)
+        frame, frame_counter, _, fresh = camera_thread.get_next_frame(past_frame_counter)
         if frame is None:
             plog.error("Failed to get frame, breaking loop.")
             break
+        if not fresh:
+            # Same contract as the main control loop: this frame is the one we
+            # already steered on. Cut power rather than track a stale line, and
+            # pick the drive back up when the camera does.
+            if not stalled:
+                stalled = True
+                plog.critical("CAMERA STALL during line tracking -- stopping motor.")
+                motor.stop_rpm_control()
+                motor.brake()
+            continue
+        if stalled:
+            stalled = False
+            plog.warning("CAMERA STALL over -- resuming line tracking.")
+            motor.start_rpm_control(TRACK_RPM, "forward")
         past_frame_counter = frame_counter
 
         frame_height, frame_width, _ = frame.shape
@@ -540,17 +556,33 @@ def parking2():
 
     t_step = time.monotonic()
     plog.info("[Parking2 4/10] Tracking line to magenta stop (200 RPM)...")
-    motor.start_rpm_control(200, "forward")
+    TRACK_RPM = 200
+    motor.start_rpm_control(TRACK_RPM, "forward")
     past_frame_counter = 0
+    stalled = False
     # Step 4: the one part of parking2 that reads the camera in real time. Freeze the
     # background rebuild for the duration -- see BackgroundAnnotator.
     if bg_annotator is not None:
         bg_annotator.pause()
     while True:
-        frame, frame_counter, _ = camera_thread.get_next_frame(past_frame_counter)
+        frame, frame_counter, _, fresh = camera_thread.get_next_frame(past_frame_counter)
         if frame is None:
             plog.error("Failed to get frame, breaking loop.")
             break
+        if not fresh:
+            # Same contract as the main control loop: this frame is the one we
+            # already steered on. Cut power rather than track a stale line, and
+            # pick the drive back up when the camera does.
+            if not stalled:
+                stalled = True
+                plog.critical("CAMERA STALL during line tracking -- stopping motor.")
+                motor.stop_rpm_control()
+                motor.brake()
+            continue
+        if stalled:
+            stalled = False
+            plog.warning("CAMERA STALL over -- resuming line tracking.")
+            motor.start_rpm_control(TRACK_RPM, "forward")
         past_frame_counter = frame_counter
 
         frame_height, frame_width, _ = frame.shape

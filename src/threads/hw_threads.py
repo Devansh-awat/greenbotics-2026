@@ -14,7 +14,7 @@ from src.sensors import distance
 from src.logs.setup import (
     Throttle, _fmt, clog, ilog, perflog, slog,
 )
-from src.obstacle_challenge.tuning import PERF_REPORT_PERIOD
+from src.obstacle_challenge.tuning import CAMERA_STALE_TIMEOUT_S, PERF_REPORT_PERIOD
 
 # ---------------------------------------------------------------------------
 # Sensor / camera threads
@@ -55,8 +55,26 @@ class CameraThread(threading.Thread):
                 return self.latest_frame, self.frame_counter
             return None, self.frame_counter
 
-    def get_next_frame(self, last_counter, timeout=1.0):
+    def get_next_frame(self, last_counter, timeout=CAMERA_STALE_TIMEOUT_S):
         """Block until a frame newer than `last_counter` arrives.
+
+        Returns (frame, counter, capture_time, fresh). `fresh` is False when the
+        wait TIMED OUT (or the thread is stopping) -- and then `frame` is the same
+        one the caller already acted on, with a `capture_time` that is already
+        `timeout` old. Steering on it means steering on stale pixels while the
+        robot keeps moving at up to ~1 m/s, so every caller that actuates must
+        check `fresh` and cut power rather than reuse the frame. The old signature
+        returned no such signal: on timeout it handed back the stale frame with an
+        unchanged counter, which the control loop scored as `skipped = 0` and
+        processed as if it were new.
+
+        `timeout` is 50 ms by default, not a round 1 s, because that is what the
+        camera actually does: over 308k frame intervals from 245 archived runs the
+        median is 17.9 ms (the IMX708's 56 fps), p99.9 is 31 ms and p99.99 is
+        38.6 ms. Only 5 intervals in 308k exceeded 50 ms and the largest ever seen
+        was 110 ms, so 50 ms is ~2.8 frame times and leaves a 30% margin over the
+        worst routine jitter while capping blind travel at ~5 cm. Callers that are
+        not steering can pass a longer one.
 
         This is the only way the control loop should fetch frames. The old loop
         called get_frame() and `continue`d when the counter hadn't moved, which
@@ -76,13 +94,17 @@ class CameraThread(threading.Thread):
         thread's notify path.
         """
         with self.cond:
-            self.cond.wait_for(
+            # wait_for() returns the predicate's final value: True if a new frame
+            # (or a stop) arrived, False only if the timeout expired.
+            fresh = bool(self.cond.wait_for(
                 lambda: self.frame_counter != last_counter or self.stop_event.is_set(),
                 timeout=timeout,
-            )
+            ))
+            if self.stop_event.is_set():
+                fresh = False
             if self.latest_frame is not None:
-                return self.latest_frame, self.frame_counter, self.capture_time
-            return None, self.frame_counter, 0.0
+                return self.latest_frame, self.frame_counter, self.capture_time, fresh
+            return None, self.frame_counter, 0.0, False
 
     def stop(self):
         with self.cond:
