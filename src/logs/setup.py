@@ -30,7 +30,7 @@ import time
 #
 # Loggers are named per subsystem so a run log can be filtered:
 #   robot.control  robot.vision  robot.camera  robot.imu
-#   robot.sensors  robot.video   robot.park    robot.perf    robot.health
+#   robot.sensors  robot.video   robot.park    robot.perf
 
 log = logging.getLogger("robot.control")
 vlog = logging.getLogger("robot.vision")
@@ -40,7 +40,6 @@ slog = logging.getLogger("robot.sensors")
 wlog = logging.getLogger("robot.video")
 plog = logging.getLogger("robot.park")
 perflog = logging.getLogger("robot.perf")
-hlog = logging.getLogger("robot.health")
 
 _log_listener = None
 

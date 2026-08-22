@@ -19,6 +19,7 @@ Run it from the repo root:  python3 -m src.open_challenge.main
 """
 
 import argparse
+import math
 import os
 import threading
 import time
@@ -36,7 +37,7 @@ from src.open_challenge import config
 from src.open_challenge.config import *
 from src.obstacle_challenge.control import get_angular_difference
 from src.threads.hw_threads import CameraThread, ImuThread, PerfMonitor
-from src.logs.setup import log, setup_logging, shutdown_logging
+from src.logs.setup import Throttle, log, setup_logging, shutdown_logging
 from src.obstacle_challenge.video import VideoEncoderProcess
 from src.tools.power_mode import ensure_performance
 from src.vision import pipeline as vision
@@ -137,12 +138,18 @@ if __name__ == "__main__":
     driving_direction = None
     final_run_initiated = False
     final_run_start_time = None
+    final_run_start_pos = None
+
+    cpr = motor.encoder.counts_per_rev if (motor.encoder is not None) else (48 * 4.4 * 38 / 13)
+    wheel_diameter_mm = motor.encoder.wheel_diameter_mm if (motor.encoder is not None) else 62.4
+    circ_cm = (math.pi * wheel_diameter_mm) / 10.0
 
     perf = PerfMonitor()
+    frame_debug_throttle = Throttle(1.0)
 
     try:
         run_start_time = time.monotonic()
-        motor.forward(MOTOR_SPEED)
+        motor.start_rpm_control(TARGET_RPM, direction="forward")
 
         while True:
             angle = 0
@@ -240,23 +247,26 @@ if __name__ == "__main__":
                 servo.set_angle(angle)
             prev_angle = angle
 
+            current_rpm = motor.get_measured_rpm()
             latency_ms = (time.monotonic() - capture_ts) * 1000.0
             # ---- everything below is off the critical path ----------------
 
             perf.add(latency_ms, proc_ms, skipped)
-            perf.maybe_report()
+            perf.maybe_report(extra=f" | {current_rpm:5.1f} rpm (target {TARGET_RPM:.0f})")
 
             debug.extend([f"L:{int(left_pixel_size)}", f"R:{int(right_pixel_size)}"])
             debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
             debug.append(f"Err:{int(wall_error)}")
             debug.append(f"Wall%:{int(detections.get('line_roi_wall_pct', 0))}")
             debug.append(f"Angle:{int(angle)}")
+            debug.append(f"RPM:{int(round(current_rpm))}")
             debug.append(f"Turns:{turn_counter}")
             debug.append(f"Dir:{driving_direction or '?'}")
 
-            log.debug("f=%d angle=%+6.1f turns=%d lat=%5.2fms vis=%4.2fms walls=%d skip=%d",
-                      frame_counter, float(angle), turn_counter, latency_ms, proc_ms,
-                      len(detected_walls), skipped)
+            if frame_debug_throttle:
+                log.debug("f=%d angle=%+6.1f turns=%d rpm=%5.1f lat=%5.2fms vis=%4.2fms walls=%d skip=%d",
+                          frame_counter, float(angle), turn_counter, current_rpm, latency_ms, proc_ms,
+                          len(detected_walls), skipped)
 
             annotated_frame = annotate_video_frame(
                 frame, detections, driving_direction, debug_info=debug)
@@ -264,16 +274,33 @@ if __name__ == "__main__":
 
             # --- Exit Conditions ---
             if turn_counter == 12 and not final_run_initiated and get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) < 30:
-                log.info("12 turns reached. Stopping in 0.5 seconds")
                 final_run_initiated = True
                 final_run_start_time = time.monotonic()
+                final_run_start_pos = motor.encoder_position()
+                log.info("12 turns reached. Driving final %.1f cm (encoder-based) before stop...", FINAL_STOP_DISTANCE_CM)
+                servo.set_angle(0.0)
+                prev_angle = 0.0
 
-            if final_run_initiated and (time.monotonic() - final_run_start_time) >= 0.5:
-                log.info("0.3 second complete. Stopping.")
-                motor.brake()
-                break
+            if final_run_initiated:
+                curr_pos = motor.encoder_position()
+                dist_traveled_cm = 0.0
+                encoder_done = False
+                if curr_pos is not None and final_run_start_pos is not None:
+                    delta_ticks = abs(curr_pos - final_run_start_pos)
+                    dist_traveled_cm = (delta_ticks / cpr) * circ_cm
+                    encoder_done = (dist_traveled_cm >= FINAL_STOP_DISTANCE_CM)
+
+                # Fallback timeout if encoder is unavailable
+                timeout_done = (time.monotonic() - final_run_start_time) >= 1.5
+
+                if encoder_done or timeout_done:
+                    log.info("Final distance complete (%.1f cm / %s). Stopping.",
+                             dist_traveled_cm, "encoder" if encoder_done else "timeout fallback")
+                    motor.stop_rpm_control()
+                    break
+
             if turn_counter >= 13:
-                motor.brake()
+                motor.stop_rpm_control()
                 break
 
     except Exception:
@@ -281,8 +308,10 @@ if __name__ == "__main__":
 
     finally:
         run_end_time = time.monotonic()
-        log.info("Run completed in: %.2f seconds.", run_end_time - run_start_time)
+        total_run_time = run_end_time - run_start_time
+        log.info("Run completed in: %.2f seconds.", total_run_time)
 
+        motor.stop_rpm_control()
         motor.brake()
         log.info("Signaling threads to stop...")
         camera_thread.stop()

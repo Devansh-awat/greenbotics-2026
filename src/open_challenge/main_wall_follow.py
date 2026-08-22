@@ -17,11 +17,13 @@ import src.open_challenge.config as config
 from src.sensors import bno086, camera, distance
 from src.motors import motor, servo
 
-# HSV Color Definitions from main_v2
-LOWER_ORANGE = np.array([6, 50, 182])
-UPPER_ORANGE = np.array([15, 255, 255])
-LOWER_BLUE = np.array([114, 50, 110])
-UPPER_BLUE = np.array([123, 255, 255])
+# Color Definitions from obstacle_challenge tuning
+from src.obstacle_challenge.tuning import (
+    LOWER_ORANGE,
+    UPPER_ORANGE,
+    LOWER_BLUE,
+    UPPER_BLUE,
+)
 
 # Line ROI Parameters from main_v2
 LINE_ROI_X, LINE_ROI_Y, LINE_ROI_W, LINE_ROI_H = 280, 175, 80, 40

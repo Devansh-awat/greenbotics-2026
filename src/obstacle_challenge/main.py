@@ -69,8 +69,7 @@ from src.sensors import bno086, camera, distance
 
 from src.obstacle_challenge import config, control, maneuvers
 from src.threads.hw_threads import (
-    CameraThread, Heartbeat, ImuThread, PerfMonitor, SensorThread,
-    SystemHealthThread, WatchdogThread,
+    CameraThread, ImuThread, PerfMonitor, SensorThread,
 )
 from src.logs.setup import Throttle, log, setup_logging, shutdown_logging
 from src.obstacle_challenge.tuning import *
@@ -235,13 +234,6 @@ if __name__ == "__main__":
     imu_thread = ImuThread(bno086, imu_initialized_event)
     imu_thread.start()
 
-    health_thread = SystemHealthThread()
-    health_thread.start()
-
-    heartbeat = Heartbeat()
-    watchdog_thread = WatchdogThread(heartbeat)
-    watchdog_thread.start()
-
     log.info("Waiting for distance sensors and IMU to initialize...")
     sensors_initialized_event.wait()
     log.info("Sensors are ready.")
@@ -401,13 +393,8 @@ if __name__ == "__main__":
         tracking_red_block = False
         red_post_pass_frames = 0
         prev_target_error = 0.0
-        # Set right before the one deliberate blocking maneuver still inline in this
-        # loop (CLOSE BLOCK reverse-and-swerve below) so the stall watchdog on the
-        # next iteration knows the resulting skip was expected, not a hang.
-        last_frame_was_known_blind = False
 
         while True:
-            heartbeat.pet()
             target_rpm = INITIAL_RPM
             angle = 0
             active_block_y = None
@@ -425,37 +412,11 @@ if __name__ == "__main__":
             past_frame_counter = frame_counter
             loop_frames += 1
 
-            # Post-hoc stall accounting, run on the same thread as the stall itself --
-            # by the time this executes the stall is already over (the real-time cut
-            # happens in WatchdogThread, a separate thread that can act *during* a
-            # stall; see WATCHDOG_TIMEOUT_S in tuning.py). This just makes sure we
-            # resume from a known state (fresh stop+restart) and log it, whether or
-            # not the watchdog already tripped. `skipped` camera frames flew past
-            # between this iteration and the last one actually processed -- if that
-            # wasn't the known CLOSE BLOCK pause, log loud; added after the
-            # 2026-08-19_20-50-33 run stalled 74 frames (~1.3s) for no maneuver-
-            # related reason found in the logs.
-            if skipped >= LOOP_STALL_SKIP_THRESHOLD:
-                stall_ms = skipped / CAMERA_FPS * 1000.0
-                if last_frame_was_known_blind:
-                    log.info("Loop resumed after a known blocking maneuver: "
-                             "%d frames skipped (~%.0fms) before f=%d.",
-                             skipped, stall_ms, frame_counter)
-                else:
-                    log.error("CONTROL LOOP STALL: %d frames skipped (~%.0fms blind) "
-                              "before f=%d with no known cause -- emergency-stopping "
-                              "motor and resuming.", skipped, stall_ms, frame_counter)
-                    motor.stop_rpm_control()
-                    motor.start_rpm_control(prev_rpm or INITIAL_RPM, "forward")
-            last_frame_was_known_blind = False
-
             sensor_readings = sensor_thread.get_readings()
 
             t_proc = time.perf_counter()
             detections = process_video_frame(frame)
             proc_ms = (time.perf_counter() - t_proc) * 1000.0
-            if proc_ms > STAGE_WARN_MS:
-                log.warning("Vision stage slow: %.1fms (frame=%d)", proc_ms, frame_counter)
 
             if detections.get('detected_magenta'):
                 if driving_direction == 'clockwise':
@@ -523,7 +484,6 @@ if __name__ == "__main__":
                             break
                         log.warning("CLOSE BLOCK (%s) -- reverse-and-swerve, angle=%d",
                                     block['color'], angle)
-                        last_frame_was_known_blind = True
                         motor.stop_rpm_control()
                         servo.set_angle(angle)
                         # BUG: direct duty + stopwatch. This is the reflex that backs
@@ -537,14 +497,10 @@ if __name__ == "__main__":
                         # then the same 12 cm comes back every time. Needs a heading to
                         # hold -- capture imu_thread.get_heading() before the swerve.
                         motor.reverse(60)
-                        time.sleep(0.2)
-                        heartbeat.pet()
-                        time.sleep(0.3)
-                        heartbeat.pet()   # each leg alone is under WATCHDOG_TIMEOUT_S
+                        time.sleep(0.5)
                         motor.forward(60)
                         servo.set_angle(-angle)
                         time.sleep(0.3)
-                        heartbeat.pet()
                         motor.start_rpm_control(INITIAL_RPM, "forward")
                         prev_rpm = INITIAL_RPM
                         target_rpm = INITIAL_RPM
@@ -563,11 +519,24 @@ if __name__ == "__main__":
                     block = None
                     if candidate_blocks:
                         b0 = candidate_blocks[0]
-                        if b0['centroid'][1] >= 212 and len(candidate_blocks) > 1:
+                        if len(candidate_blocks) > 1:
                             b1 = candidate_blocks[1]
-                            if b0['color'] == 'red' and b1['color'] == 'red' and b0['centroid'][0] < 150:
+                            # Slanted threshold for red-to-red block handoff:
+                            if RED_HANDOFF_X_CENTER != RED_HANDOFF_X_EDGE:
+                                red_req_y = RED_HANDOFF_Y_EDGE + (RED_HANDOFF_Y_CENTER - RED_HANDOFF_Y_EDGE) * (
+                                    (b0['centroid'][0] - RED_HANDOFF_X_EDGE) / (RED_HANDOFF_X_CENTER - RED_HANDOFF_X_EDGE)
+                                )
+                            else:
+                                red_req_y = RED_HANDOFF_Y_CENTER
+
+                            if (
+                                b0['color'] == 'red'
+                                and b1['color'] == 'red'
+                                and b0['centroid'][0] < RED_HANDOFF_X_CENTER
+                                and b0['centroid'][1] >= red_req_y
+                            ):
                                 block = b1
-                            elif b0['color'] == 'green' and b1['color'] == 'green' and b0['centroid'][0] > 450:
+                            elif b0['color'] == 'green' and b1['color'] == 'green' and b0['centroid'][0] > 500 and b0['centroid'][1] >= GREEN_HANDOFF_MIN_Y:
                                 block = b1
                             else:
                                 block = b0
@@ -891,29 +860,20 @@ if __name__ == "__main__":
                           latency_ms, proc_ms, len(detected_blocks), blocks_detail, len(detected_walls),
                           skipped)
 
-            # Timed separately from everything above: this is off the actuation path
-            # (steering already went out at ~line 706) but it still gates how soon the
-            # loop gets back to `get_next_frame()` for the *next* frame, so a slow
-            # write here is exactly the kind of thing that could produce a stall like
-            # the untraced one in the 2026-08-19_20-50-33 run. overlay_log.append() is
-            # a synchronous json.dumps() + file write (not the non-blocking, drop-on-
-            # full video_encoder.write()), so it's the prime suspect -- timed alone.
-            t_rec = time.perf_counter()
             if record_raw:
                 # The frame goes in untouched -- no annotation, no filtering. Both are
                 # reapplied offline by annotate_run.py, which is the whole point: the
                 # loop pays for a memcpy instead of a draw pass.
                 if video_encoder.write(frame, tag=frame_counter):
-                    t_overlay = time.perf_counter()
                     # tags gets one entry per accepted frame, so its last index IS the
-                    # video frame number this overlay record belongs to.
+                    # video frame number this overlay record belongs to. append() only
+                    # buffers in memory now -- the json.dumps()+file write is real
+                    # synchronous disk I/O that used to run right here on the control
+                    # loop, gating how soon the loop got back to the next frame. It's
+                    # deferred to OverlayLog.close() (run once, after the loop exits).
                     overlay_log.append(
                         len(video_encoder.tags) - 1, driving_direction, debug,
                         visual_target_x, visual_target_line, detections)
-                    overlay_ms = (time.perf_counter() - t_overlay) * 1000.0
-                    if overlay_ms > STAGE_WARN_MS:
-                        log.warning("Overlay log write slow: %.1fms (frame=%d)",
-                                    overlay_ms, frame_counter)
             else:
                 # Annotation is handed to write() rather than done first, so the 1.88 ms
                 # is only spent on frames that actually get recorded.
@@ -923,10 +883,6 @@ if __name__ == "__main__":
                         f, detections, driving_direction, debug_info=debug,
                         visual_target_x=visual_target_x,
                         visual_target_line=visual_target_line))
-            rec_ms = (time.perf_counter() - t_rec) * 1000.0
-            if rec_ms > STAGE_WARN_MS:
-                log.warning("Recording stage slow: %.1fms (frame=%d, record_raw=%s)",
-                            rec_ms, frame_counter, record_raw)
 
             angle = 0
 
@@ -936,10 +892,6 @@ if __name__ == "__main__":
                 motor.brake()
                 break
             if turn_counter >= 13:
-                # Parking runs open-loop for many seconds with no per-frame heartbeat
-                # to pet -- stop the watchdog rather than have it "cut power" mid
-                # parking maneuver for a stall that isn't one.
-                watchdog_thread.stop()
                 motor.stop_rpm_control()
                 parking_start_time = time.monotonic()
                 time_before_parking = parking_start_time - run_start_time
@@ -984,20 +936,7 @@ if __name__ == "__main__":
                 log.info("--- Time spent in parking: %.2fs ---", run_end_time - parking_start_time)
                 log.info("--- Total run time: %.2fs ---", run_end_time - run_start_time)
                 motor.brake()
-
-                if bg_annotator is not None:
-                    # 0s delay if the rebuild already finished during parking; only
-                    # actually waits if parking was too short to cover the ~9s of work.
-                    t_join = time.monotonic()
-                    bg_annotator.join()
-                    join_s = time.monotonic() - t_join
-                    if bg_annotator.error is None:
-                        log.info("Background annotation joined (%.2fs wait); %s ready.",
-                                 join_s, video_path)
-                    else:
-                        log.warning("Background annotation failed (%.2fs wait); rerun "
-                                    "`python3 -m src.obstacle_challenge.annotate_run "
-                                    "%s` to retry.", join_s, run_folder)
+                servo.set_angle(0)
                 break
 
     except Exception:
@@ -1021,15 +960,11 @@ if __name__ == "__main__":
         camera_thread.stop()
         sensor_thread.stop()
         imu_thread.stop()
-        health_thread.stop()
-        watchdog_thread.stop()   # no-op if parking() already stopped it
 
         log.info("Waiting for threads to complete...")
         camera_thread.join(timeout=5)
         sensor_thread.join(timeout=5)
         imu_thread.join(timeout=5)
-        health_thread.join(timeout=5)
-        watchdog_thread.join(timeout=5)
         log.info("All threads have completed.")
 
         # Child processes last: the encoders still have queued frames to flush.
@@ -1057,18 +992,16 @@ if __name__ == "__main__":
 
         if record_raw and not args.no_annotate:
             if bg_annotator is not None:
-                # Normal path already joined this right after parking finished; this
-                # is just a safety net for the abnormal one -- an exception raised
-                # from inside maneuvers.parking()/parking2() itself would have skipped
-                # that join and landed straight here instead.
-                if not bg_annotator.is_done():
-                    log.warning("Reached shutdown with the background rebuild still "
-                                "running (parking() likely raised) -- joining now.")
+                t_join = time.monotonic()
                 bg_annotator.join()
-                if bg_annotator.error is not None:
-                    log.warning("Background annotation failed; rerun "
+                join_s = time.monotonic() - t_join
+                if bg_annotator.error is None:
+                    log.info("Background annotation joined (%.2fs wait); %s ready.",
+                             join_s, video_path)
+                else:
+                    log.warning("Background annotation failed (%.2fs wait); rerun "
                                 "`python3 -m src.obstacle_challenge.annotate_run %s` "
-                                "to retry.", run_folder)
+                                "to retry.", join_s, run_folder)
             else:
                 # turn 13 was never reached -- stop button pressed early, or an
                 # exception before then -- so nothing has rebuilt obstacle.mp4 yet.
