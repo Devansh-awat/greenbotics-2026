@@ -290,7 +290,7 @@ def parking():
 
     motor.stop_rpm_control()
     time.sleep(0.3)
-    motor.start_rpm_control(60, "forward")
+    motor.start_rpm_control(100, "forward")
     while get_angular_difference((INITIAL_HEADING+180)%360, imu_thread.get_heading()) > 5:
         heading = imu_thread.get_heading()
         servo.set_angle(steer_with_gyro(heading,(INITIAL_HEADING+180)%360, kp=1,min_servo_angle=-40, max_servo_angle=40))
@@ -307,7 +307,7 @@ def parking():
     TARGET_Y_OFFSET_FROM_BOTTOM = 180
 
     motor.stop_rpm_control()
-    motor.start_rpm_control(100, "forward")
+    motor.start_rpm_control(150, "forward")
     past_frame_counter = 0
     plog.info("Tracking line to magenta stop...")
     # Step 4: this is the one part of parking that reads the camera in real time, so
@@ -374,23 +374,23 @@ def parking():
     if bg_annotator is not None:
         bg_annotator.resume()
     servo.set_angle(0)
-    time.sleep(0.47)  # INCREASING MAKES ROBOT STOP MORE FORWARD
+    time.sleep(0.21)  # INCREASING MAKES ROBOT STOP MORE FORWARD
     motor.stop_rpm_control()
     time.sleep(0.3)
-    motor.start_rpm_control(60, "reverse")
+    motor.start_rpm_control(70, "reverse")
     servo.set_angle_unlimited(55)
     while get_angular_difference((INITIAL_HEADING+100)%360, imu_thread.get_heading()) > 10:
         time.sleep(0.01)
     motor.stop_rpm_control()
-    plog.debug("first reverse turn done: %s", sensor_thread.get_readings())
-    motor.start_rpm_control(40, "reverse")
+    plog.debug("first reverse turn done: %s heading=%s", sensor_thread.get_readings(), _fmt(imu_thread.get_heading()))
+    motor.start_rpm_control(120, "reverse")
     servo.set_angle(0)
     parking_start = time.monotonic()
     throttle = Throttle(0.1)
     while True:
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
-            plog.debug("reverse for parking: back=%s", _fmt(dist))
+            plog.debug("reverse for parking: back=%s heading=%s", _fmt(dist), _fmt(imu_thread.get_heading()))
         if dist is not None and dist < 160:
             break
         if time.monotonic() - parking_start > 6.0:
@@ -425,7 +425,7 @@ def parking():
     while True:
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
-            plog.debug("reverse 2 for parking: back=%s", _fmt(dist))
+            plog.debug("reverse 2 for parking: back=%s heading=%s", _fmt(dist), _fmt(imu_thread.get_heading()))
         if dist is not None:
             if dist <= 100:
                 break
@@ -441,8 +441,8 @@ def parking():
     while True:
         dist_center = sensor_thread.get_readings()['distance_center']
         if throttle:
-            plog.debug("forward alignment: center=%s", _fmt(dist_center))
-        if dist_center is not None and dist_center < 135:
+            plog.debug("forward alignment: center=%s heading=%s", _fmt(dist_center), _fmt(imu_thread.get_heading()))
+        if dist_center is not None and dist_center < 105:
             break
         if get_angular_difference(imu_thread.get_heading(), (INITIAL_HEADING+180)%360) < 2:
             break
@@ -456,7 +456,7 @@ def parking():
     while True:
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
-            plog.debug("final reverse: back=%s", _fmt(dist))
+            plog.debug("final reverse: back=%s heading=%s", _fmt(dist), _fmt(imu_thread.get_heading()))
         servo.set_angle(-steer_with_gyro(imu_thread.get_heading(),(INITIAL_HEADING+180)%360, kp=1.5))
         if dist is not None:
             if dist <= 95:
@@ -465,12 +465,13 @@ def parking():
             break
         time.sleep(0.01)
     motor.stop_rpm_control()
+    servo.set_angle(0)
     plog.info("--- parking() completed in %.2fs ---", time.monotonic() - fn_start)
 
 def parking2():
     fn_start = time.monotonic()
     plog.info("--- Parking2 (counter-clockwise) sequence started ---")
-    plog.debug("start center distance: %s", _fmt(sensor_thread.get_readings()['distance_center']))
+    plog.debug("start center distance: %s heading=%s", _fmt(sensor_thread.get_readings()['distance_center']), _fmt(imu_thread.get_heading()))
     motor.stop_rpm_control()
 
     t_step = time.monotonic()
@@ -495,7 +496,7 @@ def parking2():
     time.sleep(0.3)
 
     t_step = time.monotonic()
-    plog.info("[Parking2 2/10] Reverse 90 turn (200 RPM)...")
+    plog.info("[Parking2 2/10] Reverse 90 turn (120 RPM)...")
     servo.set_angle_unlimited(60)
     motor.start_rpm_control(120, "reverse")
     parking_start = time.monotonic()
@@ -522,7 +523,7 @@ def parking2():
 
     t_step = time.monotonic()
     plog.info("[Parking2 3/10] Realigning heading (150 RPM)...")
-    motor.start_rpm_control(150, "forward")
+    motor.start_rpm_control(100, "forward")
     while get_angular_difference((INITIAL_HEADING-180)%360, imu_thread.get_heading()) > 7:
         heading = imu_thread.get_heading()
         servo.set_angle(steer_with_gyro(heading, (INITIAL_HEADING-180)%360, kp=1, min_servo_angle=-40, max_servo_angle=40))
@@ -631,7 +632,7 @@ def parking2():
     while True:
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
-            plog.debug("reverse for parking: back=%s", _fmt(dist))
+            plog.debug("reverse for parking: back=%s heading=%s", _fmt(dist), _fmt(imu_thread.get_heading()))
         if dist is not None and dist < 160:
             break
         if time.monotonic() - parking_start > 6.0:
@@ -644,7 +645,7 @@ def parking2():
     time.sleep(0.3)
 
     t_step = time.monotonic()
-    plog.info("[Parking2 7/10] Forward drive back distance > 220 (120 RPM)...")
+    plog.info("[Parking2 7/10] Forward drive back distance > 160 (120 RPM)...")
     motor.start_rpm_control(120, "forward")
     time.sleep(0.1)
     parking_start = time.monotonic()
@@ -668,7 +669,7 @@ def parking2():
     time.sleep(0.3)
 
     t_step = time.monotonic()
-    plog.info("[Parking2 8/10] Reverse 2 to back distance <= 120 (100 RPM)...")
+    plog.info("[Parking2 8/10] Reverse 2 to back distance <= 120 (40 RPM)...")
     motor.start_rpm_control(40, "reverse")
     servo.set_angle_unlimited(65)
     manuver_start_time = time.monotonic()
@@ -676,7 +677,7 @@ def parking2():
     while True:
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
-            plog.debug("reverse 2 for parking: back=%s", _fmt(dist))
+            plog.debug("reverse 2 for parking: back=%s heading=%s", _fmt(dist), _fmt(imu_thread.get_heading()))
         if dist is not None:
             if dist <= 120:
                 break
@@ -691,14 +692,14 @@ def parking2():
     time.sleep(0.3)
 
     t_step = time.monotonic()
-    plog.info("[Parking2 9/10] Forward center alignment < 135 (60 RPM)...")
+    plog.info("[Parking2 9/10] Forward center alignment < 85 (40 RPM)...")
     motor.start_rpm_control(40, "forward")
     throttle = Throttle(0.05)
     while True:
         dist_center = sensor_thread.get_readings()['distance_center']
         if throttle:
             plog.debug("forward alignment: center=%s heading=%s", _fmt(dist_center), _fmt(imu_thread.get_heading()))
-        if dist_center is not None and dist_center < 100:
+        if dist_center is not None and dist_center < 96:
             break
         if get_angular_difference(imu_thread.get_heading(), (INITIAL_HEADING-180)%360) < 2:
             break
@@ -711,7 +712,7 @@ def parking2():
     time.sleep(0.3)
 
     t_step = time.monotonic()
-    plog.info("[Parking2 10/10] Final reverse docking (60 RPM)...")
+    plog.info("[Parking2 10/10] Final reverse docking (40 RPM)...")
     motor.start_rpm_control(40, "reverse")
     throttle = Throttle(0.05)
     while True:
@@ -726,6 +727,7 @@ def parking2():
             break
         time.sleep(0.01)
     motor.stop_rpm_control()
+    servo.set_angle(0)
     plog.info("[Parking2 10/10] heading at exit: %s", _fmt(imu_thread.get_heading()))
     plog.info("[Parking2 10/10] Completed in %.2fs", time.monotonic() - t_step)
     plog.info("--- parking2() completed in %.2fs ---", time.monotonic() - fn_start)

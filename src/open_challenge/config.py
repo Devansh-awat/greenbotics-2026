@@ -3,7 +3,8 @@ import cv2
 import numpy as np
 
 # --- Robot Parameters ---
-MOTOR_SPEED = 70
+TARGET_RPM = 450.0  # Closed-loop target wheel RPM
+MOTOR_SPEED = TARGET_RPM  # Backwards-compatibility alias
 
 # --- Frame & Video Processing ---
 FRAME_WIDTH = 640
@@ -18,37 +19,33 @@ VIDEO_QUEUE_SLOTS = 8
 VIDEO_FOURCC = 'avc1'
 USE_LAB = False
 
-# --- Turn Counting Parameters ---
+# --- Turn Counting & Stop Parameters ---
 ORANGE_COOLDOWN_FRAMES = 50
 ORANGE_DETECTION_HISTORY_LENGTH = 3
+FINAL_STOP_DISTANCE_CM = 36.8  # Distance in cm to drive after turn 12 (450 RPM * 0.25s = 36.8 cm)
+FINAL_STOP_DELAY = 2  # Fallback timeout in seconds
 
-# --- Color Definitions (HSV) ---
-# Ported from obstacle_challenge/tuning.py (v5). The black range is much tighter
-# than the old open-challenge one (V<=70 vs V<=110) -- v5's wall areas, and
-# therefore WALL_KP/WALL_KD below, are calibrated against THIS range. Loosening it
-# inflates every area and effectively multiplies the gains.
-LOWER_BLACK = np.array([0, 0, 0])
-UPPER_BLACK = np.array([180, 95, 70])
-
-# Orange + blue are only ever read inside the line ROI. Both ranges come from v5
-# as a matched pair -- they decide the driving direction between them (whichever
-# line is seen first), so they must have comparable sensitivity. If lap counting
-# starts missing lines, lower LOWER_ORANGE[2] (currently 182) rather than swapping
-# in a differently-tuned range for one colour only.
-LOWER_ORANGE = np.array([6, 50, 182])
-UPPER_ORANGE = np.array([15, 255, 255])
-LOWER_BLUE = np.array([114, 50, 110])
-UPPER_BLUE = np.array([123, 255, 255])
-
-# Pillars and parking walls (defaults, unused on open track)
-LOWER_RED_1 = np.array([0, 70, 43])
-UPPER_RED_1 = np.array([4, 230, 166])
-LOWER_RED_2 = np.array([175, 70, 43])
-UPPER_RED_2 = np.array([180, 230, 140])
-LOWER_GREEN = np.array([42, 85, 38])
-UPPER_GREEN = np.array([88, 190, 135])
-LOWER_MAGENTA = np.array([158, 73, 64])
-UPPER_MAGENTA = np.array([172, 255, 223])
+# --- Color Definitions (Imported from Obstacle Challenge tuning) ---
+from src.obstacle_challenge.tuning import (
+    COLOR_RANGES,
+    HSV_RANGES,
+    LAB_RANGES,
+    LUV_RANGES,
+    LOWER_BLACK,
+    UPPER_BLACK,
+    LOWER_ORANGE,
+    UPPER_ORANGE,
+    LOWER_BLUE,
+    UPPER_BLUE,
+    LOWER_RED_1,
+    UPPER_RED_1,
+    LOWER_RED_2,
+    UPPER_RED_2,
+    LOWER_GREEN,
+    UPPER_GREEN,
+    LOWER_MAGENTA,
+    UPPER_MAGENTA,
+)
 
 # --- Detection Parameters ---
 WALL_MIN_AREA = 300
