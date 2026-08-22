@@ -143,9 +143,24 @@ def perform_initial_maneuver():
     log.info("Scan angle reached. Pausing to scan for objects...")
     detected_block_color = None
     scan_start_time = time.monotonic()
+    # get_next_frame(), not get_frame(): the old loop re-fetched the LATEST frame and
+    # `continue`d, so it ran at ~114 Hz against a 56 Hz camera. Measured from the last
+    # 40 runs' frame indexes, ~57 scan frames reach raw.mp4 where only ~28 are
+    # distinct -- every frame processed and recorded roughly twice, ~0.5 s of CPU
+    # spent re-deriving detections the robot already had, contending with the two
+    # vision workers and the encoder. It is the same busy-spin the module docstring
+    # says was removed from the control loop for starving the camera thread.
+    #
+    # The scan is stationary (motor braked above) and the outer 1.0 s deadline still
+    # bounds it, so a stale frame here just means "wait for the next one" -- there is
+    # no motor to cut, unlike the control loop and the parking trackers.
+    past_frame_counter = 0
     while time.monotonic() - scan_start_time < 1.0:
-        frame, frame_counter = camera_thread.get_frame()
-        if frame is None: continue
+        frame, frame_counter, _, fresh = camera_thread.get_next_frame(
+            past_frame_counter)
+        if frame is None or not fresh:
+            continue
+        past_frame_counter = frame_counter
 
         _record_raw(frame)
         detections = process_video_frame(frame)
