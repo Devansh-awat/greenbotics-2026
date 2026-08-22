@@ -51,6 +51,7 @@ BLOCK_CLOSE_KERNEL = np.ones((5, 5), np.uint8)
 USE_VISION_POOL = True
 VISION_POOL_TIMEOUT = 0.050
 VISION_WORKER_THREADS = 2
+SWAP_RED_GREEN = False
 
 LOWER_BLACK = np.array([0, 0, 0])
 UPPER_BLACK = np.array([180, 95, 70])
@@ -71,6 +72,12 @@ WALL_MIN_AREA = 300
 BLOCK_MIN_AREA = 250
 MAGENTA_MIN_AREA = 300
 CLOSE_BLOCK_MIN_AREA = 15
+
+RED_HANDOFF_X_EDGE = 0
+RED_HANDOFF_Y_EDGE = 207
+RED_HANDOFF_X_CENTER = 150
+RED_HANDOFF_Y_CENTER = 240
+GREEN_HANDOFF_MIN_Y = 216
 
 left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 130, 135, 150
 right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 130, 135, 150
@@ -127,7 +134,9 @@ def configure(cfg):
     global USE_VISION_POOL, VISION_POOL_TIMEOUT, VISION_WORKER_THREADS
     global LOWER_BLACK, UPPER_BLACK, LOWER_ORANGE, UPPER_ORANGE, LOWER_BLUE, UPPER_BLUE
     global LOWER_RED_1, UPPER_RED_1, LOWER_RED_2, UPPER_RED_2, LOWER_GREEN, UPPER_GREEN, LOWER_MAGENTA, UPPER_MAGENTA
+    global SWAP_RED_GREEN
     global WALL_MIN_AREA, BLOCK_MIN_AREA, MAGENTA_MIN_AREA, CLOSE_BLOCK_MIN_AREA
+    global RED_HANDOFF_X_EDGE, RED_HANDOFF_Y_EDGE, RED_HANDOFF_X_CENTER, RED_HANDOFF_Y_CENTER, GREEN_HANDOFF_MIN_Y
     global left_roi_x, left_roi_y, left_roi_w, left_roi_h
     global right_roi_x, right_roi_y, right_roi_w, right_roi_h
     global inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h
@@ -173,11 +182,18 @@ def configure(cfg):
     UPPER_GREEN = getattr(cfg, 'UPPER_GREEN', np.array([88, 190, 135]))
     LOWER_MAGENTA = getattr(cfg, 'LOWER_MAGENTA', np.array([158, 73, 64]))
     UPPER_MAGENTA = getattr(cfg, 'UPPER_MAGENTA', np.array([172, 255, 223]))
+    SWAP_RED_GREEN = getattr(cfg, 'SWAP_RED_GREEN', False)
 
     WALL_MIN_AREA = getattr(cfg, 'WALL_MIN_AREA', 300)
     BLOCK_MIN_AREA = getattr(cfg, 'BLOCK_MIN_AREA', 250)
     MAGENTA_MIN_AREA = getattr(cfg, 'MAGENTA_MIN_AREA', 300)
     CLOSE_BLOCK_MIN_AREA = getattr(cfg, 'CLOSE_BLOCK_MIN_AREA', 15)
+
+    RED_HANDOFF_X_EDGE = getattr(cfg, 'RED_HANDOFF_X_EDGE', 0)
+    RED_HANDOFF_Y_EDGE = getattr(cfg, 'RED_HANDOFF_Y_EDGE', 207)
+    RED_HANDOFF_X_CENTER = getattr(cfg, 'RED_HANDOFF_X_CENTER', 150)
+    RED_HANDOFF_Y_CENTER = getattr(cfg, 'RED_HANDOFF_Y_CENTER', 240)
+    GREEN_HANDOFF_MIN_Y = getattr(cfg, 'GREEN_HANDOFF_MIN_Y', 216)
 
     left_roi_x = getattr(cfg, 'left_roi_x', 0)
     left_roi_y = getattr(cfg, 'left_roi_y', 130)
@@ -544,6 +560,9 @@ def compute_colour_masks_only(cs_slice, out=None):
     if USE_BLOCK_MORPH_CLOSE:
         red = cv2.morphologyEx(red, cv2.MORPH_CLOSE, BLOCK_CLOSE_KERNEL)
         green = cv2.morphologyEx(green, cv2.MORPH_CLOSE, BLOCK_CLOSE_KERNEL)
+
+    if SWAP_RED_GREEN:
+        red, green = green, red
 
     if out is None:
         orange = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), np.uint8)
@@ -1108,6 +1127,21 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
             target_pt_x = int(origin_x + target_len * math.sin(math.radians(ideal_angle)))
             target_pt_y = int(origin_y - target_len * math.cos(math.radians(ideal_angle)))
             cv2.line(annotated_frame, (origin_x, origin_y), (target_pt_x, target_pt_y), (0, 255, 255), 3)
+
+    # Slanted handoff threshold line for red blocks
+    cv2.line(
+        annotated_frame,
+        (int(RED_HANDOFF_X_EDGE), int(RED_HANDOFF_Y_EDGE)),
+        (int(RED_HANDOFF_X_CENTER), int(RED_HANDOFF_Y_CENTER)),
+        (0, 0, 255), 2
+    )
+    # Handoff threshold line for green blocks
+    cv2.line(
+        annotated_frame,
+        (500, int(GREEN_HANDOFF_MIN_Y)),
+        (FRAME_WIDTH, int(GREEN_HANDOFF_MIN_Y)),
+        (0, 255, 0), 2
+    )
 
     if debug_info:
         if isinstance(debug_info, (list, tuple)):

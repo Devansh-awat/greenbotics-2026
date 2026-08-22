@@ -457,9 +457,7 @@ if __name__ == "__main__":
                 turn_counter += 1
                 cooldown_frames = ORANGE_COOLDOWN_FRAMES
                 log.info("turn_counter ----------------> %d", turn_counter)
-
             if detected_blocks:
-                prev_wall_error = 0.0
                 is_close_block = False
                 for block in detected_blocks:
                     if block['type'] == 'close_block':
@@ -517,33 +515,51 @@ if __name__ == "__main__":
                 if not is_close_block:
                     candidate_blocks = [b for b in detected_blocks if b['type'] == 'block']
                     block = None
+                    cap_red_angle = False
                     if candidate_blocks:
                         b0 = candidate_blocks[0]
-                        if len(candidate_blocks) > 1:
-                            b1 = candidate_blocks[1]
-                            # Slanted threshold for red-to-red block handoff:
-                            if RED_HANDOFF_X_CENTER != RED_HANDOFF_X_EDGE:
-                                red_req_y = RED_HANDOFF_Y_EDGE + (RED_HANDOFF_Y_CENTER - RED_HANDOFF_Y_EDGE) * (
-                                    (b0['centroid'][0] - RED_HANDOFF_X_EDGE) / (RED_HANDOFF_X_CENTER - RED_HANDOFF_X_EDGE)
-                                )
-                            else:
-                                red_req_y = RED_HANDOFF_Y_CENTER
+                        b0_x, b0_y = b0['centroid']
 
-                            if (
-                                b0['color'] == 'red'
-                                and b1['color'] == 'red'
-                                and b0['centroid'][0] < RED_HANDOFF_X_CENTER
-                                and b0['centroid'][1] >= red_req_y
-                            ):
-                                block = b1
-                            elif b0['color'] == 'green' and b1['color'] == 'green' and b0['centroid'][0] > 500 and b0['centroid'][1] >= GREEN_HANDOFF_MIN_Y:
-                                block = b1
+                        # Slanted threshold for red block handoff:
+                        if RED_HANDOFF_X_CENTER != RED_HANDOFF_X_EDGE:
+                            red_req_y = RED_HANDOFF_Y_EDGE + (RED_HANDOFF_Y_CENTER - RED_HANDOFF_Y_EDGE) * (
+                                (b0_x - RED_HANDOFF_X_EDGE) / (RED_HANDOFF_X_CENTER - RED_HANDOFF_X_EDGE)
+                            )
+                        else:
+                            red_req_y = RED_HANDOFF_Y_CENTER
+
+                        b0_below_red_handoff = (
+                            b0['color'] == 'red'
+                            and b0_x < RED_HANDOFF_X_CENTER
+                            and b0_y >= red_req_y
+                        )
+
+                        if b0_below_red_handoff:
+                            if len(candidate_blocks) > 1:
+                                b1 = candidate_blocks[1]
+                                if b1['color'] == 'green':
+                                    block = b0
+                                elif b1['color'] == 'red':
+                                    block = b1
+                                else:
+                                    block = b0
+                                    cap_red_angle = True
                             else:
                                 block = b0
+                                cap_red_angle = True
+                        elif (
+                            b0['color'] == 'green'
+                            and len(candidate_blocks) > 1
+                            and candidate_blocks[1]['color'] == 'green'
+                            and b0_x > 500
+                            and b0_y >= GREEN_HANDOFF_MIN_Y
+                        ):
+                            block = candidate_blocks[1]
                         else:
                             block = b0
 
                     if block is not None:
+                        prev_wall_error = 0.0
                         block_color = block['color']
                         block_x, block_y = block['centroid']
                         active_block_y = block_y
@@ -564,6 +580,8 @@ if __name__ == "__main__":
 
                             wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
                             wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
+                            wall_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
+                            wall_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
                             target = 300 if block_y > 170 and 200 < block_x < 440 else 150
                             candidate_magentas = [
                                 m for m in detections.get('detected_magenta', [])
@@ -579,7 +597,7 @@ if __name__ == "__main__":
                                 target_derivative = target_error - prev_target_error
                                 angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
                                 prev_target_error = target_error
-                            elif driving_direction == 'clockwise' and wall_inner_right_size > 0:
+                            elif wall_inner_right_size > 0 or wall_right_size > 0:
                                 pts = block['contour'].reshape(-1, 2)
                                 bottom_pts = pts[pts[:, 1] >= pts[:, 1].max() - 2]
                                 corner_x = int(bottom_pts[:, 0].max()) if len(bottom_pts) > 0 else int(pts[:, 0].max())
@@ -588,12 +606,12 @@ if __name__ == "__main__":
                                 found_black_x = None
                                 pure_black_mask = detections.get('pure_black_mask')
                                 if pure_black_mask is not None:
-                                    y_min_bound = inner_right_roi_y
-                                    y_max_bound = inner_right_roi_y + inner_right_roi_h - 1
+                                    y_min_bound = min(inner_right_roi_y, right_roi_y)
+                                    y_max_bound = max(inner_right_roi_y + inner_right_roi_h, right_roi_y + right_roi_h) - 1
                                     y_start = max(y_min_bound, corner_y - 10)
                                     y_end = min(y_max_bound, corner_y + 10)
                                     scan_start_x = max(corner_x + 1, inner_right_roi_x)
-                                    scan_end_x = inner_right_roi_x + inner_right_roi_w - 1
+                                    scan_end_x = right_roi_x + (right_roi_w // 2)
                                     ys_min = max(1, y_start - GLOBAL_Y_OFFSET)
                                     ys_max = min(pure_black_mask.shape[0] - 2, y_end - GLOBAL_Y_OFFSET)
                                     xs_min = max(1, scan_start_x)
@@ -628,6 +646,10 @@ if __name__ == "__main__":
                             elif wall_inner_right_size > 3000: angle = np.clip(angle, -45, -15)
                             else: angle = np.clip(angle, -45, 35)
 
+                            if cap_red_angle and wall_inner_right_size <= 3000:
+                                angle = max(-20, angle)
+                                debug.append("RCap:-20")
+
                             debug.append(f"Blk:R({int(block_x)},{int(block_y)})")
                             if visual_target_x is not None:
                                 debug.append(f"MidX:{int(visual_target_x)}")
@@ -649,6 +671,8 @@ if __name__ == "__main__":
 
                             wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
                             wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
+                            wall_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
+                            wall_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
                             target = 300 if block_y > 170 and 200 < block_x < 440 else 150
                             candidate_magentas = [
                                 m for m in detections.get('detected_magenta', [])
@@ -664,7 +688,7 @@ if __name__ == "__main__":
                                 target_derivative = target_error - prev_target_error
                                 angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
                                 prev_target_error = target_error
-                            elif driving_direction == 'counter-clockwise' and wall_inner_left_size > 0:
+                            elif wall_inner_left_size > 0 or wall_left_size > 0:
                                 pts = block['contour'].reshape(-1, 2)
                                 bottom_pts = pts[pts[:, 1] >= pts[:, 1].max() - 2]
                                 corner_x = int(bottom_pts[:, 0].min()) if len(bottom_pts) > 0 else int(pts[:, 0].min())
@@ -673,12 +697,12 @@ if __name__ == "__main__":
                                 found_black_x = None
                                 pure_black_mask = detections.get('pure_black_mask')
                                 if pure_black_mask is not None:
-                                    y_min_bound = inner_left_roi_y
-                                    y_max_bound = inner_left_roi_y + inner_left_roi_h - 1
+                                    y_min_bound = min(inner_left_roi_y, left_roi_y)
+                                    y_max_bound = max(inner_left_roi_y + inner_left_roi_h, left_roi_y + left_roi_h) - 1
                                     y_start = max(y_min_bound, corner_y - 10)
                                     y_end = min(y_max_bound, corner_y + 10)
                                     scan_start_x = min(corner_x - 1, inner_left_roi_x + inner_left_roi_w - 1)
-                                    scan_end_x = inner_left_roi_x
+                                    scan_end_x = left_roi_x + (left_roi_w // 2)
                                     ys_min = max(1, y_start - GLOBAL_Y_OFFSET)
                                     ys_max = min(pure_black_mask.shape[0] - 2, y_end - GLOBAL_Y_OFFSET)
                                     xs_min = max(1, scan_end_x)
@@ -727,6 +751,47 @@ if __name__ == "__main__":
                             red_post_pass_frames = POST_RED_CLIP_FRAMES
                         if frames_since_block_seen < BLOCK_TARGET_GRACE_FRAMES:
                             frames_since_block_seen += 1
+                        prev_target_error = 0.0
+                        left_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
+                        right_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
+                        wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
+                        wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
+
+                        total_left = left_pixel_size + wall_inner_left_size
+                        total_right = right_pixel_size + wall_inner_right_size
+
+                        if total_left < 700 and total_right > 100:
+                            total_right = total_right * 2 + 25000
+                        elif total_right < 700 and total_left > 100:
+                            total_left = total_left * 2 + 25000
+
+                        debug.extend([f"L:{int(left_pixel_size)}", f"R:{int(right_pixel_size)}"])
+                        debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
+                        wall_error = total_left - total_right
+                        wall_derivative = wall_error - prev_wall_error
+                        debug.append(f"Err:{int(wall_error)}")
+                        debug.append(f"Wall%:{int(detections.get('line_roi_wall_pct', 0))}")
+                        angle = (wall_error * WALL_KP) + (wall_derivative * WALL_KD) + 1
+                        prev_wall_error = wall_error
+                        if close_black_area > 3000 or detections.get('line_roi_wall_pct', 0) > 50:
+                            if driving_direction == 'clockwise':
+                                angle += 35
+                            else:
+                                angle += -35
+                        if total_left == 0 and total_right == 0 and (detected_orange_object or detected_blue_object):
+                            if driving_direction == 'clockwise':
+                                angle += 35
+                            else:
+                                angle += -35
+                        if total_left == 0 and total_right == 0:
+                            if driving_direction == 'clockwise':
+                                angle += 20
+                            else:
+                                angle += -20
+                        elif left_pixel_size==0 and driving_direction=='counter-clockwise':
+                            angle += -20
+                        elif right_pixel_size==0 and driving_direction=='clockwise':
+                            angle += 20
             else:
                 if tracking_green_block:
                     tracking_green_block = False
