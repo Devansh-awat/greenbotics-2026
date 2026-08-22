@@ -446,8 +446,8 @@ def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
             # Re-arm broke_free so re-seeding to ff_hold happens when motor moves again.
             _rpm_state["broke_free"] = False
             ff_hold = ff_static + ff_gain * target_rpm
+            start_kick = 12.0 if target_rpm <= 40.0 else min(kick_duty, ff_hold + 15.0)
             max_stall_duty = min(cap, ff_hold + 12.0)
-            start_kick = min(kick_duty, ff_hold + 15.0)
             _rpm_state["duty"] = min(max_stall_duty, max(_rpm_state["duty"], start_kick) + stall_ramp * dt)
 
             out = max(0.0, min(cap, _rpm_state["duty"]))

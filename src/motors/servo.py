@@ -1,5 +1,6 @@
 from rpi_hardware_pwm import HardwarePWM
 import time
+import numpy as np
 from src.obstacle_challenge import config
 
 
@@ -80,7 +81,7 @@ def set_angle_unlimited(input_angle: float):
         return
 
     unclamped_input = input_angle + config.SERVO_CENTER_OFFSET
-    clamped_input = max(-45.0, min(40.0, unclamped_input))
+    clamped_input = float(np.clip(unclamped_input, -50.0, 50.0))
 
     input_range = config.INPUT_ANGLE_MAX_SERVO - config.INPUT_ANGLE_MIN_SERVO
     output_range = config.CALIBRATED_ANGLE_MAX - config.CALIBRATED_ANGLE_MIN

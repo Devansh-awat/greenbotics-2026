@@ -30,10 +30,10 @@ POST_RED_CLIP_FRAMES = 10
 POST_RED_MAX_ANGLE = 20
 
 # Slanted handoff thresholds for red-to-red block handoff:
-# At the far left edge (x=0), handoff can happen higher in frame (y >= 212).
+# At the far left edge (x=0), handoff can happen higher in frame (y >= 207).
 # As the block approaches the center (x=150), it must be lower in frame (y >= 240).
 RED_HANDOFF_X_EDGE = 0
-RED_HANDOFF_Y_EDGE = 212
+RED_HANDOFF_Y_EDGE = 200
 RED_HANDOFF_X_CENTER = 150
 RED_HANDOFF_Y_CENTER = 240
 
@@ -147,7 +147,7 @@ PERF_REPORT_PERIOD = 2.0   # seconds between INFO-level perf summaries
 HSV_RANGES = {
     'LOWER_RED_1': np.array([0, 70, 43]), 'UPPER_RED_1': np.array([4, 230, 180]),
     'LOWER_RED_2': np.array([175, 70, 43]), 'UPPER_RED_2': np.array([180, 230, 180]),
-    'LOWER_GREEN': np.array([45, 65, 38]), 'UPPER_GREEN': np.array([88, 190, 161]),
+    'LOWER_GREEN': np.array([51, 65, 38]), 'UPPER_GREEN': np.array([88, 190, 161]),
     'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 110, 85]),
     'LOWER_ORANGE': np.array([4, 53, 102]), 'UPPER_ORANGE': np.array([19, 212, 229]),
     'LOWER_BLUE': np.array([114, 50, 53]), 'UPPER_BLUE': np.array([126, 255, 255]),
@@ -182,20 +182,12 @@ else:
 # Set to True to swap Red and Green (Surprise Rule):
 SWAP_RED_GREEN = False
 
-if not SWAP_RED_GREEN:
-    LOWER_RED_1 = COLOR_RANGES['LOWER_RED_1']
-    UPPER_RED_1 = COLOR_RANGES['UPPER_RED_1']
-    LOWER_RED_2 = COLOR_RANGES['LOWER_RED_2']
-    UPPER_RED_2 = COLOR_RANGES['UPPER_RED_2']
-    LOWER_GREEN = COLOR_RANGES['LOWER_GREEN']
-    UPPER_GREEN = COLOR_RANGES['UPPER_GREEN']
-else:
-    LOWER_RED_1 = COLOR_RANGES['LOWER_GREEN']
-    UPPER_RED_1 = COLOR_RANGES['UPPER_GREEN']
-    LOWER_RED_2 = COLOR_RANGES['LOWER_GREEN']
-    UPPER_RED_2 = COLOR_RANGES['UPPER_GREEN']
-    LOWER_GREEN = COLOR_RANGES['LOWER_RED_1']
-    UPPER_GREEN = COLOR_RANGES['UPPER_RED_1']
+LOWER_RED_1 = COLOR_RANGES['LOWER_RED_1']
+UPPER_RED_1 = COLOR_RANGES['UPPER_RED_1']
+LOWER_RED_2 = COLOR_RANGES['LOWER_RED_2']
+UPPER_RED_2 = COLOR_RANGES['UPPER_RED_2']
+LOWER_GREEN = COLOR_RANGES['LOWER_GREEN']
+UPPER_GREEN = COLOR_RANGES['UPPER_GREEN']
 LOWER_BLACK = COLOR_RANGES['LOWER_BLACK']
 UPPER_BLACK = COLOR_RANGES['UPPER_BLACK']
 LOWER_ORANGE = COLOR_RANGES['LOWER_ORANGE']

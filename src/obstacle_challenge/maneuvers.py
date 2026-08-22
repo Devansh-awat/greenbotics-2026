@@ -99,7 +99,7 @@ def perform_initial_maneuver():
     MANEUVER_SPEED = 55
     SERVO_TURN_ANGLE = 60.0
     if driving_direction == 'clockwise':
-        SCAN_TRIGGER_ANGLE_DEG = 25.0
+        SCAN_TRIGGER_ANGLE_DEG = 45.0
     else:
         SCAN_TRIGGER_ANGLE_DEG = -25
     TOTAL_TURN_ANGLE_DEG = 85.0
@@ -127,13 +127,8 @@ def perform_initial_maneuver():
              driving_direction.upper(), INITIAL_HEADING, scan_heading, ninety_degree_heading)
 
     servo.set_angle_unlimited(initial_turn_servo)
-    time.sleep(0.02)
-    # BUG: direct duty. The loop below exits on HEADING, so distance isn't the
-    # criterion here and this one is only half-broken -- but the turn radius still
-    # varies with duty, so how far the robot travels while turning 25 deg changes
-    # with battery state. Convert to motor.start_rpm_control(rpm, "forward") so the
-    # turn is entered at a repeatable ground speed.
-    motor.forward(MANEUVER_SPEED)
+    time.sleep(0.2)
+    motor.start_rpm_control(80, "forward")
 
     log.info("Starting initial turn...")
     turn_throttle = Throttle(0.2)
@@ -142,6 +137,7 @@ def perform_initial_maneuver():
             log.debug("initial turn: heading=%s diff=%.1f", _fmt(imu_thread.get_heading()),
                       get_angular_difference((INITIAL_HEADING+SCAN_TRIGGER_ANGLE_DEG)%360, imu_thread.get_heading()))
         time.sleep(0.01)
+    motor.stop_rpm_control()
     motor.brake()
 
     log.info("Scan angle reached. Pausing to scan for objects...")
@@ -199,18 +195,18 @@ def perform_initial_maneuver():
             #     servo.set_angle(steer_with_gyro(imu_thread.get_heading(),ninety_degree_heading))
             # action_taken = "REVERSE_BEFORE_TURN for 18cm"
             # drive_distance_with_gyro(drive_target_heading, 18, rpm=60, direction='reverse')
-            drive_straight_with_gyro((INITIAL_HEADING-40)%360, 0.3, 70, 'forward')
+            drive_straight_with_gyro((INITIAL_HEADING-40)%360, 0.3, 50, 'forward')
             log.info("Initial maneuver: no block, short forward and return.")
             return
         else:
             # BUG: timed + direct duty -> drive_distance_with_gyro(..., <cm>, rpm=80).
-            drive_straight_with_gyro((INITIAL_HEADING-55)%360, 0.2, 70, 'forward')
+            drive_straight_with_gyro((INITIAL_HEADING-55)%360, 0.2, 50, 'forward')
             log.info("Initial maneuver: no block, short forward and return.")
             return
 
     else:
         if detected_block_color == 'green':
-            drive_straight_with_gyro((INITIAL_HEADING+30)%360, 0.5, 70, 'forward',2)
+            drive_straight_with_gyro((INITIAL_HEADING+30)%360, 0.5, 50, 'forward',2)
             log.info("Initial maneuver: no block, short forward and return.")
             return
         elif detected_block_color == 'red':
@@ -230,7 +226,7 @@ def perform_initial_maneuver():
             return
         else:
             # BUG: timed + direct duty -> drive_distance_with_gyro(..., <cm>, rpm=80).
-            drive_straight_with_gyro((INITIAL_HEADING+55)%360, 0.3, 70, 'forward')
+            drive_straight_with_gyro((INITIAL_HEADING+45)%360, 0.1, 50, 'forward')
             log.info("Initial maneuver: no block, short forward and return.")
             return
 
@@ -291,9 +287,9 @@ def parking():
     motor.stop_rpm_control()
     time.sleep(0.3)
     motor.start_rpm_control(100, "forward")
-    while get_angular_difference((INITIAL_HEADING+180)%360, imu_thread.get_heading()) > 5:
+    while get_angular_difference((INITIAL_HEADING+178)%360, imu_thread.get_heading()) > 5:
         heading = imu_thread.get_heading()
-        servo.set_angle(steer_with_gyro(heading,(INITIAL_HEADING+180)%360, kp=1,min_servo_angle=-40, max_servo_angle=40))
+        servo.set_angle(steer_with_gyro(heading,(INITIAL_HEADING+178)%360, kp=1,min_servo_angle=-40, max_servo_angle=40))
         time.sleep(0.01)
     motor.stop_rpm_control()
     servo.set_angle(0)
@@ -459,7 +455,7 @@ def parking():
             plog.debug("final reverse: back=%s heading=%s", _fmt(dist), _fmt(imu_thread.get_heading()))
         servo.set_angle(-steer_with_gyro(imu_thread.get_heading(),(INITIAL_HEADING+180)%360, kp=1.5))
         if dist is not None:
-            if dist <= 95:
+            if dist <= 105:
                 break
         if get_angular_difference((INITIAL_HEADING+183)%360, imu_thread.get_heading()) < 2:
             break
@@ -633,7 +629,7 @@ def parking2():
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
             plog.debug("reverse for parking: back=%s heading=%s", _fmt(dist), _fmt(imu_thread.get_heading()))
-        if dist is not None and dist < 160:
+        if dist is not None and dist < 150:
             break
         if time.monotonic() - parking_start > 6.0:
             plog.warning("Parking2 second reverse timeout reached!")
@@ -656,7 +652,7 @@ def parking2():
         heading = imu_thread.get_heading()
         if throttle:
             plog.debug("forward for parking: back=%s heading=%s", _fmt(dist), _fmt(heading))
-        if dist is not None and dist > 160:
+        if dist is not None and dist > 150:
             break
         if time.monotonic() - parking_start > 5.0:
             plog.warning("Parking2 forward drive timeout reached!")
@@ -690,16 +686,21 @@ def parking2():
     motor.stop_rpm_control()
     plog.info("[Parking2 8/10] Completed in %.2fs", time.monotonic() - t_step)
     time.sleep(0.3)
-
+    back_distance = sensor_thread.get_readings()['distance_back']
+    if back_distance is not None:
+        drive_dist = (back_distance - 50) / 10.0
+        plog.info("Calculated drive_dist: %s cm (back_distance: %s mm)", _fmt(drive_dist), _fmt(back_distance))
+        if drive_dist > 0:
+            drive_distance_with_gyro((INITIAL_HEADING + 180) % 360, drive_dist, 40,  direction="reverse")
     t_step = time.monotonic()
-    plog.info("[Parking2 9/10] Forward center alignment < 85 (40 RPM)...")
+    plog.info("[Parking2 9/10] Forward center alignment < 99 (40 RPM)...")
     motor.start_rpm_control(40, "forward")
     throttle = Throttle(0.05)
     while True:
         dist_center = sensor_thread.get_readings()['distance_center']
         if throttle:
             plog.debug("forward alignment: center=%s heading=%s", _fmt(dist_center), _fmt(imu_thread.get_heading()))
-        if dist_center is not None and dist_center < 96:
+        if dist_center is not None and dist_center < 99:
             break
         if get_angular_difference(imu_thread.get_heading(), (INITIAL_HEADING-180)%360) < 2:
             break
