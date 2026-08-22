@@ -207,21 +207,23 @@ class VideoEncoderProcess:
 
 
 class OverlayLog:
-    """Per-frame control state for the offline annotator. One JSON object per line."""
+    """Per-frame control state for the offline annotator. One JSON object per line.
+
+    append()/append_passthrough() only buffer records in memory -- the json.dumps()
+    + file write (real, synchronous disk I/O) used to happen right there on the
+    control loop, gating how soon the loop got back to fetch the next frame. It's
+    all done once in close(), after the run's main loop has already exited.
+    """
 
     def __init__(self, video_path):
         self.path = video_path + ".overlay.jsonl"
         self.written = 0
-        self._fh = None
-        try:
-            self._fh = open(self.path, "w")
-        except Exception:
-            wlog.exception("Could not open overlay log %s; annotation data will be "
-                           "missing from the rebuilt video", self.path)
+        self._records = []
+        self._open = True
 
     def append(self, video_frame, driving_direction, debug_info,
                visual_target_x=None, visual_target_line=None, detections=None):
-        if self._fh is None:
+        if not self._open:
             return
         rec = {"v": video_frame, "dir": driving_direction, "debug": list(debug_info)}
         # Omitted when absent rather than written as null: most frames have no visual
@@ -232,12 +234,7 @@ class OverlayLog:
             rec["tl"] = visual_target_line
         if detections is not None:
             rec["det"] = detections_to_record(detections)
-        try:
-            self._fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
-            self.written += 1
-        except Exception:
-            wlog.exception("Could not append to overlay log")
-            self._fh = None
+        self._records.append(rec)
 
     def append_passthrough(self, video_frame):
         """Mark a frame as already annotated at record time.
@@ -247,24 +244,23 @@ class OverlayLog:
         frame instead, and this tells annotate_run.py to pass it through rather than
         drawing detections the robot never computed over the top of it.
         """
-        if self._fh is None:
+        if not self._open:
             return
-        try:
-            self._fh.write(json.dumps({"v": video_frame, "pre": True},
-                                      separators=(",", ":")) + "\n")
-            self.written += 1
-        except Exception:
-            wlog.exception("Could not append to overlay log")
-            self._fh = None
+        self._records.append({"v": video_frame, "pre": True})
 
     def close(self):
-        if self._fh is None:
+        if not self._open:
             return
+        self._open = False
         try:
-            self._fh.close()
+            with open(self.path, "w") as fh:
+                for rec in self._records:
+                    fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
+                    self.written += 1
         except Exception:
-            wlog.exception("Error closing overlay log")
-        self._fh = None
+            wlog.exception("Could not write overlay log %s; annotation data will be "
+                           "missing from the rebuilt video", self.path)
+            return
         wlog.info("Overlay log written: %s (%d frames)", self.path, self.written)
 
     @staticmethod
