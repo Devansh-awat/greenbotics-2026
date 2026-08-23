@@ -279,7 +279,7 @@ def parking():
         target_turn_heading = (INITIAL_HEADING + 90) % 360
         has_turned = get_angular_difference(target_turn_heading, heading) < 15
         if sensor_readings['distance_back'] is not None:
-            if has_turned and sensor_readings['distance_back'] < 130:
+            if has_turned and sensor_readings['distance_back'] < 150:
                 break
         if time.monotonic() - parking_start > 6.0:
             plog.warning("Parking reverse timeout reached!")
@@ -290,7 +290,7 @@ def parking():
     motor.stop_rpm_control()
     time.sleep(0.3)
     motor.start_rpm_control(100, "forward")
-    while get_angular_difference((INITIAL_HEADING+178)%360, imu_thread.get_heading()) > 5:
+    while get_angular_difference((INITIAL_HEADING+175)%360, imu_thread.get_heading()) > 5:
         heading = imu_thread.get_heading()
         servo.set_angle(steer_with_gyro(heading,(INITIAL_HEADING+178)%360, kp=1,min_servo_angle=-40, max_servo_angle=40))
         time.sleep(0.01)
@@ -485,7 +485,7 @@ def parking2():
         is_aligned = get_angular_difference(target_heading, heading) < 8
         if throttle:
             plog.debug("forward: center=%s heading=%s aligned=%s", _fmt(distance_center), _fmt(heading), is_aligned)
-        if is_aligned and distance_center is not None and distance_center <= 220:
+        if is_aligned and distance_center is not None and distance_center <= 240:
             plog.info("Distance is %.1f with heading aligned (%.1f vs %.1f). Exiting loop.", distance_center, heading, target_heading)
             break
         servo.set_angle(steer_with_gyro(heading, target_heading, kp=1))

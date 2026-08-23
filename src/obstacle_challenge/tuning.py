@@ -151,7 +151,7 @@ HSV_RANGES = {
     'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 110, 85]),
     'LOWER_ORANGE': np.array([4, 53, 102]), 'UPPER_ORANGE': np.array([19, 212, 229]),
     'LOWER_BLUE': np.array([114, 50, 53]), 'UPPER_BLUE': np.array([126, 255, 255]),
-    'LOWER_MAGENTA': np.array([158, 73, 64]), 'UPPER_MAGENTA': np.array([172, 255, 223])
+    'LOWER_MAGENTA': np.array([158, 73, 89]), 'UPPER_MAGENTA': np.array([173, 255, 223])
 }
 
 LAB_RANGES = {

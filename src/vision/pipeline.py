@@ -1105,7 +1105,12 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
 
     for magenta_obj in detections['detected_magenta']:
         cv2.drawContours(annotated_frame, [magenta_obj['contour']], -1, (255, 0, 255), 2)
-        target_x = magenta_obj['target_x']
+        if driving_direction == 'counter-clockwise' and magenta_obj.get('contour') is not None:
+            target_x = int(magenta_obj['contour'].reshape(-1, 2)[:, 0].min())
+        elif driving_direction == 'clockwise' and magenta_obj.get('contour') is not None:
+            target_x = int(magenta_obj['contour'].reshape(-1, 2)[:, 0].max())
+        else:
+            target_x = magenta_obj.get('target_x', int(magenta_obj['centroid'][0]))
         mcy = magenta_obj['centroid'][1]
         cv2.circle(annotated_frame, (target_x, mcy), 7, (255, 255, 255), -1)
 
