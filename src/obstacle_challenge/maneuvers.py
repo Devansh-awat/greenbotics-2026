@@ -608,7 +608,7 @@ def parking2():
     if bg_annotator is not None:
         bg_annotator.resume()
     servo.set_angle(1)
-    time.sleep(0.22)
+    time.sleep(0.21)
     motor.stop_rpm_control()
     plog.info("[Parking2 4/10] Completed in %.2fs", time.monotonic() - t_step)
     time.sleep(0.3)

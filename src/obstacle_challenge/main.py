@@ -585,7 +585,7 @@ if __name__ == "__main__":
                             target = 300 if block_y > 170 and 200 < block_x < 440 else 150
                             candidate_magentas = [
                                 m for m in detections.get('detected_magenta', [])
-                                if (m['centroid'][0] - block_x) >= 30 and abs(m['target_y'] - block_y) < 65
+                                if (m['centroid'][0] - block_x) >= 30 and abs(m['target_y'] - block_y) < 100
                             ]
                             if candidate_magentas and driving_direction == 'counter-clockwise':
                                 chosen_magenta = min(candidate_magentas, key=lambda m: m['centroid'][0] - block_x)
@@ -679,7 +679,7 @@ if __name__ == "__main__":
                                 if (block_x - m['centroid'][0]) >= 30 and abs(m['target_y'] - block_y) < 65
                             ]
                             if candidate_magentas and driving_direction == 'clockwise':
-                                chosen_magenta = min(candidate_magentas, key=lambda m: block_x - m['centroid'][0])
+                                chosen_magenta = max(candidate_magentas, key=lambda m: block_x - m['centroid'][0])
                                 magenta_right_x = chosen_magenta['contour'][:, 0, 0].max()
                                 green_left_x = block['contour'][:, 0, 0].min()
                                 target_x_line = int(0.55 * magenta_right_x + 0.45 * green_left_x)
