@@ -143,9 +143,12 @@ def perform_initial_maneuver():
     log.info("Scan angle reached. Pausing to scan for objects...")
     detected_block_color = None
     scan_start_time = time.monotonic()
+    past_frame_counter = 0
     while time.monotonic() - scan_start_time < 1.0:
-        frame, frame_counter = camera_thread.get_frame()
+        frame, frame_counter, _ = camera_thread.get_next_frame(past_frame_counter)
         if frame is None: continue
+
+        past_frame_counter = frame_counter
 
         _record_raw(frame)
         detections = process_video_frame(frame)
