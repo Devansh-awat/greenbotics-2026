@@ -679,7 +679,7 @@ if __name__ == "__main__":
                                 if (block_x - m['centroid'][0]) >= 30 and abs(m['target_y'] - block_y) < 65
                             ]
                             if candidate_magentas and driving_direction == 'clockwise':
-                                chosen_magenta = max(candidate_magentas, key=lambda m: block_x - m['centroid'][0])
+                                chosen_magenta = min(candidate_magentas, key=lambda m: block_x - m['centroid'][0])
                                 magenta_right_x = chosen_magenta['contour'][:, 0, 0].max()
                                 green_left_x = block['contour'][:, 0, 0].min()
                                 target_x_line = int(0.55 * magenta_right_x + 0.45 * green_left_x)
