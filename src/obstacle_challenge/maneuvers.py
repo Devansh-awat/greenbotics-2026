@@ -689,12 +689,12 @@ def parking2():
     motor.stop_rpm_control()
     plog.info("[Parking2 8/10] Completed in %.2fs", time.monotonic() - t_step)
     time.sleep(0.3)
-    back_distance = sensor_thread.get_readings()['distance_back']
-    if back_distance is not None:
-        drive_dist = (back_distance - 50) / 10.0
-        plog.info("Calculated drive_dist: %s cm (back_distance: %s mm)", _fmt(drive_dist), _fmt(back_distance))
-        if drive_dist > 0:
-            drive_distance_with_gyro((INITIAL_HEADING + 180) % 360, drive_dist, 40,  direction="reverse")
+    # back_distance = sensor_thread.get_readings()['distance_back']
+    # if back_distance is not None:
+    #     drive_dist = (back_distance - 60) / 10.0
+    #     plog.info("Calculated drive_dist: %s cm (back_distance: %s mm)", _fmt(drive_dist), _fmt(back_distance))
+    #     if drive_dist > 0:
+    #         drive_distance_with_gyro((INITIAL_HEADING + 180) % 360, drive_dist, 40,  direction="reverse")
     t_step = time.monotonic()
     plog.info("[Parking2 9/10] Forward center alignment < 99 (40 RPM)...")
     motor.start_rpm_control(40, "forward")

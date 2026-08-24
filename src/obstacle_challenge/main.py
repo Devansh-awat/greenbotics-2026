@@ -733,9 +733,12 @@ if __name__ == "__main__":
                                 visual_target_line = ((GREEN_ORIGIN_X, GREEN_ORIGIN_Y), (block_x, block_y), GREEN_IDEAL_ANGLE, (GREEN_OTHER_X, GREEN_OTHER_Y))
                                 current_angle = math.degrees(math.atan2(block_x - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - block_y))
                                 angle = (current_angle - GREEN_IDEAL_ANGLE) * 1.5
-                            if wall_inner_left_size > 3000: angle = np.clip(angle, 15, 45)
-                            elif wall_inner_right_size > 3000: angle = np.clip(angle, -45, -15)
-                            else: angle = np.clip(angle, -35, 45)
+                            if visual_target_x is None:
+                                if wall_inner_left_size > 3000: angle = np.clip(angle, 15, 45)
+                                elif wall_inner_right_size > 3000: angle = np.clip(angle, -45, -15)
+                                else: angle = np.clip(angle, -35, 45)
+                            else:
+                                angle = np.clip(angle, -35, 45)
 
                             debug.append(f"Blk:G({int(block_x)},{int(block_y)})")
                             if visual_target_x is not None:
