@@ -1,0 +1,26 @@
+From ee15a92b98d24e5bc543694ea33b939fa7f579bd Mon Sep 17 00:00:00 2001
+From: Devansh Awatramani <80251412+Devansh-awat@users.noreply.github.com>
+Date: Mon, 24 Aug 2026 18:35:24 +0530
+Subject: [PATCH 1/2] fix: choose closest magenta pillar for clockwise green
+ avoidance
+
+---
+ src/obstacle_challenge/main.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/obstacle_challenge/main.py b/src/obstacle_challenge/main.py
+index 421cef0..9f3e03c 100644
+--- a/src/obstacle_challenge/main.py
++++ b/src/obstacle_challenge/main.py
+@@ -679,7 +679,7 @@ if __name__ == "__main__":
+                                 if (block_x - m['centroid'][0]) >= 30 and abs(m['target_y'] - block_y) < 65
+                             ]
+                             if candidate_magentas and driving_direction == 'clockwise':
+-                                chosen_magenta = max(candidate_magentas, key=lambda m: block_x - m['centroid'][0])
++                                chosen_magenta = min(candidate_magentas, key=lambda m: block_x - m['centroid'][0])
+                                 magenta_right_x = chosen_magenta['contour'][:, 0, 0].max()
+                                 green_left_x = block['contour'][:, 0, 0].min()
+                                 target_x_line = int(0.55 * magenta_right_x + 0.45 * green_left_x)
+-- 
+2.47.3
+

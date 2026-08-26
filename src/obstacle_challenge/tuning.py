@@ -26,8 +26,9 @@ USE_VARIABLE_SPEED = True  # Set to True to re-enable variable speed based on st
 BLOCK_TARGET_GRACE_FRAMES = 12
 POST_GREEN_CLIP_FRAMES = 10
 POST_GREEN_MAX_ANGLE = 20
+POST_GREEN_WALL_MAX_ANGLE = 30  # wall-follow steering during the post-green window
 POST_RED_CLIP_FRAMES = 10
-POST_RED_MAX_ANGLE = 20
+POST_RED_MAX_ANGLE = 25
 
 # Slanted handoff thresholds for red-to-red block handoff:
 # At the far left edge (x=0), handoff can happen higher in frame (y >= 207).
@@ -49,6 +50,48 @@ ORANGE_DETECTION_HISTORY_LENGTH = 3
 WALL_THRESHOLD = 200
 WALL_KP = 0.0006
 WALL_KD = 0.0003
+
+
+# --- Opt-in vision changes (2026-08-25) -------------------------------------
+# Every one of these defaults to the ORIGINAL behaviour. With this block untouched
+# the pipeline is byte-identical to the last commit (verified over 750 frames).
+#
+# ARENA_MASK_MODE -- how the arena's top boundary is found. See the long comment in
+#   src/vision/pipeline.py for what each mode trades away. Short version:
+#     'walltop'  ORIGINAL. Cut at the TOP of the near wall's black run. Needs the
+#                wall's top edge to be visible against the background; a grey hall
+#                floor destroys that edge. Left 70% of columns ungated on 2026-08-24.
+#     'skyline'  Cut at the FLOOR's top edge (walk up from the mat, stop at the first
+#                break). No wall-top contrast needed. Gates 22% of the band vs 7.5%,
+#                leaks into 0.8% of walled columns vs 4.0%. ~+0.8 ms on the Pi.
+#                Drops the far track section seen over an inner wall.
+#     'filldown' Top -> down, first floor pixel wins, fill to the bottom. KEEPS the
+#                far track section. Leaks 7.9% when the outer wall thins enough to
+#                join the hall to the mat.
+#     'contour'  Gate to the floor contour itself rather than a per-column boundary.
+#   Every mode except 'walltop' also switches the floor blob from NOT(black) to
+#   positive floor colour, which is what stops a grey surround joining the blob.
+ARENA_MASK_MODE = 'walltop'
+
+# WALL_BAND_PX -- wall following keeps only black within
+#   WALL_BAND_SLOPE * boundary_row + WALL_BAND_PX px above the floor boundary.
+#   0 = OFF = original (every black pixel in the wall ROIs counts). Needs
+#   ARENA_MASK_MODE != 'walltop'. Untested insurance for a venue where the surround
+#   thresholds as black and merges with the wall: on all 2026-08-24 footage it
+#   changes nothing. Size it on site with
+#       python3 -m src.tools.compare_skyline --wall-height
+#   and leave it off if that reports an escape rate under ~5%.
+WALL_BAND_PX = 0
+WALL_BAND_SLOPE = 0.9
+
+
+# --- Parking wall-follow source ---------------------------------------------
+# 'camera' - track the black line via the camera ROI (original behaviour)
+# 'sensor' - hold WALL_FOLLOW_TARGET_MM off the side wall using the distance
+#            sensor; magenta stop-line detection still uses the camera either way.
+PARKING_WALL_FOLLOW_MODE = 'sensor'
+WALL_FOLLOW_TARGET_MM = 280
+WALL_FOLLOW_KP = 0.5  # ponytail: sign/gain unverified on hardware, check on bench first
 
 GYRO_KP = 0.85
 GYRO_KD = 0.1
@@ -145,13 +188,18 @@ VIDEO_FPS = 10.0
 PERF_REPORT_PERIOD = 2.0   # seconds between INFO-level perf summaries
 
 HSV_RANGES = {
-    'LOWER_RED_1': np.array([0, 70, 43]), 'UPPER_RED_1': np.array([4, 230, 180]),
-    'LOWER_RED_2': np.array([175, 70, 43]), 'UPPER_RED_2': np.array([180, 230, 180]),
-    'LOWER_GREEN': np.array([51, 65, 38]), 'UPPER_GREEN': np.array([88, 190, 161]),
+    'LOWER_RED_1': np.array([0, 104, 43]), 'UPPER_RED_1': np.array([10, 230, 180]),
+    'LOWER_RED_2': np.array([176, 104, 43]), 'UPPER_RED_2': np.array([180, 230, 180]),
+    'LOWER_GREEN': np.array([50, 90, 38]), 'UPPER_GREEN': np.array([88, 255, 255]),
     'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 110, 85]),
-    'LOWER_ORANGE': np.array([4, 53, 102]), 'UPPER_ORANGE': np.array([19, 212, 229]),
-    'LOWER_BLUE': np.array([114, 50, 53]), 'UPPER_BLUE': np.array([126, 255, 255]),
-    'LOWER_MAGENTA': np.array([158, 73, 48]), 'UPPER_MAGENTA': np.array([173, 255, 223])
+    # The mat, for the arena mask's floor blob. Measured off the mat around the nose
+    # seed on three 2026-08-24 runs: S 4-15, V 167-190. The ceiling that matters is
+    # UPPER_BLACK's V of 85 -- keep V_MIN clear of it. Re-measure in a new venue with
+    # src/tools/video_color_tuning.py; too low a V_MIN lets a grey hall floor in.
+    'LOWER_WHITE': np.array([0, 0, 110]), 'UPPER_WHITE': np.array([180, 60, 255]),
+    'LOWER_ORANGE': np.array([4, 53, 102]), 'UPPER_ORANGE': np.array([23, 212, 229]),
+    'LOWER_BLUE': np.array([110, 50, 53]), 'UPPER_BLUE': np.array([126, 255, 255]),
+    'LOWER_MAGENTA': np.array([145, 73, 40]), 'UPPER_MAGENTA': np.array([170, 255, 223]),
 }
 
 LAB_RANGES = {
@@ -159,6 +207,7 @@ LAB_RANGES = {
     'LOWER_RED_2': np.array([20, 150, 150]), 'UPPER_RED_2': np.array([200, 255, 255]), # Duplicate for now
     'LOWER_GREEN': np.array([79, 80, 115]), 'UPPER_GREEN': np.array([134, 129, 146]),
     'LOWER_BLACK': np.array([0, 115, 115]), 'UPPER_BLACK': np.array([130, 134, 134]),
+    'LOWER_WHITE': np.array([130, 115, 115]), 'UPPER_WHITE': np.array([255, 140, 140]),  # NOT measured
     'LOWER_ORANGE': np.array([97, 136, 138]), 'UPPER_ORANGE': np.array([177, 169, 172]),
     'LOWER_MAGENTA': np.array([72, 147, 48]), 'UPPER_MAGENTA': np.array([159, 174, 130]),
     'LOWER_BLUE': np.array([28, 136, 44]), 'UPPER_BLUE': np.array([100, 163, 104])
@@ -169,6 +218,7 @@ LUV_RANGES = {
     'LOWER_RED_2': np.array([30, 150, 130]), 'UPPER_RED_2': np.array([220, 255, 230]),
     'LOWER_GREEN': np.array([40, 20, 140]), 'UPPER_GREEN': np.array([230, 110, 255]),
     'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([80, 255, 255]),
+    'LOWER_WHITE': np.array([110, 0, 0]), 'UPPER_WHITE': np.array([255, 255, 255]),  # NOT measured
     'LOWER_ORANGE': np.array([80, 130, 160]), 'UPPER_ORANGE': np.array([240, 200, 240]),
     'LOWER_BLUE': np.array([20, 50, 0]), 'UPPER_BLUE': np.array([180, 130, 90]),
     'LOWER_MAGENTA': np.array([40, 130, 0]), 'UPPER_MAGENTA': np.array([200, 220, 90])
@@ -190,6 +240,8 @@ LOWER_GREEN = COLOR_RANGES['LOWER_GREEN']
 UPPER_GREEN = COLOR_RANGES['UPPER_GREEN']
 LOWER_BLACK = COLOR_RANGES['LOWER_BLACK']
 UPPER_BLACK = COLOR_RANGES['UPPER_BLACK']
+LOWER_WHITE = COLOR_RANGES['LOWER_WHITE']
+UPPER_WHITE = COLOR_RANGES['UPPER_WHITE']
 LOWER_ORANGE = COLOR_RANGES['LOWER_ORANGE']
 UPPER_ORANGE = COLOR_RANGES['UPPER_ORANGE']
 LOWER_MAGENTA = COLOR_RANGES['LOWER_MAGENTA']

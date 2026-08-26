@@ -1,0 +1,24 @@
+From eda84c144235c6b323f36da34b488d17fb897d98 Mon Sep 17 00:00:00 2001
+From: Devansh Awatramani <80251412+Devansh-awat@users.noreply.github.com>
+Date: Mon, 24 Aug 2026 20:42:09 +0530
+Subject: [PATCH 2/2] chore: add iostall/ to .gitignore
+
+---
+ .gitignore | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/.gitignore b/.gitignore
+index fc57e7e..b0fc27d 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -214,6 +214,7 @@ __marimo__/
+ *.pstats
+ obstacle/
+ open/
++iostall/
+ *.pyi
+ dataset/
+ *.npy
+-- 
+2.47.3
+

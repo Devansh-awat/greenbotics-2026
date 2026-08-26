@@ -24,6 +24,63 @@ vision_pool = None
 
 # --- Arena mask constants ---
 USE_ARENA_MASK = True
+
+# How the arena's top boundary is found. 'walltop' is the ORIGINAL and the default:
+# every other mode is opt-in, and with the defaults in this block the pipeline behaves
+# exactly as it did before any of this was added.
+#
+#   'walltop'   ORIGINAL. Per column, scan up from the bottom for the first sustained
+#               black run (the near wall) and cut at the TOP of that run. Needs the
+#               wall's top edge to exist in the mask, which needs the background
+#               behind the wall to be brighter than UPPER_BLACK. Against a grey hall
+#               floor there is no such edge: the run merges into the background, the
+#               column is marked untrusted, and it borrows a neighbour's value. On
+#               2026-08-24 footage it left 70% of columns ungated.
+#
+#   'skyline'   Cut at the FLOOR's top edge instead: per column, walk UP from the mat
+#               and stop at the first break. Needs no wall-top contrast at all. Gates
+#               ~22% of the band vs 'walltop's 7.5%, and admits pixels from beyond the
+#               wall in 0.8% of walled columns vs 4.0%. Costs ~+0.8 ms on the Pi.
+#               Excludes the far track section seen over an INNER wall -- from one
+#               column that looks identical to the hall seen over the outer wall.
+#
+#   'filldown'  Per column, top -> down, first floor pixel wins, fill to the bottom.
+#               KEEPS the far track section (it is floor, and it is the topmost floor
+#               in that column). The trade: a column's topmost floor pixel says nothing
+#               about how it is reachable, so where the outer wall thins enough to join
+#               the hall to the mat, the hall becomes "topmost floor" for every column
+#               on that side (2026-08-24_17-11-37 f450). Leak rate 7.9% vs 0.8%.
+#
+#   'contour'   Gate to the seeded floor contour itself rather than a per-column
+#               boundary. Like 'filldown' but polygon-shaped; a concavity that opens to
+#               the frame edge swallows what is beside it.
+#
+# Every mode except 'walltop' also switches the floor blob from NOT(black) to POSITIVE
+# floor colour (white mat + block/line colours, see _FLOOR_RANGES). NOT(black) is the
+# reason a grey surround leaks in: grey is not black, so it passes NOT(black) and joins
+# the blob wherever the wall thins. It does not pass a white threshold.
+ARENA_MASK_MODE = 'walltop'
+
+# Wall following: keep only black within this many px ABOVE the floor boundary; 0 = OFF
+# (original behaviour: every black pixel in the wall ROIs counts). Only has any effect
+# when ARENA_MASK_MODE != 'walltop', since it needs the floor boundary.
+#
+# The idea: a wall stands ON the mat, so anything far above the mat cannot be a wall
+# resting on it -- it is the surround, which in a grey venue thresholds as black and
+# merges with the wall's top with no gap for contiguity to find.
+#
+# Sized as a line, cap = WALL_BAND_SLOPE * boundary_row + WALL_BAND_PX, because a
+# wall's apparent height depends on how close its base is (measured, 52992 runs:
+# base at row 40 -> p99 50 px; row 120 -> p99 103; row 190 -> p99 163). A FLAT cap
+# must clear 163 to keep the near wall, which leaves far columns barely capped.
+#
+# HONEST WARNING: on all 2026-08-24 footage this changes nothing -- runs escape the
+# band in 0.1% of columns and the flat and sloped caps drop exactly the same zero
+# pixels. It is untested insurance for a grey venue. Size it there, not here:
+#     python3 -m src.tools.compare_skyline --wall-height
+# If that reports an escape rate under ~5%, leave this off.
+WALL_BAND_PX = 0
+WALL_BAND_SLOPE = 0.9
 ARENA_SEED_PT = (320, 230)
 ARENA_TOP_MARGIN = 0
 MAX_WALL_RUN = 160
@@ -55,6 +112,10 @@ SWAP_RED_GREEN = False
 
 LOWER_BLACK = np.array([0, 0, 0])
 UPPER_BLACK = np.array([180, 95, 70])
+# The mat. Only read when ARENA_MASK_MODE != 'walltop'.
+LOWER_WHITE = np.array([0, 0, 110])
+UPPER_WHITE = np.array([180, 60, 255])
+_FLOOR_RANGES = []
 LOWER_ORANGE = np.array([6, 50, 182])
 UPPER_ORANGE = np.array([15, 255, 255])
 LOWER_BLUE = np.array([114, 50, 110])
@@ -132,7 +193,9 @@ def configure(cfg):
     global USE_LAB, USE_BILATERAL, BILATERAL_D, BILATERAL_SIGMA_COLOR, BILATERAL_SIGMA_SPACE, HSV_BEFORE_BLUR
     global USE_BLOCK_MORPH_CLOSE, BLOCK_CLOSE_KERNEL
     global USE_VISION_POOL, VISION_POOL_TIMEOUT, VISION_WORKER_THREADS
-    global LOWER_BLACK, UPPER_BLACK, LOWER_ORANGE, UPPER_ORANGE, LOWER_BLUE, UPPER_BLUE
+    global ARENA_MASK_MODE, WALL_BAND_PX, WALL_BAND_SLOPE
+    global LOWER_BLACK, UPPER_BLACK, LOWER_WHITE, UPPER_WHITE, _FLOOR_RANGES
+    global LOWER_ORANGE, UPPER_ORANGE, LOWER_BLUE, UPPER_BLUE
     global LOWER_RED_1, UPPER_RED_1, LOWER_RED_2, UPPER_RED_2, LOWER_GREEN, UPPER_GREEN, LOWER_MAGENTA, UPPER_MAGENTA
     global SWAP_RED_GREEN
     global WALL_MIN_AREA, BLOCK_MIN_AREA, MAGENTA_MIN_AREA, CLOSE_BLOCK_MIN_AREA
@@ -167,6 +230,11 @@ def configure(cfg):
     VISION_POOL_TIMEOUT = getattr(cfg, 'VISION_POOL_TIMEOUT', 0.050)
     VISION_WORKER_THREADS = getattr(cfg, 'VISION_WORKER_THREADS', 2)
 
+    ARENA_MASK_MODE = getattr(cfg, 'ARENA_MASK_MODE', 'walltop')
+    WALL_BAND_PX = getattr(cfg, 'WALL_BAND_PX', 0)
+    WALL_BAND_SLOPE = getattr(cfg, 'WALL_BAND_SLOPE', 0.9)
+    LOWER_WHITE = getattr(cfg, 'LOWER_WHITE', np.array([0, 0, 110]))
+    UPPER_WHITE = getattr(cfg, 'UPPER_WHITE', np.array([180, 60, 255]))
     LOWER_BLACK = getattr(cfg, 'LOWER_BLACK', np.array([0, 0, 0]))
     UPPER_BLACK = getattr(cfg, 'UPPER_BLACK', np.array([180, 95, 70]))
     LOWER_ORANGE = getattr(cfg, 'LOWER_ORANGE', np.array([6, 50, 182]))
@@ -183,6 +251,16 @@ def configure(cfg):
     LOWER_MAGENTA = getattr(cfg, 'LOWER_MAGENTA', np.array([158, 73, 64]))
     UPPER_MAGENTA = getattr(cfg, 'UPPER_MAGENTA', np.array([172, 255, 223]))
     SWAP_RED_GREEN = getattr(cfg, 'SWAP_RED_GREEN', False)
+
+    # Everything that counts as drivable arena for the non-'walltop' floor blob: the
+    # white mat, plus the things standing ON it. The block/line colours must be in
+    # here or every pillar is a hole in the blob and stops the upward walk on its own
+    # base. RED_2 is HSV's hue wrap-around and has no meaning in LAB.
+    _FLOOR_RANGES = [(LOWER_WHITE, UPPER_WHITE), (LOWER_RED_1, UPPER_RED_1),
+                     (LOWER_GREEN, UPPER_GREEN), (LOWER_MAGENTA, UPPER_MAGENTA),
+                     (LOWER_ORANGE, UPPER_ORANGE), (LOWER_BLUE, UPPER_BLUE)]
+    if not USE_LAB:
+        _FLOOR_RANGES.append((LOWER_RED_2, UPPER_RED_2))
 
     WALL_MIN_AREA = getattr(cfg, 'WALL_MIN_AREA', 300)
     BLOCK_MIN_AREA = getattr(cfg, 'BLOCK_MIN_AREA', 250)
@@ -362,7 +440,14 @@ def build_arena_mask_from_prepared(cs_slice):
     mask_black = cv2.bitwise_and(
         mask_black, cv2.bitwise_not(cv2.inRange(cs_slice, LOWER_GREEN, UPPER_GREEN))
     )
-    floor_cand = cv2.bitwise_not(mask_black)
+    if ARENA_MASK_MODE == 'walltop':
+        floor_cand = cv2.bitwise_not(mask_black)          # ORIGINAL
+    else:
+        # Positive floor colour. See ARENA_MASK_MODE for why NOT(black) is the wrong
+        # test when the surround is grey.
+        floor_cand = cv2.inRange(cs_slice, LOWER_WHITE, UPPER_WHITE)
+        for lo, hi in _FLOOR_RANGES[1:]:
+            cv2.bitwise_or(floor_cand, cv2.inRange(cs_slice, lo, hi), dst=floor_cand)
     # Closing seals seams/glare/cable shadows in the mat. Careful raising this: a
     # kernel wide enough to bridge the arena wall merges the far section into our
     # blob and silently defeats the whole mechanism.
@@ -379,72 +464,129 @@ def build_arena_mask_from_prepared(cs_slice):
     cv2.drawContours(filled, [cnt], -1, 255, -1)
     floor = cv2.bitwise_and(floor_cand, filled)   # fill-then-AND: interior holes come back
 
-    # 3. Skyline, by PER-COLUMN WALL SCAN.
-    #
-    #    Deriving the top boundary from the floor blob's upper edge does not work.
-    #    The room beyond the arena is bright, so it passes NOT(black) too, and the
-    #    wall is a thin barrier -- wherever it thins out or leaves frame, the blob
-    #    escapes into the room and floor_top collapses to 0 for that column. Verified
-    #    on real frames: the mask degenerated into a full-band rectangle.
-    #
-    #    Instead, scan each column upward from the bottom for the first SUSTAINED
-    #    black run -- that is the near wall -- and take the top of that run. This is
-    #    purely local per column, so no amount of sideways leakage can affect it, and
-    #    anything above the near wall (far track section, room, shoes) is excluded by
-    #    construction.
-    #
-    #    The vertical MORPH_OPEN keeps only black runs >= MIN_WALL_THICK px tall, so
-    #    speckle, floor-line shadows and pillar edges can't be mistaken for a wall.
-    #    Seal small BRIGHT breaks inside the wall first. The upward walk below needs
-    #    a strictly contiguous black run, so a single bright pixel -- glare, a mat
-    #    line reflecting off the wall, sensor noise, a JPEG artifact -- stops it dead.
-    #    Different columns break at different heights, which made the top boundary
-    #    visibly jagged while the bottom edge stayed smooth, and left wall_top a
-    #    median of 12px BELOW the topmost black pixel in the same column.
-    wall_black = cv2.morphologyEx(mask_black, cv2.MORPH_CLOSE, _ARENA_WALL_CLOSE_KERNEL)
-    thick = cv2.morphologyEx(wall_black, cv2.MORPH_OPEN, _ARENA_WALL_KERNEL)
-    thick_b = thick > 0
-    has = thick_b.any(axis=0)
+    # 3. The top boundary. Which of these runs is ARENA_MASK_MODE's whole job; see
+    #    that constant for what each one trades away.
+    if ARENA_MASK_MODE == 'walltop':
+        # 3. Skyline, by PER-COLUMN WALL SCAN.
+        #
+        #    Deriving the top boundary from the floor blob's upper edge does not work.
+        #    The room beyond the arena is bright, so it passes NOT(black) too, and the
+        #    wall is a thin barrier -- wherever it thins out or leaves frame, the blob
+        #    escapes into the room and floor_top collapses to 0 for that column. Verified
+        #    on real frames: the mask degenerated into a full-band rectangle.
+        #
+        #    Instead, scan each column upward from the bottom for the first SUSTAINED
+        #    black run -- that is the near wall -- and take the top of that run. This is
+        #    purely local per column, so no amount of sideways leakage can affect it, and
+        #    anything above the near wall (far track section, room, shoes) is excluded by
+        #    construction.
+        #
+        #    The vertical MORPH_OPEN keeps only black runs >= MIN_WALL_THICK px tall, so
+        #    speckle, floor-line shadows and pillar edges can't be mistaken for a wall.
+        #    Seal small BRIGHT breaks inside the wall first. The upward walk below needs
+        #    a strictly contiguous black run, so a single bright pixel -- glare, a mat
+        #    line reflecting off the wall, sensor noise, a JPEG artifact -- stops it dead.
+        #    Different columns break at different heights, which made the top boundary
+        #    visibly jagged while the bottom edge stayed smooth, and left wall_top a
+        #    median of 12px BELOW the topmost black pixel in the same column.
+        wall_black = cv2.morphologyEx(mask_black, cv2.MORPH_CLOSE, _ARENA_WALL_CLOSE_KERNEL)
+        thick = cv2.morphologyEx(wall_black, cv2.MORPH_OPEN, _ARENA_WALL_KERNEL)
+        thick_b = thick > 0
+        has = thick_b.any(axis=0)
 
-    # lowest row of a wall run in each column, then walk up to the top of that run.
-    #
-    # This block is ~1.0 ms, a third of the whole arena mask, so it is the obvious
-    # thing to try to optimise. Do not bother: a cumsum/searchsorted reformulation
-    # (1.06 ms) and an OpenCV/contiguous-flip version (1.45 ms) were both measured
-    # SLOWER than this on 100 real frames. np.minimum.accumulate is already good.
-    lowest = (ARENA_BAND_H - 1) - np.argmax(thick_b[::-1], axis=0)
-    chain = thick_b | (_ARENA_ROWS > lowest)     # force everything below `lowest` True
-    run = np.minimum.accumulate(chain[::-1], axis=0)[::-1]
-    wall_top = ARENA_BAND_H - run.sum(axis=0)
+        # lowest row of a wall run in each column, then walk up to the top of that run.
+        #
+        # This block is ~1.0 ms, a third of the whole arena mask, so it is the obvious
+        # thing to try to optimise. Do not bother: a cumsum/searchsorted reformulation
+        # (1.06 ms) and an OpenCV/contiguous-flip version (1.45 ms) were both measured
+        # SLOWER than this on 100 real frames. np.minimum.accumulate is already good.
+        lowest = (ARENA_BAND_H - 1) - np.argmax(thick_b[::-1], axis=0)
+        chain = thick_b | (_ARENA_ROWS > lowest)     # force everything below `lowest` True
+        run = np.minimum.accumulate(chain[::-1], axis=0)[::-1]
+        wall_top = ARENA_BAND_H - run.sum(axis=0)
 
-    # A run longer than MAX_WALL_RUN means the wall has probably merged into a dark
-    # background above it, so we can't locate its top edge in this column.
-    #
-    # Do NOT clamp to `lowest - MAX_WALL_RUN`: that lands the boundary in the MIDDLE
-    # of the wall, which is the worst of both worlds -- it neither includes the wall
-    # nor excludes what's beyond it -- and it makes the skyline track the wall's
-    # ragged BOTTOM edge, which is where the jagged mid-wall boundary came from.
-    # Mark the column untrusted instead and let neighbours supply the value.
-    trusted = has & ((lowest - wall_top) <= MAX_WALL_RUN)
+        # A run longer than MAX_WALL_RUN means the wall has probably merged into a dark
+        # background above it, so we can't locate its top edge in this column.
+        #
+        # Do NOT clamp to `lowest - MAX_WALL_RUN`: that lands the boundary in the MIDDLE
+        # of the wall, which is the worst of both worlds -- it neither includes the wall
+        # nor excludes what's beyond it -- and it makes the skyline track the wall's
+        # ragged BOTTOM edge, which is where the jagged mid-wall boundary came from.
+        # Mark the column untrusted instead and let neighbours supply the value.
+        trusted = has & ((lowest - wall_top) <= MAX_WALL_RUN)
 
-    # `has` False means no black run >= MIN_WALL_THICK turned up anywhere in the
-    # column -- e.g. glare washing out the near wall -- so there is no candidate
-    # boundary to distrust in the first place. The old code filled these with the
-    # median of trusted columns, borrowed from wherever a wall WAS found elsewhere in
-    # the frame; that value has no relation to this column and can (and did, on a
-    # real run) land below a floor object here, gating it out of every colour mask.
-    # Leave the column fully open instead -- sky=0 excludes nothing -- so an
-    # undetectable wall degrades to "don't gate this column" rather than "silently
-    # gate it wrong". `has` True but untrusted (wall merged into background) is a
-    # different failure -- there IS a wall, just not a locatable top edge -- and
-    # still borrows the trusted-column median, unchanged from before.
-    fill = int(np.median(wall_top[trusted])) if trusted.any() else 0
-    sky = np.where(has, np.where(trusted, wall_top, fill), 0).astype(np.int32)
-    sky = sky + ARENA_TOP_MARGIN
-    sky = _sliding_median(sky, ARENA_SKY_SMOOTH)
-    sky = np.clip(sky, 0, ARENA_BAND_H)
+        # `has` False means no black run >= MIN_WALL_THICK turned up anywhere in the
+        # column -- e.g. glare washing out the near wall -- so there is no candidate
+        # boundary to distrust in the first place. The old code filled these with the
+        # median of trusted columns, borrowed from wherever a wall WAS found elsewhere in
+        # the frame; that value has no relation to this column and can (and did, on a
+        # real run) land below a floor object here, gating it out of every colour mask.
+        # Leave the column fully open instead -- sky=0 excludes nothing -- so an
+        # undetectable wall degrades to "don't gate this column" rather than "silently
+        # gate it wrong". `has` True but untrusted (wall merged into background) is a
+        # different failure -- there IS a wall, just not a locatable top edge -- and
+        # still borrows the trusted-column median, unchanged from before.
+        fill = int(np.median(wall_top[trusted])) if trusted.any() else 0
+        sky = np.where(has, np.where(trusted, wall_top, fill), 0).astype(np.int32)
+        sky = sky + ARENA_TOP_MARGIN
+        sky = _sliding_median(sky, ARENA_SKY_SMOOTH)
+        sky = np.clip(sky, 0, ARENA_BAND_H)
 
-    band_mask = ((_ARENA_ROWS >= sky).astype(np.uint8)) * 255
+    else:
+        floor_b = floor > 0
+        if ARENA_MASK_MODE == 'filldown':
+            # Top -> down, first floor pixel wins. Keeps the far track section.
+            measured = floor_b.any(axis=0)
+            top = np.argmax(floor_b, axis=0).astype(np.int32)
+            open_col = np.zeros(FRAME_WIDTH, dtype=bool)
+        else:
+            # 'skyline' / 'contour': walk UP from the mat, stop at the first break.
+            #
+            # NOT the topmost pixel of the blob: being in the blob is a fact about the
+            # whole frame, not about this column. The wall only has to fail in ONE
+            # column for the far side to join the mat, and then every column that side
+            # has blob pixels near row 0 (2026-08-24_17-01-06 f285: the wall tapers out
+            # at x=270 and a 7px strip of hall floor joins the contour for the 269
+            # columns to its left). A walk cannot inherit reachability from elsewhere.
+            lowest = (ARENA_BAND_H - 1) - np.argmax(floor_b[::-1], axis=0)
+            # The walk must START on our own floor. Where the wall fills the column the
+            # only blob left is whatever leaked in beyond it, and walking up from THAT
+            # reports the room as arena. The mat under the nose is always at or below
+            # the seed row.
+            measured = floor_b.any(axis=0) & (lowest >= ARENA_SEED_LOCAL[1])
+            chain = floor_b | (_ARENA_ROWS > lowest)
+            top = ARENA_BAND_H - np.minimum.accumulate(chain[::-1], axis=0)[::-1].sum(axis=0)
+            # top == 0 means floor runs unbroken to the top of the band: the wall is
+            # above ARENA_Y_TOP here, so the whole column IS arena. That is a
+            # measurement, not a gap -- pin it open and keep it out of the fill, or a
+            # neighbour that did see a wall drags a boundary across visible floor.
+            open_col = measured & (top == 0)
+            measured = measured & ~open_col
+
+        if not measured.any():
+            if not open_col.any():
+                return None, None, None, mask_black
+            sky = np.zeros(FRAME_WIDTH, dtype=np.int32)
+        else:
+            # Interpolate the unmeasured columns from their neighbours, rather than
+            # the median of ALL trusted columns the original used -- that borrowed a
+            # number with no relation to the column it landed in. The mat edge is the
+            # projection of a straight line, so a column inherits what its neighbours
+            # describe; np.interp edge-clamps at the frame border, extending that line
+            # instead of inventing a value.
+            cols = np.arange(FRAME_WIDTH)
+            sky = np.interp(cols, cols[measured], top[measured]).astype(np.int32)
+            sky[open_col] = 0
+        sky = _sliding_median(sky + ARENA_TOP_MARGIN, ARENA_SKY_SMOOTH)
+        sky = np.clip(sky, 0, ARENA_BAND_H)
+
+    if ARENA_MASK_MODE == 'contour':
+        # The SOLID contour, not the holes-restored blob: the holes are the walls, and
+        # punching them out would also gate out the near wall, which is where
+        # close_block_roi looks for black obstacles.
+        band_mask = filled
+    else:
+        band_mask = ((_ARENA_ROWS >= sky).astype(np.uint8)) * 255
 
     arena_mask = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
     arena_mask[ARENA_Y_TOP:ARENA_Y_BOTTOM, :] = band_mask
@@ -751,6 +893,13 @@ def process_video_frame(frame):
     roi_mask_close_black_slice = roi_mask_close_black[GLOBAL_Y_OFFSET:GLOBAL_Y_END, :]
 
     final_mask_walls = cv2.bitwise_and(pure_black_mask, roi_mask_walls_slice)
+    if WALL_BAND_PX and arena_sky is not None:
+        # See WALL_BAND_PX. Anchored on arena_sky rather than a contiguity walk: the
+        # sliding median can nudge sky a few px into the mat, which stops a walk dead
+        # but is noise against a 100+ px band.
+        cap = (WALL_BAND_SLOPE * arena_sky + WALL_BAND_PX).astype(np.int32)
+        in_band = (_ARENA_ROWS >= arena_sky - cap).astype(np.uint8) * 255
+        final_mask_walls = cv2.bitwise_and(final_mask_walls, in_band)
     final_mask_close_black = cv2.bitwise_and(black_or_magenta_mask, roi_mask_close_black_slice)
 
     # --- 4. Contour finding (fast-fail on empty masks) ---

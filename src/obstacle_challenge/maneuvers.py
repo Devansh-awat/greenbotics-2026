@@ -93,6 +93,19 @@ def _record_parking(frame):
     parking_video_encoder.write(frame)
 
 
+def _sensor_wall_steer(distance_mm, kp=WALL_FOLLOW_KP,bd=220):
+    """P-controller servo angle to hold WALL_FOLLOW_TARGET_MM off a side wall.
+
+    Positive angle = steer toward the wall that `distance_mm` was read from
+    (i.e. distance too large -> steer in). Callers on the opposite side negate.
+    """
+    if distance_mm is None:
+        return 0.0
+    if distance_mm <bd:
+        distance_mm=WALL_FOLLOW_TARGET_MM
+    return kp * (distance_mm - WALL_FOLLOW_TARGET_MM)
+
+
 def perform_initial_maneuver():
     log.info("--- Executing Full Initial Maneuver ---")
 
@@ -279,7 +292,7 @@ def parking():
         target_turn_heading = (INITIAL_HEADING + 90) % 360
         has_turned = get_angular_difference(target_turn_heading, heading) < 15
         if sensor_readings['distance_back'] is not None:
-            if has_turned and sensor_readings['distance_back'] < 150:
+            if has_turned and sensor_readings['distance_back'] < 160:
                 break
         if time.monotonic() - parking_start > 6.0:
             plog.warning("Parking reverse timeout reached!")
@@ -306,7 +319,7 @@ def parking():
     TARGET_Y_OFFSET_FROM_BOTTOM = 180
 
     motor.stop_rpm_control()
-    motor.start_rpm_control(150, "forward")
+    motor.start_rpm_control(80, "forward")
     past_frame_counter = 0
     plog.info("Tracking line to magenta stop...")
     # Step 4: this is the one part of parking that reads the camera in real time, so
@@ -323,20 +336,29 @@ def parking():
 
         frame_height, frame_width, _ = frame.shape
         target_y_global = frame_height - TARGET_Y_OFFSET_FROM_BOTTOM
-        target_y_in_roi = target_y_global - ROI_Y_START
 
-        roi = frame[ROI_Y_START:, ROI_X_START:]
-        mask = cv2.inRange(cv2.cvtColor(roi, cv2.COLOR_BGR2HSV), HSV_RANGES['LOWER_BLACK'], np.array([180, 255, 40]))
-        roi[mask == 255] = (255, 255, 255)
-        y_coords = np.argmax(mask, axis=0)
-        valid_y_coords = y_coords[mask[y_coords, np.arange(roi.shape[1])] > 0]
+        if PARKING_WALL_FOLLOW_MODE == 'sensor':
+            dist=sensor_thread.get_readings()['distance_right']
+            steering_value = _sensor_wall_steer(dist)
+            plog.debug(f"right distance: {dist}, angle: {steering_value}")
+        else:
+            dist=0
+            target_y_in_roi = target_y_global - ROI_Y_START
 
-        steering_value = 0.0
-        if valid_y_coords.size > 0:
-            average_y = np.mean(valid_y_coords)
-            error = target_y_in_roi - average_y
-            steering_value = 0.8 * error
-            cv2.line(frame, (ROI_X_START, ROI_Y_START + int(average_y)), (frame_width, ROI_Y_START + int(average_y)), (0, 0, 255), 2)
+            roi = frame[ROI_Y_START:, ROI_X_START:]
+            mask = cv2.inRange(cv2.cvtColor(roi, cv2.COLOR_BGR2HSV), HSV_RANGES['LOWER_BLACK'], np.array([180, 255, 40]))
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))  # or (5, 5) if noise is heavy
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            roi[mask == 255] = (255, 255, 255)
+            y_coords = np.argmax(mask, axis=0)
+            valid_y_coords = y_coords[mask[y_coords, np.arange(roi.shape[1])] > 0]
+
+            steering_value = 0.0
+            if valid_y_coords.size > 0:
+                average_y = np.mean(valid_y_coords)
+                error = target_y_in_roi - average_y
+                steering_value = 0.8 * error
+                cv2.line(frame, (ROI_X_START, ROI_Y_START + int(average_y)), (frame_width, ROI_Y_START + int(average_y)), (0, 0, 255), 2)
 
         servo.set_angle(steering_value)
 
@@ -351,6 +373,7 @@ def parking():
         cv2.putText(frame, f"Servo angle: {steering_value:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         cv2.rectangle(frame, (426, 330), (640, 360), (255, 0, 255), 2)
         cv2.putText(frame, f"Magenta Pixels: {magenta_pixel_count}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.putText(frame,f"dist: {dist}",(10,150),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,255),2)
 
         state_text = f"Armed to Stop: {first_magenta_line_passed}"
         cv2.putText(frame, state_text, (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
@@ -373,7 +396,7 @@ def parking():
     if bg_annotator is not None:
         bg_annotator.resume()
     servo.set_angle(0)
-    time.sleep(0.21)  # INCREASING MAKES ROBOT STOP MORE FORWARD
+    time.sleep(0.6)  # INCREASING MAKES ROBOT STOP MORE FORWARD
     motor.stop_rpm_control()
     time.sleep(0.3)
     motor.start_rpm_control(70, "reverse")
@@ -543,7 +566,7 @@ def parking2():
 
     t_step = time.monotonic()
     plog.info("[Parking2 4/10] Tracking line to magenta stop (200 RPM)...")
-    motor.start_rpm_control(200, "forward")
+    motor.start_rpm_control(80, "forward")
     past_frame_counter = 0
     # Step 4: the one part of parking2 that reads the camera in real time. Freeze the
     # background rebuild for the duration -- see BackgroundAnnotator.
@@ -558,19 +581,25 @@ def parking2():
 
         frame_height, frame_width, _ = frame.shape
         target_y_global = frame_height - TARGET_Y_OFFSET_FROM_BOTTOM
-        target_y_in_roi = target_y_global - ROI_Y_START
 
-        roi_black_line = frame[ROI_Y_START:, :ROI_X_END]
-        mask_black = cv2.inRange(cv2.cvtColor(roi_black_line, cv2.COLOR_BGR2HSV), HSV_RANGES['LOWER_BLACK'], np.array([180, 255, 40]))
-        y_coords = np.argmax(mask_black, axis=0)
-        valid_y_coords = y_coords[mask_black[y_coords, np.arange(roi_black_line.shape[1])] > 0]
+        if PARKING_WALL_FOLLOW_MODE == 'sensor':
+            steering_value = -_sensor_wall_steer(sensor_thread.get_readings()['distance_left'])
+        else:
+            target_y_in_roi = target_y_global - ROI_Y_START
 
-        steering_value = 0.0
-        if valid_y_coords.size > 0:
-            average_y = np.mean(valid_y_coords)
-            error = average_y - target_y_in_roi
-            steering_value = 0.8 * error
-            cv2.line(frame, (0, ROI_Y_START + int(average_y)), (ROI_X_END, ROI_Y_START + int(average_y)), (0, 0, 255), 2)
+            roi_black_line = frame[ROI_Y_START:, :ROI_X_END]
+            mask_black = cv2.inRange(cv2.cvtColor(roi_black_line, cv2.COLOR_BGR2HSV), HSV_RANGES['LOWER_BLACK'], np.array([180, 255, 40]))
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))  # or (5, 5) if noise is heavy
+            mask_black = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            y_coords = np.argmax(mask_black, axis=0)
+            valid_y_coords = y_coords[mask_black[y_coords, np.arange(roi_black_line.shape[1])] > 0]
+
+            steering_value = 0.0
+            if valid_y_coords.size > 0:
+                average_y = np.mean(valid_y_coords)
+                error = average_y - target_y_in_roi
+                steering_value = 0.8 * error
+                cv2.line(frame, (0, ROI_Y_START + int(average_y)), (ROI_X_END, ROI_Y_START + int(average_y)), (0, 0, 255), 2)
 
         servo.set_angle(steering_value)
 
@@ -608,7 +637,7 @@ def parking2():
     if bg_annotator is not None:
         bg_annotator.resume()
     servo.set_angle(1)
-    time.sleep(0.21)
+    time.sleep(0.6)
     motor.stop_rpm_control()
     plog.info("[Parking2 4/10] Completed in %.2fs", time.monotonic() - t_step)
     time.sleep(0.3)
@@ -632,7 +661,7 @@ def parking2():
         dist = sensor_thread.get_readings()['distance_back']
         if throttle:
             plog.debug("reverse for parking: back=%s heading=%s", _fmt(dist), _fmt(imu_thread.get_heading()))
-        if dist is not None and dist < 150:
+        if dist is not None and dist < 140:
             break
         if time.monotonic() - parking_start > 6.0:
             plog.warning("Parking2 second reverse timeout reached!")
@@ -655,7 +684,7 @@ def parking2():
         heading = imu_thread.get_heading()
         if throttle:
             plog.debug("forward for parking: back=%s heading=%s", _fmt(dist), _fmt(heading))
-        if dist is not None and dist > 150:
+        if dist is not None and dist > 140:
             break
         if time.monotonic() - parking_start > 5.0:
             plog.warning("Parking2 forward drive timeout reached!")

@@ -33,6 +33,9 @@ from src.obstacle_challenge.tuning import (
     LUV_RANGES,
     LOWER_BLACK,
     UPPER_BLACK,
+    LOWER_WHITE,      # the mat, for the arena mask's floor blob. Imported by name, so
+    UPPER_WHITE,      # without these two the open challenge would silently fall back
+                      # to pipeline.py's built-in default instead of your tuning.
     LOWER_ORANGE,
     UPPER_ORANGE,
     LOWER_BLUE,
@@ -46,6 +49,40 @@ from src.obstacle_challenge.tuning import (
     LOWER_MAGENTA,
     UPPER_MAGENTA,
 )
+
+
+# --- Opt-in vision changes (2026-08-25) -------------------------------------
+# Every one of these defaults to the ORIGINAL behaviour. With this block untouched
+# the pipeline is byte-identical to the last commit (verified over 750 frames).
+#
+# ARENA_MASK_MODE -- how the arena's top boundary is found. See the long comment in
+#   src/vision/pipeline.py for what each mode trades away. Short version:
+#     'walltop'  ORIGINAL. Cut at the TOP of the near wall's black run. Needs the
+#                wall's top edge to be visible against the background; a grey hall
+#                floor destroys that edge. Left 70% of columns ungated on 2026-08-24.
+#     'skyline'  Cut at the FLOOR's top edge (walk up from the mat, stop at the first
+#                break). No wall-top contrast needed. Gates 22% of the band vs 7.5%,
+#                leaks into 0.8% of walled columns vs 4.0%. ~+0.8 ms on the Pi.
+#                Drops the far track section seen over an inner wall.
+#     'filldown' Top -> down, first floor pixel wins, fill to the bottom. KEEPS the
+#                far track section. Leaks 7.9% when the outer wall thins enough to
+#                join the hall to the mat.
+#     'contour'  Gate to the floor contour itself rather than a per-column boundary.
+#   Every mode except 'walltop' also switches the floor blob from NOT(black) to
+#   positive floor colour, which is what stops a grey surround joining the blob.
+ARENA_MASK_MODE = 'walltop'
+
+# WALL_BAND_PX -- wall following keeps only black within
+#   WALL_BAND_SLOPE * boundary_row + WALL_BAND_PX px above the floor boundary.
+#   0 = OFF = original (every black pixel in the wall ROIs counts). Needs
+#   ARENA_MASK_MODE != 'walltop'. Untested insurance for a venue where the surround
+#   thresholds as black and merges with the wall: on all 2026-08-24 footage it
+#   changes nothing. Size it on site with
+#       python3 -m src.tools.compare_skyline --wall-height
+#   and leave it off if that reports an escape rate under ~5%.
+WALL_BAND_PX = 0
+WALL_BAND_SLOPE = 0.9
+
 
 # --- Detection Parameters ---
 WALL_MIN_AREA = 300

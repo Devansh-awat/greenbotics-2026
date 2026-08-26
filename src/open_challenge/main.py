@@ -291,7 +291,7 @@ if __name__ == "__main__":
                     encoder_done = (dist_traveled_cm >= FINAL_STOP_DISTANCE_CM)
 
                 # Fallback timeout if encoder is unavailable
-                timeout_done = (time.monotonic() - final_run_start_time) >= 1.5
+                timeout_done = (time.monotonic() - final_run_start_time) >= 0.4
 
                 if encoder_done or timeout_done:
                     log.info("Final distance complete (%.1f cm / %s). Stopping.",

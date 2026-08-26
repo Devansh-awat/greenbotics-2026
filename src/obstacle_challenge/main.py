@@ -398,6 +398,7 @@ if __name__ == "__main__":
             target_rpm = INITIAL_RPM
             angle = 0
             active_block_y = None
+            wall_steering = False
             debug = []
             visual_target_x = None
             visual_target_line = None
@@ -585,10 +586,10 @@ if __name__ == "__main__":
                             target = 300 if block_y > 170 and 200 < block_x < 440 else 150
                             candidate_magentas = [
                                 m for m in detections.get('detected_magenta', [])
-                                if (m['centroid'][0] - block_x) >= 30 and abs(m['target_y'] - block_y) < 100
+                                if (m['centroid'][0] - block_x) >= 65 and abs(m['target_y'] - block_y) < 65
                             ]
                             if candidate_magentas and driving_direction == 'counter-clockwise':
-                                chosen_magenta = min(candidate_magentas, key=lambda m: m['centroid'][0] - block_x)
+                                chosen_magenta = min(candidate_magentas, key=lambda m: abs(m['target_y'] - block_y))
                                 magenta_left_x = chosen_magenta['contour'][:, 0, 0].min()
                                 red_right_x = block['contour'][:, 0, 0].max()
                                 target_x_line = int(0.55 * magenta_left_x + 0.45 * red_right_x)
@@ -676,10 +677,10 @@ if __name__ == "__main__":
                             target = 300 if block_y > 170 and 200 < block_x < 440 else 150
                             candidate_magentas = [
                                 m for m in detections.get('detected_magenta', [])
-                                if (block_x - m['centroid'][0]) >= 30 and abs(m['target_y'] - block_y) < 65
+                                if (block_x - m['centroid'][0]) >= 65 and abs(m['target_y'] - block_y) < 65
                             ]
                             if candidate_magentas and driving_direction == 'clockwise':
-                                chosen_magenta = min(candidate_magentas, key=lambda m: block_x - m['centroid'][0])
+                                chosen_magenta = min(candidate_magentas, key=lambda m: abs(m['target_y'] - block_y))
                                 magenta_right_x = chosen_magenta['contour'][:, 0, 0].max()
                                 green_left_x = block['contour'][:, 0, 0].min()
                                 target_x_line = int(0.55 * magenta_right_x + 0.45 * green_left_x)
@@ -770,6 +771,7 @@ if __name__ == "__main__":
 
                         debug.extend([f"L:{int(left_pixel_size)}", f"R:{int(right_pixel_size)}"])
                         debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
+                        wall_steering = True
                         wall_error = total_left - total_right
                         wall_derivative = wall_error - prev_wall_error
                         debug.append(f"Err:{int(wall_error)}")
@@ -778,7 +780,7 @@ if __name__ == "__main__":
                         prev_wall_error = wall_error
                         if close_black_area > 3000 or detections.get('line_roi_wall_pct', 0) > 50:
                             if driving_direction == 'clockwise':
-                                angle += 35
+                                angle += 20
                             else:
                                 angle += -35
                         if total_left == 0 and total_right == 0 and (detected_orange_object or detected_blue_object):
@@ -821,6 +823,7 @@ if __name__ == "__main__":
 
                 debug.extend([f"L:{int(left_pixel_size)}", f"R:{int(right_pixel_size)}"])
                 debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
+                wall_steering = True
                 wall_error = total_left - total_right
                 wall_derivative = wall_error - prev_wall_error
                 debug.append(f"Err:{int(wall_error)}")
@@ -829,7 +832,7 @@ if __name__ == "__main__":
                 prev_wall_error = wall_error
                 if close_black_area > 3000 or detections.get('line_roi_wall_pct', 0) > 50:
                     if driving_direction == 'clockwise':
-                        angle += 35
+                        angle += 20
                     else:
                         angle += -35
                 if total_left == 0 and total_right == 0 and (detected_orange_object or detected_blue_object):
@@ -853,12 +856,12 @@ if __name__ == "__main__":
             # opposite -- annotate, write, then sleep(1/60 - elapsed), THEN steer --
             # which put up to ~25 ms between seeing a frame and reacting to it.
             if green_post_pass_frames > 0:
-                if close_black_area > 3000 or detections.get('line_roi_wall_pct', 0) > 50:
-                    angle = np.clip(angle, -40, 40)
-                    debug.append(f"GClipOvr:{green_post_pass_frames}")
-                else:
-                    angle = np.clip(angle, -POST_GREEN_MAX_ANGLE, POST_GREEN_MAX_ANGLE)
-                    debug.append(f"GClip:{green_post_pass_frames}")
+                # No close-black override any more: it only fired clockwise (nose-on to
+                # the outer wall after the pass) and let the angle reach 40. Wall-follow
+                # steering gets its own, looser cap; block tracking keeps the tight one.
+                cap = POST_GREEN_WALL_MAX_ANGLE if wall_steering else POST_GREEN_MAX_ANGLE
+                angle = np.clip(angle, -cap, cap)
+                debug.append(f"GClip{'W' if wall_steering else ''}:{green_post_pass_frames}")
                 green_post_pass_frames -= 1
             elif red_post_pass_frames > 0:
                 if close_black_area > 3000 or detections.get('line_roi_wall_pct', 0) > 50:
