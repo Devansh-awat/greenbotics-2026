@@ -589,7 +589,7 @@ if __name__ == "__main__":
                                 if (m['centroid'][0] - block_x) >= 65 and abs(m['target_y'] - block_y) < 65
                             ]
                             if candidate_magentas and driving_direction == 'counter-clockwise':
-                                chosen_magenta = min(candidate_magentas, key=lambda m: abs(m['target_y'] - block_y))
+                                chosen_magenta = min(candidate_magentas, key=lambda m: m['centroid'][0] - block_x)
                                 magenta_left_x = chosen_magenta['contour'][:, 0, 0].min()
                                 red_right_x = block['contour'][:, 0, 0].max()
                                 target_x_line = int(0.55 * magenta_left_x + 0.45 * red_right_x)
@@ -677,10 +677,10 @@ if __name__ == "__main__":
                             target = 300 if block_y > 170 and 200 < block_x < 440 else 150
                             candidate_magentas = [
                                 m for m in detections.get('detected_magenta', [])
-                                if (block_x - m['centroid'][0]) >= 65 and abs(m['target_y'] - block_y) < 65
+                                if (block_x - m['centroid'][0]) >= 65 and abs(m['target_y'] - block_y) < 35
                             ]
                             if candidate_magentas and driving_direction == 'clockwise':
-                                chosen_magenta = min(candidate_magentas, key=lambda m: abs(m['target_y'] - block_y))
+                                chosen_magenta = min(candidate_magentas, key=lambda m: block_x - m['centroid'][0])
                                 magenta_right_x = chosen_magenta['contour'][:, 0, 0].max()
                                 green_left_x = block['contour'][:, 0, 0].min()
                                 target_x_line = int(0.55 * magenta_right_x + 0.45 * green_left_x)
@@ -962,7 +962,7 @@ if __name__ == "__main__":
                 motor.stop_rpm_control()
                 motor.brake()
                 break
-            if turn_counter >= 13:
+            if turn_counter >= 25:
                 motor.stop_rpm_control()
                 parking_start_time = time.monotonic()
                 time_before_parking = parking_start_time - run_start_time

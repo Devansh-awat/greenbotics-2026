@@ -395,7 +395,7 @@ def parking():
                     on_first_line = True
     if bg_annotator is not None:
         bg_annotator.resume()
-    servo.set_angle(0)
+    servo.set_angle(steer_with_gyro(imu_thread.get_heading(),(INITIAL_HEADING+175)%360))
     time.sleep(0.6)  # INCREASING MAKES ROBOT STOP MORE FORWARD
     motor.stop_rpm_control()
     time.sleep(0.3)
