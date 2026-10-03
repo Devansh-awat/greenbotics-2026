@@ -174,6 +174,7 @@ if __name__ == "__main__":
     frame_debug_throttle = Throttle(1.0)
     vibration_throttle = Throttle(getattr(config, "VIBRATION_LOG_PERIOD", 0.5))
     latest_vibration_deg_s = 0.0
+    run_start_time = None
 
     try:
         run_start_time = time.monotonic()
@@ -213,7 +214,7 @@ if __name__ == "__main__":
 
             if cooldown_frames > 0:
                 cooldown_frames -= 1
-            elif not orange_detection_history[-ORANGE_DETECTION_HISTORY_LENGTH] and all(list(orange_detection_history)[1:]):
+            elif not orange_detection_history[0] and sum(orange_detection_history) == (ORANGE_DETECTION_HISTORY_LENGTH - 1):
                 turn_counter += 1
                 cooldown_frames = ORANGE_COOLDOWN_FRAMES
                 log.info("turn_counter ----------------> %d", turn_counter)
@@ -330,9 +331,10 @@ if __name__ == "__main__":
                           frame_counter, float(angle), turn_counter, current_rpm, latency_ms, proc_ms,
                           len(detected_walls), skipped)
 
-            annotated_frame = annotate_video_frame(
-                frame, detections, driving_direction, debug_info=debug)
-            video_encoder.write(annotated_frame)
+            video_encoder.write(
+                frame, tag=frame_counter,
+                prepare=lambda f: annotate_video_frame(
+                    f, detections, driving_direction, debug_info=debug))
 
             # --- Exit Conditions ---
             if turn_counter == 12 and not final_run_initiated and get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) < 30:
@@ -387,8 +389,9 @@ if __name__ == "__main__":
 
     finally:
         run_end_time = time.monotonic()
-        total_run_time = run_end_time - run_start_time
-        log.info("Run completed in: %.2f seconds.", total_run_time)
+        if run_start_time is not None:
+            total_run_time = run_end_time - run_start_time
+            log.info("Run completed in: %.2f seconds.", total_run_time)
 
         motor.stop_rpm_control()
         motor.brake()

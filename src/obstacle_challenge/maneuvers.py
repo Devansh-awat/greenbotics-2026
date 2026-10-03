@@ -21,6 +21,7 @@ Two tiers of "how far did we go" problems live in here, both marked BUG:
 
 import time
 
+import cv2
 import numpy as np
 
 from src.motors import motor, servo
@@ -425,7 +426,11 @@ def parking():
     time.sleep(0.3)
     motor.start_rpm_control(70, "reverse")
     servo.set_angle_unlimited(55)
+    t_turn0 = time.monotonic()
     while get_angular_difference((INITIAL_HEADING+100)%360, imu_thread.get_heading()) > 10:
+        if time.monotonic() - t_turn0 > 4.0:
+            plog.warning("Parking first reverse turn timeout reached!")
+            break
         time.sleep(0.01)
     motor.stop_rpm_control()
     plog.debug("first reverse turn done: %s heading=%s", sensor_thread.get_readings(), _fmt(imu_thread.get_heading()))
@@ -667,7 +672,11 @@ def parking2():
     plog.info("[Parking2 5/10] Reverse turn to 100 deg (70 RPM)...")
     motor.start_rpm_control(70, "reverse")
     servo.set_angle_unlimited(-55)
+    t_turn0 = time.monotonic()
     while get_angular_difference((INITIAL_HEADING-100)%360, imu_thread.get_heading()) > 10:
+        if time.monotonic() - t_turn0 > 4.0:
+            plog.warning("Parking2 reverse turn timeout reached!")
+            break
         time.sleep(0.01)
     motor.stop_rpm_control()
     plog.info("[Parking2 5/10] Completed in %.2fs", time.monotonic() - t_step)

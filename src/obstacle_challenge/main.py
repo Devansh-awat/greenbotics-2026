@@ -454,7 +454,7 @@ if __name__ == "__main__":
 
             if cooldown_frames > 0:
                 cooldown_frames -= 1
-            elif not orange_detection_history[-ORANGE_DETECTION_HISTORY_LENGTH] and all(list(orange_detection_history)[1:]):
+            elif not orange_detection_history[0] and sum(orange_detection_history) == (ORANGE_DETECTION_HISTORY_LENGTH - 1):
                 turn_counter += 1
                 cooldown_frames = ORANGE_COOLDOWN_FRAMES
                 log.info("turn_counter ----------------> %d", turn_counter)

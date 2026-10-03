@@ -981,8 +981,8 @@ def process_video_frame(frame):
     if cv2.countNonZero(mask_orange_line) > 0:
         contours, _ = cv2.findContours(mask_orange_line, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
-            biggest_contour = max(contours, key=cv2.contourArea)
-            area = cv2.contourArea(biggest_contour)
+            contour_areas = [(cv2.contourArea(c), c) for c in contours]
+            area, biggest_contour = max(contour_areas, key=lambda x: x[0])
             if area > 20:
                 M = cv2.moments(biggest_contour)
                 if M["m00"] != 0:
@@ -994,8 +994,8 @@ def process_video_frame(frame):
     if cv2.countNonZero(mask_blue_line) > 0:
         contours, _ = cv2.findContours(mask_blue_line, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
-            biggest_contour = max(contours, key=cv2.contourArea)
-            area = cv2.contourArea(biggest_contour)
+            contour_areas = [(cv2.contourArea(c), c) for c in contours]
+            area, biggest_contour = max(contour_areas, key=lambda x: x[0])
             if area > 20:
                 M = cv2.moments(biggest_contour)
                 if M["m00"] != 0:
@@ -1026,7 +1026,8 @@ def process_video_frame(frame):
     if cv2.countNonZero(final_mask_walls) > 0:
         contours, _ = cv2.findContours(final_mask_walls, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for c in contours:
-            if cv2.contourArea(c) > WALL_MIN_AREA:
+            area = cv2.contourArea(c)
+            if area > WALL_MIN_AREA:
                 M = cv2.moments(c)
                 if M["m00"] == 0: continue
                 wcx = int(M["m10"] / M["m00"])
@@ -1038,18 +1039,14 @@ def process_video_frame(frame):
                 elif inner_right_side_job['roi'][0] <= wcx < inner_right_side_job['roi'][0] + inner_right_side_job['roi'][2]: job_type = inner_right_side_job['type']
 
                 if job_type != 'unknown':
-                    wall_contours_by_roi[job_type].append(c)
+                    wcy = int(M["m01"] / M["m00"]) + GLOBAL_Y_OFFSET
+                    wall_contours_by_roi[job_type].append((area, wcx, wcy, c))
 
     for job_type, contour_list in wall_contours_by_roi.items():
         if contour_list:
-            biggest_contour = max(contour_list, key=cv2.contourArea)
-            area = cv2.contourArea(biggest_contour)
-            M = cv2.moments(biggest_contour)
-            if M["m00"] != 0:
-                wcx = int(M["m10"] / M["m00"])
-                wcy = int(M["m01"] / M["m00"]) + GLOBAL_Y_OFFSET
-                biggest_contour_global = biggest_contour + [0, GLOBAL_Y_OFFSET]
-                processed_data['detected_walls'].append({'type': job_type, 'color': 'black', 'area': area, 'centroid': (wcx, wcy), 'contour': biggest_contour_global})
+            area, wcx, wcy, biggest_contour = max(contour_list, key=lambda item: item[0])
+            biggest_contour_global = biggest_contour + [0, GLOBAL_Y_OFFSET]
+            processed_data['detected_walls'].append({'type': job_type, 'color': 'black', 'area': area, 'centroid': (wcx, wcy), 'contour': biggest_contour_global})
 
     # Wall detection in line ROI (detecting black wall to prevent crash)
     wall_line_crop = pure_black_mask[ly_slice:ly_slice+lh, lx:lx+lw]

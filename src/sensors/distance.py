@@ -37,7 +37,6 @@ import adafruit_vl53l4cd
 _original_write_register = adafruit_vl53l4cd.VL53L4CD._write_register
 
 def _custom_write_register(self, address, data, length=None):
-    import struct
     if length is None:
         length = len(data)
     if address == 0x002D and length > 0:

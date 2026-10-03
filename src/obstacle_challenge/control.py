@@ -7,8 +7,6 @@ motor for the duration of the move and brake when done.
 
 import time
 
-import numpy as np
-
 from src.motors import motor, servo
 from src.logs.setup import log
 from src.obstacle_challenge.tuning import GYRO_KD, GYRO_KP
@@ -25,12 +23,7 @@ def bind(**kwargs):
 def get_angular_difference(angle1, angle2):
     if angle1 is None or angle2 is None:
         return 360
-    diff = angle1 - angle2
-    while diff <= -180:
-        diff += 360
-    while diff > 180:
-        diff -= 360
-    return abs(diff)
+    return abs((angle1 - angle2 + 180.0) % 360.0 - 180.0)
 
 def _heading_hold_step(target_heading, prev_error, kp, kd, limit=45):
     """One PD step of the heading lock. Returns (servo_angle, error).
@@ -42,13 +35,11 @@ def _heading_hold_step(target_heading, prev_error, kp, kd, limit=45):
     if current_heading is None:
         return None, prev_error
 
-    error = target_heading - current_heading
-    while error <= -180: error += 360
-    while error > 180: error -= 360
+    error = (target_heading - current_heading + 180.0) % 360.0 - 180.0
 
     derivative = error - prev_error
     steer_angle = (kp * error) + (kd * derivative)
-    return float(np.clip(steer_angle, -limit, limit)), error
+    return float(max(-limit, min(limit, steer_angle))), error
 
 
 def drive_straight_with_gyro(target_heading, duration, speed, direction='forward', kp=GYRO_KP, kd=GYRO_KD):
@@ -197,21 +188,14 @@ def steer_with_gyro(current_heading: float,
     if current_heading is None or target_heading is None:
         return 0.0
 
-    # 1. Calculate the error between target and current heading.
-    error = target_heading - current_heading
+    # 1. Calculate the shortest error between target and current heading with wrap-around.
+    error = (target_heading - current_heading + 180.0) % 360.0 - 180.0
 
-    # 2. Handle the wrap-around issue (e.g., turning from 350 degrees to 10 degrees).
-    # The shortest path is not -340 degrees, but +20 degrees.
-    if error > 180:
-        error -= 360
-    elif error < -180:
-        error += 360
-
-    # 3. Calculate derivative and steering correction (PD controller).
+    # 2. Calculate derivative and steering correction (PD controller).
     derivative = error - prev_error
     steer_angle = (kp * error) + (kd * derivative)
 
-    # 4. Clamp the steering angle to the servo's physical limits.
-    clamped_steer_angle = np.clip(steer_angle, min_servo_angle, max_servo_angle)
+    # 3. Clamp the steering angle to the servo's physical limits.
+    clamped_steer_angle = float(max(min_servo_angle, min(max_servo_angle, steer_angle)))
 
     return clamped_steer_angle

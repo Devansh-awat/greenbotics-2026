@@ -16,7 +16,6 @@ import math
 import time
 import traceback
 
-import numpy as np
 import adafruit_bno08x
 from adafruit_bno08x.i2c import BNO08X_I2C
 
@@ -213,7 +212,9 @@ def get_initial_heading(num_readings=20):
         time.sleep(0.05)
 
     if readings:
-        initial_heading = np.mean(readings)
+        sin_sum = sum(math.sin(math.radians(r)) for r in readings)
+        cos_sum = sum(math.cos(math.radians(r)) for r in readings)
+        initial_heading = math.degrees(math.atan2(sin_sum, cos_sum)) % 360.0
         print(f"INFO: Gyro zero point set to: {initial_heading:.2f} degrees.")
         return initial_heading
     else:
@@ -240,7 +241,12 @@ if __name__ == "__main__":
                 if h is not None:
                     readings.append(h)
                 time.sleep(0.05)
-            offset = np.mean(readings) if readings else 0.0
+            if readings:
+                sin_sum = sum(math.sin(math.radians(r)) for r in readings)
+                cos_sum = sum(math.cos(math.radians(r)) for r in readings)
+                offset = math.degrees(math.atan2(sin_sum, cos_sum)) % 360.0
+            else:
+                offset = 0.0
             print(f"Raw heading at start: {offset:.1f}°  →  will display as 0°")
 
             print("Reading heading (zeroed). Press Ctrl+C to exit.")

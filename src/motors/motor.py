@@ -2,6 +2,7 @@ import lgpio
 from rpi_hardware_pwm import HardwarePWM
 import time
 import math
+import threading
 from src.obstacle_challenge import config
 from src.sensors.encoder import IncrementalEncoder
 import board
@@ -90,7 +91,6 @@ _rpm_state = {
 }
 
 # Background control thread (so the loop can run once and hold a target).
-import threading
 _rpm_thread = None
 _rpm_stop_event = None
 _rpm_lock = threading.Lock()

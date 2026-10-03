@@ -135,6 +135,7 @@ class IncrementalEncoder:
         self.gear_ratio = gear_ratio
         self.wheel_diameter_mm = wheel_diameter_mm
         self._position = 0
+        self._mm_per_count = (self.gear_ratio * math.pi * self.wheel_diameter_mm) / self.counts_per_rev
 
     def deinit(self):
         self._sm.deinit()
@@ -143,14 +144,17 @@ class IncrementalEncoder:
     def position(self):
         self._sm.readinto(self._buffer) # read N stale values + 1 fresh value
         raw_position = self._buffer[-1]
-        delta = int((raw_position - self._position * self.divisor) / self.divisor)
-        self._position += delta
+        if self.divisor == 1:
+            self._position = raw_position
+        else:
+            delta = int((raw_position - self._position * self.divisor) / self.divisor)
+            self._position += delta
         return self._position
 
     @property
     def distance(self):
         """Returns the distance traveled in mm."""
-        return self.position * (self.gear_ratio * math.pi * self.wheel_diameter_mm) / self.counts_per_rev
+        return self.position * self._mm_per_count
 
 if __name__ == '__main__':
     import board

@@ -242,12 +242,16 @@ class SensorThread(threading.Thread):
             reinit_threshold = 30
             while not self.stop_event.is_set():
                 try:
-                    readings = {}
-                    for ch in list(consecutive_none.keys()):
+                    raw_readings = {}
+                    for ch in self.channels:
                         val = self.dist.get_distance(ch)
                         if val is not None and val < 50.0:
                             val = None
-                        with self.lock:
+                        raw_readings[ch] = val
+
+                    readings = {}
+                    with self.lock:
+                        for ch, val in raw_readings.items():
                             if val is not None:
                                 self.history[ch].append(val)
                                 consecutive_none[ch] = 0
@@ -263,7 +267,6 @@ class SensorThread(threading.Thread):
                             else:
                                 readings[ch] = None
 
-                    with self.lock:
                         self.distance_center = readings.get(distance.FRONT_CHANNEL)
                         self.distance_back = readings.get(distance.BACK_CHANNEL)
                         self.distance_left = readings.get(distance.LEFT_CHANNEL)
