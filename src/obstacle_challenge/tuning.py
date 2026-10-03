@@ -71,7 +71,7 @@ WALL_KD = 0.0003
 #     'contour'  Gate to the floor contour itself rather than a per-column boundary.
 #   Every mode except 'walltop' also switches the floor blob from NOT(black) to
 #   positive floor colour, which is what stops a grey surround joining the blob.
-ARENA_MASK_MODE = 'walltop'
+ARENA_MASK_MODE = 'skyline'
 
 # WALL_BAND_PX -- wall following keeps only black within
 #   WALL_BAND_SLOPE * boundary_row + WALL_BAND_PX px above the floor boundary.
@@ -86,10 +86,31 @@ WALL_BAND_SLOPE = 0.9
 
 
 # --- Parking wall-follow source ---------------------------------------------
-# 'camera' - track the black line via the camera ROI (original behaviour)
-# 'sensor' - hold WALL_FOLLOW_TARGET_MM off the side wall using the distance
-#            sensor; magenta stop-line detection still uses the camera either way.
-PARKING_WALL_FOLLOW_MODE = 'sensor'
+# 'wall_base' - fit the line where the black wall meets the white mat
+#               (src/vision/wall_base.py) and hold its y at a look-ahead column.
+#               Never looks at what is behind the wall, so a dark venue floor or
+#               people standing behind it don't matter.
+# 'camera'    - ORIGINAL: topmost black pixel in a thin edge ROI = the wall's TOP
+#               edge. Needs a bright background behind the wall; breaks on a dark one.
+# Magenta stop-line detection uses the camera either way.
+PARKING_WALL_FOLLOW_MODE = 'wall_base'
+
+# 'wall_base' settings. Measures the x of the wall's base (black wall meets white
+# mat) at row WALL_BASE_REF_Y, from base points within +-WALL_BASE_BAND rows only --
+# no line is extrapolated. Closer to the wall, or yawed toward it, moves the base
+# toward the frame centre; steer = KP * (x - TARGET_X) steers away on both sides.
+# When the band is hidden (a parking wall in front of it) the robot holds the
+# wall's heading on the gyro instead.
+# TARGET_Xs reproduce the line the 'camera' mode drove: median base x over all
+# 2026-08-2x parking runs (right 577, left 44). Move toward the frame centre to sit
+# closer to the wall. KP: 1 px of base x ~ 0.54 px of the old top-edge y, so ~0.8*0.54.
+WALL_BASE_KP = 0.45
+WALL_BASE_REF_Y = 270
+WALL_BASE_BAND = 20
+WALL_BASE_CW_X = (430, 640)      # right wall: columns searched (x<430 is the robot body)
+WALL_BASE_CW_TARGET_X = 600   # 577 (old line) sat too close on 2026-10-02_17-41-55
+WALL_BASE_CCW_X = (0, 170)       # left wall (x>170 is the robot body)
+WALL_BASE_CCW_TARGET_X = 44
 WALL_FOLLOW_TARGET_MM = 280
 WALL_FOLLOW_KP = 0.5  # ponytail: sign/gain unverified on hardware, check on bench first
 
@@ -188,8 +209,8 @@ VIDEO_FPS = 10.0
 PERF_REPORT_PERIOD = 2.0   # seconds between INFO-level perf summaries
 
 HSV_RANGES = {
-    'LOWER_RED_1': np.array([0, 104, 43]), 'UPPER_RED_1': np.array([10, 230, 180]),
-    'LOWER_RED_2': np.array([176, 104, 43]), 'UPPER_RED_2': np.array([180, 230, 180]),
+    'LOWER_RED_1': np.array([0, 80, 43]), 'UPPER_RED_1': np.array([5, 230, 180]),
+    'LOWER_RED_2': np.array([176, 80, 43]), 'UPPER_RED_2': np.array([180, 230, 180]),
     'LOWER_GREEN': np.array([50, 90, 38]), 'UPPER_GREEN': np.array([88, 255, 255]),
     'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 110, 85]),
     # The mat, for the arena mask's floor blob. Measured off the mat around the nose
@@ -197,7 +218,7 @@ HSV_RANGES = {
     # UPPER_BLACK's V of 85 -- keep V_MIN clear of it. Re-measure in a new venue with
     # src/tools/video_color_tuning.py; too low a V_MIN lets a grey hall floor in.
     'LOWER_WHITE': np.array([0, 0, 110]), 'UPPER_WHITE': np.array([180, 60, 255]),
-    'LOWER_ORANGE': np.array([4, 53, 102]), 'UPPER_ORANGE': np.array([23, 212, 229]),
+    'LOWER_ORANGE': np.array([10, 53, 102]), 'UPPER_ORANGE': np.array([23, 212, 229]),
     'LOWER_BLUE': np.array([110, 50, 53]), 'UPPER_BLUE': np.array([126, 255, 255]),
     'LOWER_MAGENTA': np.array([145, 73, 40]), 'UPPER_MAGENTA': np.array([170, 255, 223]),
 }

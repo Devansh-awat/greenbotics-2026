@@ -31,6 +31,7 @@ from src.obstacle_challenge.control import (
 from src.logs.setup import Throttle, _fmt, log, plog
 from src.obstacle_challenge.tuning import *
 from src.vision.pipeline import annotate_video_frame, process_video_frame
+from src.vision.wall_base import wall_base_x
 
 # --- Injected by main_v5.bind_runtime() -------------------------------------
 # None of these can be imported: they are live objects created after the hardware
@@ -91,6 +92,35 @@ def _record_parking(frame):
     if parking_video_encoder is None:
         return
     parking_video_encoder.write(frame)
+
+
+def _wall_base_steer(frame, side, wall_heading):
+    """Servo angle holding the near `side` wall's base at its target x.
+
+    Falls back to holding `wall_heading` on the gyro when the base isn't visible in
+    the band (parking walls covering it). Draws onto `frame` (after measuring).
+    """
+    if side == 'right':
+        (x0, x1), target_x = WALL_BASE_CW_X, WALL_BASE_CW_TARGET_X
+    else:
+        (x0, x1), target_x = WALL_BASE_CCW_X, WALL_BASE_CCW_TARGET_X
+    ref_y, band = WALL_BASE_REF_Y, WALL_BASE_BAND
+    x, n, xs, ys = wall_base_x(frame, side, x0, x1, ref_y, band)   # before drawing
+    cv2.rectangle(frame, (x0, ref_y - band), (x1 - 1, ref_y + band), (255, 255, 0), 1)
+    cv2.line(frame, (target_x, ref_y - band), (target_x, ref_y + band), (0, 255, 0), 2)
+    for px, py in zip(xs, ys):
+        cv2.circle(frame, (int(px), int(py)), 2, (0, 255, 0), -1)
+    if x is None:
+        steer = steer_with_gyro(imu_thread.get_heading(), wall_heading, kp=1)
+        cv2.putText(frame, f"base not seen n={n}", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        plog.debug("wall_base: not seen n=%d, gyro steer=%.1f", n, steer)
+        return steer
+    steer = WALL_BASE_KP * (x - target_x)
+    cv2.drawMarker(frame, (int(x), ref_y), (0, 0, 255), cv2.MARKER_CROSS, 24, 2)
+    cv2.putText(frame, f"base x={x:.0f} tgt={target_x} n={n}", (10, 150),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+    plog.debug("wall_base: x=%.1f target=%d n=%d steer=%.1f", x, target_x, n, steer)
+    return steer
 
 
 def _sensor_wall_steer(distance_mm, kp=WALL_FOLLOW_KP,bd=220):
@@ -319,7 +349,7 @@ def parking():
     TARGET_Y_OFFSET_FROM_BOTTOM = 180
 
     motor.stop_rpm_control()
-    motor.start_rpm_control(80, "forward")
+    motor.start_rpm_control(150, "forward")
     past_frame_counter = 0
     plog.info("Tracking line to magenta stop...")
     # Step 4: this is the one part of parking that reads the camera in real time, so
@@ -336,19 +366,13 @@ def parking():
 
         frame_height, frame_width, _ = frame.shape
         target_y_global = frame_height - TARGET_Y_OFFSET_FROM_BOTTOM
+        target_y_in_roi = target_y_global - ROI_Y_START
 
-        if PARKING_WALL_FOLLOW_MODE == 'sensor':
-            dist=sensor_thread.get_readings()['distance_right']
-            steering_value = _sensor_wall_steer(dist)
-            plog.debug(f"right distance: {dist}, angle: {steering_value}")
+        if PARKING_WALL_FOLLOW_MODE == 'wall_base':
+            steering_value = _wall_base_steer(frame, 'right', (INITIAL_HEADING + 180) % 360)
         else:
-            dist=0
-            target_y_in_roi = target_y_global - ROI_Y_START
-
             roi = frame[ROI_Y_START:, ROI_X_START:]
             mask = cv2.inRange(cv2.cvtColor(roi, cv2.COLOR_BGR2HSV), HSV_RANGES['LOWER_BLACK'], np.array([180, 255, 40]))
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))  # or (5, 5) if noise is heavy
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
             roi[mask == 255] = (255, 255, 255)
             y_coords = np.argmax(mask, axis=0)
             valid_y_coords = y_coords[mask[y_coords, np.arange(roi.shape[1])] > 0]
@@ -359,21 +383,21 @@ def parking():
                 error = target_y_in_roi - average_y
                 steering_value = 0.8 * error
                 cv2.line(frame, (ROI_X_START, ROI_Y_START + int(average_y)), (frame_width, ROI_Y_START + int(average_y)), (0, 0, 255), 2)
+            cv2.line(frame, (ROI_X_START, target_y_global), (frame_width, target_y_global), (0, 255, 0), 2)
 
         servo.set_angle(steering_value)
 
-        cv2.line(frame, (ROI_X_START, target_y_global), (frame_width, target_y_global), (0, 255, 0), 2)
 
         roi_stop = frame[330:360, 426:640]
         hsv_stop = cv2.cvtColor(roi_stop, cv2.COLOR_BGR2HSV)
         mask_magenta = cv2.inRange(hsv_stop, HSV_RANGES['LOWER_MAGENTA'], HSV_RANGES['UPPER_MAGENTA'])
         magenta_pixel_count = cv2.countNonZero(mask_magenta)
 
-        cv2.rectangle(frame, (ROI_X_START, ROI_Y_START), (frame_width, frame_height), (0, 255, 0), 2)
+        if PARKING_WALL_FOLLOW_MODE != 'wall_base':
+            cv2.rectangle(frame, (ROI_X_START, ROI_Y_START), (frame_width, frame_height), (0, 255, 0), 2)
         cv2.putText(frame, f"Servo angle: {steering_value:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         cv2.rectangle(frame, (426, 330), (640, 360), (255, 0, 255), 2)
         cv2.putText(frame, f"Magenta Pixels: {magenta_pixel_count}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        cv2.putText(frame,f"dist: {dist}",(10,150),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,255),2)
 
         state_text = f"Armed to Stop: {first_magenta_line_passed}"
         cv2.putText(frame, state_text, (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
@@ -395,8 +419,8 @@ def parking():
                     on_first_line = True
     if bg_annotator is not None:
         bg_annotator.resume()
-    servo.set_angle(steer_with_gyro(imu_thread.get_heading(),(INITIAL_HEADING+175)%360))
-    time.sleep(0.6)  # INCREASING MAKES ROBOT STOP MORE FORWARD
+    servo.set_angle(0)
+    time.sleep(0.21)  # INCREASING MAKES ROBOT STOP MORE FORWARD
     motor.stop_rpm_control()
     time.sleep(0.3)
     motor.start_rpm_control(70, "reverse")
@@ -566,7 +590,7 @@ def parking2():
 
     t_step = time.monotonic()
     plog.info("[Parking2 4/10] Tracking line to magenta stop (200 RPM)...")
-    motor.start_rpm_control(80, "forward")
+    motor.start_rpm_control(200, "forward")
     past_frame_counter = 0
     # Step 4: the one part of parking2 that reads the camera in real time. Freeze the
     # background rebuild for the duration -- see BackgroundAnnotator.
@@ -581,16 +605,13 @@ def parking2():
 
         frame_height, frame_width, _ = frame.shape
         target_y_global = frame_height - TARGET_Y_OFFSET_FROM_BOTTOM
+        target_y_in_roi = target_y_global - ROI_Y_START
 
-        if PARKING_WALL_FOLLOW_MODE == 'sensor':
-            steering_value = -_sensor_wall_steer(sensor_thread.get_readings()['distance_left'])
+        if PARKING_WALL_FOLLOW_MODE == 'wall_base':
+            steering_value = _wall_base_steer(frame, 'left', (INITIAL_HEADING + 180) % 360)
         else:
-            target_y_in_roi = target_y_global - ROI_Y_START
-
             roi_black_line = frame[ROI_Y_START:, :ROI_X_END]
             mask_black = cv2.inRange(cv2.cvtColor(roi_black_line, cv2.COLOR_BGR2HSV), HSV_RANGES['LOWER_BLACK'], np.array([180, 255, 40]))
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))  # or (5, 5) if noise is heavy
-            mask_black = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
             y_coords = np.argmax(mask_black, axis=0)
             valid_y_coords = y_coords[mask_black[y_coords, np.arange(roi_black_line.shape[1])] > 0]
 
@@ -600,11 +621,11 @@ def parking2():
                 error = average_y - target_y_in_roi
                 steering_value = 0.8 * error
                 cv2.line(frame, (0, ROI_Y_START + int(average_y)), (ROI_X_END, ROI_Y_START + int(average_y)), (0, 0, 255), 2)
+            cv2.line(frame, (0, target_y_global), (ROI_X_END, target_y_global), (0, 255, 0), 2)
+            cv2.rectangle(frame, (0, ROI_Y_START), (ROI_X_END, frame_height), (0, 255, 0), 2)
 
         servo.set_angle(steering_value)
 
-        cv2.line(frame, (0, target_y_global), (ROI_X_END, target_y_global), (0, 255, 0), 2)
-        cv2.rectangle(frame, (0, ROI_Y_START), (ROI_X_END, frame_height), (0, 255, 0), 2)
         cv2.putText(frame, f"Servo angle: {steering_value:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
         roi_stop = frame[310:340, 0:214]
@@ -637,7 +658,7 @@ def parking2():
     if bg_annotator is not None:
         bg_annotator.resume()
     servo.set_angle(1)
-    time.sleep(0.6)
+    time.sleep(0.17)
     motor.stop_rpm_control()
     plog.info("[Parking2 4/10] Completed in %.2fs", time.monotonic() - t_step)
     time.sleep(0.3)

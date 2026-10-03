@@ -35,14 +35,35 @@ from src.sensors import bno086, camera
 
 from src.open_challenge import config
 from src.open_challenge.config import *
+from src.open_challenge.schedule import SpeedSchedule
 from src.obstacle_challenge.control import get_angular_difference
 from src.threads.hw_threads import CameraThread, ImuThread, PerfMonitor
-from src.logs.setup import Throttle, log, setup_logging, shutdown_logging
+from src.logs.setup import Throttle, ilog, log, setup_logging, shutdown_logging
 from src.obstacle_challenge.video import VideoEncoderProcess
 from src.tools.power_mode import ensure_performance
 from src.vision import pipeline as vision
 from src.vision.pipeline import annotate_video_frame, process_video_frame
 from src.vision.pool import VisionPool
+
+
+_FRONT_WALL_KERNEL = cv2.getStructuringElement(cv2.MORPH_RECT, (1, FRONT_WALL_MIN_THICK))
+
+
+def front_wall_base_row(frame):
+    """Image row where the wall ahead meets the floor (0 = no wall in sight).
+
+    Median over the centre columns of the bottom of the lowest thick dark run.
+    Rises monotonically as the robot closes on a corner, well before the
+    close-black / line-ROI corner triggers fire, so it is the cue to slow down.
+    """
+    crop = frame[FRONT_WALL_Y0:FRONT_WALL_Y1, FRONT_WALL_X0:FRONT_WALL_X1]
+    dark = (crop.max(axis=2) <= FRONT_WALL_DARK_V).astype(np.uint8) * 255
+    dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN, _FRONT_WALL_KERNEL)
+    has = dark.any(axis=0)
+    if has.mean() < 0.5:
+        return 0
+    bottoms = dark.shape[0] - 1 - np.argmax(dark[::-1] > 0, axis=0)
+    return int(np.median(bottoms[has])) + FRONT_WALL_Y0
 
 
 if __name__ == "__main__":
@@ -144,12 +165,20 @@ if __name__ == "__main__":
     wheel_diameter_mm = motor.encoder.wheel_diameter_mm if (motor.encoder is not None) else 62.4
     circ_cm = (math.pi * wheel_diameter_mm) / 10.0
 
+    # Speed schedule: STRAIGHT_RPM on straights, CORNER_RPM from the moment the
+    # front wall gets close (before the corner) until shortly after the turn.
+    speed_schedule = SpeedSchedule()
+    target_rpm = STRAIGHT_RPM
+
     perf = PerfMonitor()
     frame_debug_throttle = Throttle(1.0)
+    vibration_throttle = Throttle(getattr(config, "VIBRATION_LOG_PERIOD", 0.5))
+    latest_vibration_deg_s = 0.0
 
     try:
         run_start_time = time.monotonic()
-        motor.start_rpm_control(TARGET_RPM, direction="forward")
+        motor.start_rpm_control(STRAIGHT_RPM, direction="forward",
+                                ff_reseed=RPM_FF_RESEED, brake_err=RPM_BRAKE_ERR)
 
         while True:
             angle = 0
@@ -188,6 +217,22 @@ if __name__ == "__main__":
                 turn_counter += 1
                 cooldown_frames = ORANGE_COOLDOWN_FRAMES
                 log.info("turn_counter ----------------> %d", turn_counter)
+
+            # --- Speed schedule (look-ahead) ---
+            wall_row = front_wall_base_row(frame)
+            corner_close = (sum(o['area'] for o in detections.get('detected_close_black', []))
+                            > CLOSE_BLACK_AREA_THRESHOLD
+                            or detections.get('line_roi_wall_pct', 0) > LINE_ROI_WALL_PCT_THRESHOLD)
+            corner_mode = speed_schedule.update(
+                time.monotonic(), wall_row, corner_close=corner_close,
+                turn_counted=(cooldown_frames == ORANGE_COOLDOWN_FRAMES))
+            if not final_run_initiated:
+                want_rpm = CORNER_RPM if corner_mode else STRAIGHT_RPM
+                if want_rpm != target_rpm:
+                    target_rpm = want_rpm
+                    motor.set_rpm_target(target_rpm, direction="forward")
+                    log.info("rpm target -> %d (%s) wall_row=%d", target_rpm,
+                             "corner" if target_rpm == CORNER_RPM else "straight", wall_row)
 
             # --- Steering Logic ---
             detected_walls = detections['detected_walls']
@@ -252,16 +297,33 @@ if __name__ == "__main__":
             # ---- everything below is off the critical path ----------------
 
             perf.add(latency_ms, proc_ms, skipped)
-            perf.maybe_report(extra=f" | {current_rpm:5.1f} rpm (target {TARGET_RPM:.0f})")
+            perf.maybe_report(extra=f" | {current_rpm:5.1f} rpm (target {target_rpm:.0f})")
 
             debug.extend([f"L:{int(left_pixel_size)}", f"R:{int(right_pixel_size)}"])
             debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
             debug.append(f"Err:{int(wall_error)}")
             debug.append(f"Wall%:{int(detections.get('line_roi_wall_pct', 0))}")
             debug.append(f"Angle:{int(angle)}")
-            debug.append(f"RPM:{int(round(current_rpm))}")
+            debug.append(f"RPM:{int(round(current_rpm))}/{int(target_rpm)}")
+            debug.append(f"WallRow:{wall_row}")
             debug.append(f"Turns:{turn_counter}")
             debug.append(f"Dir:{driving_direction or '?'}")
+            debug.append(f"Vib:{latest_vibration_deg_s:.1f}")
+
+            if vibration_throttle:
+                vib = imu_thread.get_vibration(getattr(config, "VIBRATION_LOG_PERIOD", 0.5))
+                if vib:
+                    latest_vibration_deg_s = vib["total_deg_s"]
+                    ilog.info(
+                        "Gyro vibration: %5.2f deg/s | pitch/roll wobble: %5.2f deg/s (x: %4.1f, y: %4.1f) | yaw jitter: %5.2f deg/s | peak: %5.2f deg/s (%d samples)",
+                        vib["total_deg_s"],
+                        vib["pitch_roll_deg_s"],
+                        vib["axes_deg_s"][0],
+                        vib["axes_deg_s"][1],
+                        vib["yaw_jitter_deg_s"],
+                        vib["peak_deg_s"],
+                        vib["samples"],
+                    )
 
             if frame_debug_throttle:
                 log.debug("f=%d angle=%+6.1f turns=%d rpm=%5.1f lat=%5.2fms vis=%4.2fms walls=%d skip=%d",
@@ -277,9 +339,15 @@ if __name__ == "__main__":
                 final_run_initiated = True
                 final_run_start_time = time.monotonic()
                 final_run_start_pos = motor.encoder_position()
-                log.info("12 turns reached. Driving final %.1f cm (encoder-based) before stop...", FINAL_STOP_DISTANCE_CM)
-                servo.set_angle(0.0)
-                prev_angle = 0.0
+                if STRAIGHT_RPM > 350:
+                    # High speed (> 350): coast motor immediately, brake when distance or time exceeded
+                    motor.stop_rpm_control(brake=False)
+                    log.info("12 turns reached & heading aligned. Final run initiated (STRAIGHT_RPM > 350): coasting motor (brake if dist >= %.1f cm or time >= %.2f s)...",
+                             FINAL_STOP_DISTANCE_CM, FINAL_STOP_DELAY)
+                else:
+                    # Lower speed (<= 350): continue driving at own speed, stop after distance reached
+                    log.info("12 turns reached. Driving final %.1f cm (encoder-based at %.0f RPM) before stop...",
+                             FINAL_STOP_DISTANCE_CM, target_rpm)
 
             if final_run_initiated:
                 curr_pos = motor.encoder_position()
@@ -290,17 +358,28 @@ if __name__ == "__main__":
                     dist_traveled_cm = (delta_ticks / cpr) * circ_cm
                     encoder_done = (dist_traveled_cm >= FINAL_STOP_DISTANCE_CM)
 
-                # Fallback timeout if encoder is unavailable
-                timeout_done = (time.monotonic() - final_run_start_time) >= 0.4
+                elapsed_time = time.monotonic() - final_run_start_time
+                timeout_done = elapsed_time >= FINAL_STOP_DELAY
 
-                if encoder_done or timeout_done:
-                    log.info("Final distance complete (%.1f cm / %s). Stopping.",
-                             dist_traveled_cm, "encoder" if encoder_done else "timeout fallback")
-                    motor.stop_rpm_control()
-                    break
+                if STRAIGHT_RPM > 350:
+                    # Coasting mode: brake only if distance or time exceeded
+                    if encoder_done or timeout_done:
+                        reason = "distance exceeded" if encoder_done else "time exceeded"
+                        log.info("Final run brake condition met (%s: %.1f cm / %.2fs). Braking.",
+                                 reason, dist_traveled_cm, elapsed_time)
+                        motor.brake()
+                        break
+                else:
+                    # Normal driving mode: stop after distance reached (with timeout fallback)
+                    if encoder_done or timeout_done:
+                        log.info("Final distance complete (%.1f cm / %s). Stopping.",
+                                 dist_traveled_cm, "encoder" if encoder_done else "timeout fallback")
+                        motor.stop_rpm_control()
+                        break
 
             if turn_counter >= 13:
                 motor.stop_rpm_control()
+                motor.brake()
                 break
 
     except Exception:

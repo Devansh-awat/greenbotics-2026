@@ -458,8 +458,9 @@ if __name__ == "__main__":
                 turn_counter += 1
                 cooldown_frames = ORANGE_COOLDOWN_FRAMES
                 log.info("turn_counter ----------------> %d", turn_counter)
+            is_close_block = False
+            block = None
             if detected_blocks:
-                is_close_block = False
                 for block in detected_blocks:
                     if block['type'] == 'close_block':
                         is_close_block = True
@@ -746,58 +747,7 @@ if __name__ == "__main__":
                                 debug.append(f"MidX:{int(visual_target_x)}")
                             debug.append(f"Tgt:{int(target)}")
                             debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
-                    else:
-                        if tracking_green_block:
-                            tracking_green_block = False
-                            green_post_pass_frames = POST_GREEN_CLIP_FRAMES
-                        if tracking_red_block:
-                            tracking_red_block = False
-                            red_post_pass_frames = POST_RED_CLIP_FRAMES
-                        if frames_since_block_seen < BLOCK_TARGET_GRACE_FRAMES:
-                            frames_since_block_seen += 1
-                        prev_target_error = 0.0
-                        left_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
-                        right_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
-                        wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
-                        wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
-
-                        total_left = left_pixel_size + wall_inner_left_size
-                        total_right = right_pixel_size + wall_inner_right_size
-
-                        if total_left < 700 and total_right > 100:
-                            total_right = total_right * 2 + 25000
-                        elif total_right < 700 and total_left > 100:
-                            total_left = total_left * 2 + 25000
-
-                        debug.extend([f"L:{int(left_pixel_size)}", f"R:{int(right_pixel_size)}"])
-                        debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
-                        wall_steering = True
-                        wall_error = total_left - total_right
-                        wall_derivative = wall_error - prev_wall_error
-                        debug.append(f"Err:{int(wall_error)}")
-                        debug.append(f"Wall%:{int(detections.get('line_roi_wall_pct', 0))}")
-                        angle = (wall_error * WALL_KP) + (wall_derivative * WALL_KD) + 1
-                        prev_wall_error = wall_error
-                        if close_black_area > 3000 or detections.get('line_roi_wall_pct', 0) > 50:
-                            if driving_direction == 'clockwise':
-                                angle += 20
-                            else:
-                                angle += -35
-                        if total_left == 0 and total_right == 0 and (detected_orange_object or detected_blue_object):
-                            if driving_direction == 'clockwise':
-                                angle += 35
-                            else:
-                                angle += -35
-                        if total_left == 0 and total_right == 0:
-                            if driving_direction == 'clockwise':
-                                angle += 20
-                            else:
-                                angle += -20
-                        elif left_pixel_size==0 and driving_direction=='counter-clockwise':
-                            angle += -20
-                        elif right_pixel_size==0 and driving_direction=='clockwise':
-                            angle += 20
-            else:
+            if not is_close_block and block is None:
                 if tracking_green_block:
                     tracking_green_block = False
                     green_post_pass_frames = POST_GREEN_CLIP_FRAMES
@@ -807,7 +757,6 @@ if __name__ == "__main__":
                 if frames_since_block_seen < BLOCK_TARGET_GRACE_FRAMES:
                     frames_since_block_seen += 1
                 prev_target_error = 0.0
-                left_pixel_size,right_pixel_size,wall_inner_left_size,wall_inner_right_size,target=0,0,0,0,0
                 left_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
                 right_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
                 wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
@@ -962,7 +911,7 @@ if __name__ == "__main__":
                 motor.stop_rpm_control()
                 motor.brake()
                 break
-            if turn_counter >= 25:
+            if turn_counter >= 13:
                 motor.stop_rpm_control()
                 parking_start_time = time.monotonic()
                 time_before_parking = parking_start_time - run_start_time

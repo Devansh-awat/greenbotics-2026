@@ -99,6 +99,9 @@ class ImuThread(threading.Thread):
         self.stop_event = threading.Event()
         self.daemon = True
         self.heading = None
+        self.gyro = None
+        # Ring buffer for gyro samples: (timestamp, gx, gy, gz) in rad/s
+        self.gyro_history = deque(maxlen=100)
 
     def run(self):
         try:
@@ -106,10 +109,19 @@ class ImuThread(threading.Thread):
             ilog.info("IMU initialized.")
             self.initialization_complete.set()
             while not self.stop_event.is_set():
-                heading = self.bno.get_heading()
-                if heading is not None:
-                    with self.lock:
+                now = time.monotonic()
+                if hasattr(self.bno, "get_readings"):
+                    heading, gyro = self.bno.get_readings()
+                else:
+                    heading = self.bno.get_heading()
+                    gyro = getattr(self.bno, "get_gyro", lambda: None)()
+
+                with self.lock:
+                    if heading is not None:
                         self.heading = heading
+                    if gyro is not None:
+                        self.gyro = gyro
+                        self.gyro_history.append((now, gyro[0], gyro[1], gyro[2]))
                 time.sleep(0.01)
         except Exception:
             ilog.exception("ERROR during IMU initialization/operation")
@@ -121,6 +133,58 @@ class ImuThread(threading.Thread):
     def get_heading(self):
         with self.lock:
             return self.heading
+
+    def get_gyro(self):
+        with self.lock:
+            return self.gyro
+
+    def get_vibration(self, window_sec=0.5):
+        """Compute angular vibration statistics over recent gyro readings.
+
+        Vibration is measured as the standard deviation of angular velocity (rad/s
+        and deg/s) around the mean rotation rate over the time window. This isolates
+        high-frequency mechanical jitter / vibration from steady turns or motion.
+
+        Returns:
+            dict with total_deg_s, total_rad_s, axes_deg_s (x, y, z), peak_deg_s,
+            samples count, or None if insufficient samples.
+        """
+        now = time.monotonic()
+        cutoff = now - window_sec
+        with self.lock:
+            samples = [
+                (gx, gy, gz) for ts, gx, gy, gz in self.gyro_history if ts >= cutoff
+            ]
+        if len(samples) < 3:
+            return None
+
+        arr = np.array(samples)  # shape (N, 3), units: rad/s
+        std_rad = np.std(arr, axis=0)
+        std_deg = np.degrees(std_rad)
+        total_rad = float(np.linalg.norm(std_rad))
+        total_deg = float(np.degrees(total_rad))
+
+        mean_rate = np.mean(arr, axis=0)
+        deviations = arr - mean_rate
+        peak_rad = float(np.max(np.linalg.norm(deviations, axis=1)))
+        peak_deg = float(np.degrees(peak_rad))
+
+        # Pitch (X) and Roll (Y) lie in the plane of the flat arena floor.
+        # Since the robot does not intentionally rotate around X or Y, all motion on X & Y
+        # is mechanical wobble / surface vibration.
+        pitch_roll_rad = float(np.linalg.norm(std_rad[:2]))
+        pitch_roll_deg = float(np.degrees(pitch_roll_rad))
+        yaw_jitter_deg = float(std_deg[2])
+
+        return {
+            "total_deg_s": total_deg,
+            "total_rad_s": total_rad,
+            "pitch_roll_deg_s": pitch_roll_deg,
+            "yaw_jitter_deg_s": yaw_jitter_deg,
+            "axes_deg_s": (float(std_deg[0]), float(std_deg[1]), float(std_deg[2])),
+            "peak_deg_s": peak_deg,
+            "samples": len(samples),
+        }
 
     def tare(self, target_angle=0.0):
         return self.bno.tare(target_angle)

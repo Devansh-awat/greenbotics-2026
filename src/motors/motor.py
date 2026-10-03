@@ -97,6 +97,7 @@ _rpm_lock = threading.Lock()
 _rpm_target = 0.0
 _rpm_dir = "forward"
 _rpm_measured = 0.0
+_rpm_brake_on_stop = True
 
 def initialize():
     """Initializes the DC motor driver and PWM."""
@@ -184,6 +185,15 @@ def brake():
         lgpio.gpio_write(gpio_handle, config.STBY_PIN, 1)
         lgpio.gpio_write(gpio_handle, config.AIN1_PIN, 1)
         lgpio.gpio_write(gpio_handle, config.AIN2_PIN, 1)
+        _set_speed(0)
+
+
+def coast():
+    """Coasts the motor by disengaging the driver (freewheeling)."""
+    if gpio_handle:
+        lgpio.gpio_write(gpio_handle, config.STBY_PIN, 1)
+        lgpio.gpio_write(gpio_handle, config.AIN1_PIN, 0)
+        lgpio.gpio_write(gpio_handle, config.AIN2_PIN, 0)
         _set_speed(0)
 
 
@@ -306,6 +316,7 @@ def reset_rpm_control():
     _rpm_state["broke_free"] = False
     _rpm_state["ema_rpm"] = 0.0
     _rpm_state["applied"] = None
+    _rpm_state["last_target"] = None
 
 
 def _apply_drive(motor_func, duty, direction):
@@ -335,10 +346,17 @@ def _apply_brake():
     _rpm_state["applied"] = "BRAKE"
 
 
+def _apply_coast():
+    """Coast the motor and record it as the applied hardware state."""
+    coast()
+    _rpm_state["applied"] = "COAST"
+
+
 def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
                   deadband_rev=0.02, kp_duty=_RPM_KP_DUTY, ki_duty=_RPM_KI_DUTY,
                   kick_duty=_RPM_KICK_DUTY, stall_ramp=_RPM_STALL_RAMP, cap=_RPM_CAP,
-                  ff_static=_RPM_FF_STATIC, ff_gain=_RPM_FF_GAIN):
+                  ff_static=_RPM_FF_STATIC, ff_gain=_RPM_FF_GAIN,
+                  ff_reseed=False, brake_err=None):
     """Hold a target WHEEL rpm using encoder feedback.
 
     Performs ONE control update per call. You can either call it yourself in a
@@ -366,6 +384,14 @@ def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
         kick_duty:    continuous-regime duty the wheel starts at while stalled.
         stall_ramp:   how fast (duty-% per s) the duty climbs while still stalled.
         cap:          max duty (%) the continuous loop may command.
+        ff_reseed:    (opt-in, default off) when the target CHANGES while moving,
+                      jump the duty straight to the feed-forward hold duty for the
+                      new target instead of letting the integrator walk there.
+                      Makes speed steps respond at once (both up and down).
+        brake_err:    (opt-in, default None) actively brake while the wheel is more
+                      than this many rpm ABOVE target, then resume at the hold duty.
+                      Without it the only way down is letting the duty bleed off and
+                      the wheel coast, which takes ~0.5 s+ for a 150 rpm step.
 
     Returns the running AVERAGE wheel rpm since control began (None if the
     encoder is unavailable or the call came too soon).
@@ -458,10 +484,20 @@ def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
                 ff_hold = ff_static + ff_gain * target_rpm
                 _rpm_state["duty"] = min(_rpm_state["duty"], ff_hold)
                 _rpm_state["broke_free"] = True
+            # Opt-in fast response to a target step (see ff_reseed / brake_err).
+            ff_hold_now = min(cap, ff_static + ff_gain * target_rpm)
+            if ff_reseed and _rpm_state.get("last_target") not in (None, target_rpm):
+                _rpm_state["duty"] = ff_hold_now
+            _rpm_state["last_target"] = target_rpm
+            braking = brake_err is not None and err < -brake_err
+            if braking:
+                # Duty parks at the hold value, so the moment we are back within
+                # brake_err the drive resumes there rather than from a bled-off 0.
+                _rpm_state["duty"] = min(_rpm_state["duty"], ff_hold_now)
             # Moving: PI trim on the rpm error eases the duty up/down to hold target.
             # Only apply 3x fast bleed for significant overshoot (err < -15.0) to avoid
             # asymmetric draining from minor quantization fluctuations at low speeds.
-            if err < -15.0:
+            elif err < -15.0:
                 _rpm_state["duty"] = max(0.0, _rpm_state["duty"] + 3.0 * ki_duty * err * dt)
             elif err < 0:
                 _rpm_state["duty"] = max(0.0, _rpm_state["duty"] + ki_duty * err * dt)
@@ -469,7 +505,7 @@ def set_speed_rpm(target_rpm, direction="forward", pulse_duty=_RPM_PULSE_DUTY,
                 _rpm_state["duty"] = max(0.0, min(cap, _rpm_state["duty"] + ki_duty * err * dt))
 
             out = _rpm_state["duty"] + kp_duty * err
-            if err < -20.0 and out <= 0.0:
+            if braking or (err < -20.0 and out <= 0.0):
                 _apply_brake()
             else:
                 out = max(0.0, min(cap, out))
@@ -521,7 +557,10 @@ def _rpm_loop(stop_event, period, kwargs):
                       target, direction, measured, duty, applied, broke_free)
             
         time.sleep(period)
-    brake()
+    if _rpm_brake_on_stop:
+        _apply_brake()
+    else:
+        _apply_coast()
     reset_rpm_control()
 
 
@@ -564,16 +603,20 @@ def get_measured_rpm():
         return _rpm_measured
 
 
-def stop_rpm_control():
-    """Stop the background controller and brake the motor."""
-    global _rpm_thread, _rpm_stop_event
+def stop_rpm_control(brake=True):
+    """Stop the background controller and brake (or coast) the motor."""
+    global _rpm_thread, _rpm_stop_event, _rpm_brake_on_stop
+    _rpm_brake_on_stop = brake
     if _rpm_stop_event:
         _rpm_stop_event.set()
     if _rpm_thread:
         _rpm_thread.join(timeout=1.0)
     _rpm_thread = None
     _rpm_stop_event = None
-    brake()
+    if brake:
+        _apply_brake()
+    else:
+        _apply_coast()
 
 
 def drive_distance(distance_cm, rpm=50.0, direction="forward", cap=75.0,

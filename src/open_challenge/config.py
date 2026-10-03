@@ -3,8 +3,31 @@ import cv2
 import numpy as np
 
 # --- Robot Parameters ---
-TARGET_RPM = 450.0  # Closed-loop target wheel RPM
+STRAIGHT_RPM = 615.0  # Full speed (motor.MAX_WHEEL_RPM ~615.8) on straights
+CORNER_RPM = min(STRAIGHT_RPM, 450.0)    # Closed-loop wheel RPM through corners
+TARGET_RPM = CORNER_RPM  # Backwards-compatibility alias (speed the final stop distance is tuned for)
 MOTOR_SPEED = TARGET_RPM  # Backwards-compatibility alias
+
+# Speed-step response (motor.set_speed_rpm opt-ins, see its docstring): on a target
+# change the duty jumps to the feed-forward hold value, and the wheel is actively
+# braked while more than RPM_BRAKE_ERR above target. Set RPM_BRAKE_ERR = None to
+# go back to coasting down (slow: ~0.35 s to shed 100 rpm).
+RPM_FF_RESEED = True
+RPM_BRAKE_ERR = 40.0
+
+# --- Corner look-ahead (slow down BEFORE the corner) ----------------------
+# Front-wall distance cue: the image row where the wall in front of us meets the
+# floor (median over the centre columns of the lowest thick dark run, see
+# src/open_challenge/main.py:front_wall_base_row). ~55-70 on a straight (wall far),
+# climbs steadily to ~130+ as the robot closes on a corner. Bigger = closer.
+FRONT_WALL_X0, FRONT_WALL_X1 = 260, 380
+FRONT_WALL_Y0, FRONT_WALL_Y1 = 40, 200
+FRONT_WALL_DARK_V = 70          # max(B,G,R) <= this counts as wall-black
+FRONT_WALL_MIN_THICK = 8        # px of vertical dark run to count as a wall, not a line
+CORNER_SLOW_ROW = 75            # slow to CORNER_RPM once the wall base reaches this row...
+CORNER_SLOW_FRAMES = 2          # ...for this many consecutive frames
+CORNER_RELEASE_ROW = 60         # back to STRAIGHT_RPM only once the wall row is below this (robot has turned away); also re-arm gate
+CORNER_HOLD_AFTER_TURN_S = 0.2  # MINIMUM corner-speed hold after the orange line is counted (release also needs wall row < release row)
 
 # --- Frame & Video Processing ---
 FRAME_WIDTH = 640
@@ -22,8 +45,11 @@ USE_LAB = False
 # --- Turn Counting & Stop Parameters ---
 ORANGE_COOLDOWN_FRAMES = 50
 ORANGE_DETECTION_HISTORY_LENGTH = 3
-FINAL_STOP_DISTANCE_CM = 36.8  # Distance in cm to drive after turn 12 (450 RPM * 0.25s = 36.8 cm)
-FINAL_STOP_DELAY = 2  # Fallback timeout in seconds
+FINAL_STOP_DISTANCE_CM = 25  # Needed distance in cm after turn 12 before braking
+FINAL_STOP_DELAY = 1.0  # Max coast time in seconds before evaluating friction stop
+
+# --- Gyro & Vibration Monitoring ---
+VIBRATION_LOG_PERIOD = 0.5  # Log gyro vibration every 0.5 seconds
 
 # --- Color Definitions (Imported from Obstacle Challenge tuning) ---
 from src.obstacle_challenge.tuning import (

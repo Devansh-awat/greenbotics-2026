@@ -40,7 +40,11 @@ def _safe_handle_packet(self, packet):
         adafruit_bno08x.BNO_CHANNEL_EXE,
     ):
         return
-    return _orig_handle_packet(self, packet)
+    try:
+        return _orig_handle_packet(self, packet)
+    except Exception:
+        # Ignore unparseable or unknown batch reports (e.g. report 0x3f) from BNO08x
+        return
 
 
 adafruit_bno08x.BNO08X._handle_packet = _safe_handle_packet
@@ -53,7 +57,7 @@ BNO086_ADDRESS = 0x4B
 sensor = None
 
 
-def initialize():
+def initialize(enable_gyro=True):
     global sensor
     if not config.GYRO_ENABLED:
         print("INFO: Gyro is disabled in config.")
@@ -66,6 +70,9 @@ def initialize():
                 sensor = BNO08X_I2C(i2c, address=BNO086_ADDRESS)
                 # Enable the fused absolute-orientation report (magnetometer-free).
                 sensor.enable_feature(adafruit_bno08x.BNO_REPORT_GAME_ROTATION_VECTOR)
+                if enable_gyro:
+                    # Enable angular velocity (rad/s) report for gyro / vibration tracking
+                    sensor.enable_feature(adafruit_bno08x.BNO_REPORT_GYROSCOPE, 10000)
                 time.sleep(0.05)
             print("INFO: Gyro (BNO086) Initialized (using Game Rotation Vector).")
             return True
@@ -112,6 +119,37 @@ def get_heading(raw=False):
     if raw:
         return h
     return (h - _tare_offset) % 360.0
+
+
+def get_gyro():
+    """Get current angular velocity (gx, gy, gz) in rad/s, or None if unavailable."""
+    if sensor:
+        try:
+            with i2c_bus.LOCK:
+                return sensor.gyro
+        except Exception:
+            return None
+    return None
+
+
+def get_readings(raw=False):
+    """Read heading (deg) and gyro (gx, gy, gz in rad/s) in one atomic I2C call."""
+    if sensor:
+        try:
+            with i2c_bus.LOCK:
+                qi, qj, qk, qr = sensor.game_quaternion
+                g = sensor.gyro
+            h = None
+            if None not in (qi, qj, qk, qr):
+                h = _quaternion_to_heading(qi, qj, qk, qr)
+                if getattr(config, "INVERT_GYRO", False):
+                    h = (360.0 - h) % 360.0
+                if not raw:
+                    h = (h - _tare_offset) % 360.0
+            return h, g
+        except Exception:
+            return None, None
+    return None, None
 
 
 def tare(target_angle=0.0):
