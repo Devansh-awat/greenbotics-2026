@@ -273,7 +273,11 @@ def perform_initial_maneuver():
             return
         else:
             # BUG: timed + direct duty -> drive_distance_with_gyro(..., <cm>, rpm=80).
-            drive_straight_with_gyro((INITIAL_HEADING+45)%360, 0.1, 50, 'forward')
+            drive_distance_with_gyro((INITIAL_HEADING+45)%360, 40, 300)
+            motor.start_rpm_control(300, 'forward')
+            while get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) > 5:
+                servo.set_angle(steer_with_gyro(imu_thread.get_heading(),INITIAL_HEADING,2))
+            motor.stop_rpm_control()
             log.info("Initial maneuver: no block, short forward and return.")
             return
 
