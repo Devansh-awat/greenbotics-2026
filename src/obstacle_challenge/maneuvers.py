@@ -80,8 +80,8 @@ def _record_parking(frame):
     The parking loops draw their own telemetry (servo angle, magenta pixel count,
     "Armed to Stop", the tracked line) and never call process_video_frame, so there is
     nothing here for annotate_run.py to replay -- stitching these into raw.mp4 used to
-    need passthrough bookkeeping (append_passthrough) just so the rebuild knew to leave
-    them alone. Keeping them in a separate video removes that bookkeeping entirely and
+    need per-frame "already annotated" bookkeeping so the rebuild knew to leave them
+    alone. Keeping them in a separate video removes that bookkeeping entirely and
     lets the driving video (raw.mp4/obstacle.mp4) be finalised the moment turn 13
     completes, before parking starts -- see main.py's turn_counter >= 13 branch, which
     is what lets the background re-annotation start immediately instead of waiting for
@@ -140,33 +140,19 @@ def _sensor_wall_steer(distance_mm, kp=WALL_FOLLOW_KP,bd=220):
 def perform_initial_maneuver():
     log.info("--- Executing Full Initial Maneuver ---")
 
-    MANEUVER_SPEED = 55
     SERVO_TURN_ANGLE = 60.0
     if driving_direction == 'clockwise':
         SCAN_TRIGGER_ANGLE_DEG = 45.0
-    else:
-        SCAN_TRIGGER_ANGLE_DEG = -25
-    TOTAL_TURN_ANGLE_DEG = 85.0
-    HEADING_LOCK_TOLERANCE = 5.0
-
-    DRIVE_FORWARD_DURATION = 1.4
-    DRIVE_FORWARD_SHORT_DURATION = 0
-    REVERSE_DURATION = 0.4
-
-    if driving_direction == "clockwise":
         initial_turn_servo = SERVO_TURN_ANGLE
-        final_turn_servo = -SERVO_TURN_ANGLE
         direction_modifier = 1
     else:
+        SCAN_TRIGGER_ANGLE_DEG = -25
         initial_turn_servo = -SERVO_TURN_ANGLE
-        final_turn_servo = SERVO_TURN_ANGLE
         direction_modifier = -1
+    TOTAL_TURN_ANGLE_DEG = 85.0
 
-    def calculate_target_heading(base, offset):
-        return (base + offset + 360) % 360
-
-    scan_heading = calculate_target_heading(INITIAL_HEADING, SCAN_TRIGGER_ANGLE_DEG * direction_modifier)
-    ninety_degree_heading = calculate_target_heading(INITIAL_HEADING, TOTAL_TURN_ANGLE_DEG * direction_modifier)
+    scan_heading = (INITIAL_HEADING+SCAN_TRIGGER_ANGLE_DEG)%360
+    ninety_degree_heading = (INITIAL_HEADING + TOTAL_TURN_ANGLE_DEG*direction_modifier)%360
     log.info("Direction: %s | initial heading %.1f° | scan at %.1f° | full turn target %.1f°",
              driving_direction.upper(), INITIAL_HEADING, scan_heading, ninety_degree_heading)
 
@@ -176,13 +162,12 @@ def perform_initial_maneuver():
 
     log.info("Starting initial turn...")
     turn_throttle = Throttle(0.2)
-    while get_angular_difference((INITIAL_HEADING+SCAN_TRIGGER_ANGLE_DEG)%360, imu_thread.get_heading()) > 10:
+    while get_angular_difference(scan_heading, imu_thread.get_heading()) > 10:
         if turn_throttle:
             log.debug("initial turn: heading=%s diff=%.1f", _fmt(imu_thread.get_heading()),
-                      get_angular_difference((INITIAL_HEADING+SCAN_TRIGGER_ANGLE_DEG)%360, imu_thread.get_heading()))
+                      get_angular_difference(scan_heading, imu_thread.get_heading()))
         time.sleep(0.01)
     motor.stop_rpm_control()
-    motor.brake()
 
     log.info("Scan angle reached. Pausing to scan for objects...")
     detected_block_color = None
@@ -212,7 +197,6 @@ def perform_initial_maneuver():
     if detected_block_color is None:
         log.info("Scan complete. No block was detected.")
 
-    log.info("90-degree turn complete. Performing action based on scan...")
     time.sleep(0.5)
 
     action_taken = "None"
@@ -237,24 +221,20 @@ def perform_initial_maneuver():
             log.info("Initial maneuver: green block reverse turn to 0° completed.")
             return
         elif detected_block_color == 'red':
-            # motor.start_rpm_control(70, 'forward')
-            # while get_angular_difference(ninety_degree_heading, imu_thread.get_heading()) > 10:
-            #     servo.set_angle(steer_with_gyro(imu_thread.get_heading(),ninety_degree_heading))
-            # action_taken = "REVERSE_BEFORE_TURN for 18cm"
-            # drive_distance_with_gyro(drive_target_heading, 18, rpm=60, direction='reverse')
+            # BUG: timed + direct duty -> drive_distance_with_gyro(..., <cm>, rpm=80).
             drive_straight_with_gyro((INITIAL_HEADING-40)%360, 0.3, 50, 'forward')
-            log.info("Initial maneuver: no block, short forward and return.")
+            log.info("Initial maneuver: red block, short forward.")
             return
         else:
             # BUG: timed + direct duty -> drive_distance_with_gyro(..., <cm>, rpm=80).
             drive_straight_with_gyro((INITIAL_HEADING-55)%360, 0.2, 50, 'forward')
-            log.info("Initial maneuver: no block, short forward and return.")
+            log.info("Initial maneuver: no block, short forward.")
             return
 
     else:
         if detected_block_color == 'green':
             drive_straight_with_gyro((INITIAL_HEADING+30)%360, 0.5, 50, 'forward',2)
-            log.info("Initial maneuver: no block, short forward and return.")
+            log.info("Initial maneuver: green block, short forward.")
             return
         elif detected_block_color == 'red':
             motor.start_rpm_control(200, 'forward')
@@ -280,34 +260,6 @@ def perform_initial_maneuver():
             motor.stop_rpm_control()
             log.info("Initial maneuver: no block, short forward and return.")
             return
-
-    motor.brake()
-    log.info("Action complete: %s", action_taken)
-    time.sleep(0.5)
-
-    log.info("Performing final turn to return to %.1f°...", INITIAL_HEADING)
-    # BUG: direct duty. Heading-terminated, so convert to
-    # motor.start_rpm_control(50, "forward").
-    motor.forward(50)
-
-    while get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) > 15:
-        servo.set_angle(steer_with_gyro(imu_thread.get_heading(),INITIAL_HEADING,2))
-    motor.brake()
-    servo.set_angle(0)
-    # BUG: direct duty + stopwatch (0.3 s at duty 45). This straightens the robot up
-    # before the main loop takes over, so an inconsistent distance here offsets the
-    # entire first lap. Convert to
-    #     control.drive_distance_with_gyro(INITIAL_HEADING, <cm>, rpm=45, direction='reverse')
-    # Note the steering here is INVERTED (-steer_with_gyro) because the robot is
-    # reversing; drive_distance_with_gyro does not do that for you -- pass the
-    # heading you want to end up on and check the sign on the bench first.
-    motor.reverse(45)
-    start_time = time.monotonic()
-    while time.monotonic() - start_time < 0.4:
-        servo.set_angle(-steer_with_gyro(imu_thread.get_heading(),INITIAL_HEADING,1))
-    time.sleep(0.5)
-    motor.brake()
-    log.info("--- Initial Maneuver Complete. Transitioning to straight driving. ---")
 
 def parking():
     fn_start = time.monotonic()

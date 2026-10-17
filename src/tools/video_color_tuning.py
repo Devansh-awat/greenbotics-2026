@@ -29,7 +29,7 @@ import numpy as np
 
 from src.obstacle_challenge.tuning import (
     BILATERAL_D, BILATERAL_SIGMA_COLOR, BILATERAL_SIGMA_SPACE, FRAME_HEIGHT,
-    FRAME_WIDTH, HSV_RANGES, USE_BILATERAL, close_block_roi, close_x, close_y,
+    FRAME_WIDTH, HSV_RANGES, USE_BILATERAL, close_x, close_y,
     close_w, close_h, full_frame_roi, inner_left_roi_x, inner_left_roi_y,
     inner_left_roi_w, inner_left_roi_h, inner_right_roi_x, inner_right_roi_y,
     inner_right_roi_w, inner_right_roi_h, left_roi_x, left_roi_y, left_roi_w,

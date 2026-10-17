@@ -5,8 +5,6 @@ import numpy as np
 # --- Robot Parameters ---
 STRAIGHT_RPM = 615.0  # Full speed (motor.MAX_WHEEL_RPM ~615.8) on straights
 CORNER_RPM = min(STRAIGHT_RPM, 450.0)    # Closed-loop wheel RPM through corners
-TARGET_RPM = CORNER_RPM  # Backwards-compatibility alias (speed the final stop distance is tuned for)
-MOTOR_SPEED = TARGET_RPM  # Backwards-compatibility alias
 
 # Speed-step response (motor.set_speed_rpm opt-ins, see its docstring): on a target
 # change the duty jumps to the feed-forward hold value, and the wheel is actively
@@ -56,7 +54,6 @@ from src.obstacle_challenge.tuning import (
     COLOR_RANGES,
     HSV_RANGES,
     LAB_RANGES,
-    LUV_RANGES,
     LOWER_BLACK,
     UPPER_BLACK,
     LOWER_WHITE,      # the mat, for the arena mask's floor blob. Imported by name, so
@@ -112,7 +109,6 @@ WALL_BAND_SLOPE = 0.9
 
 # --- Detection Parameters ---
 WALL_MIN_AREA = 300
-ORANGE_MIN_AREA = 20
 BLOCK_MIN_AREA = 250
 MAGENTA_MIN_AREA = 300
 CLOSE_BLOCK_MIN_AREA = 15
@@ -155,8 +151,6 @@ WALL_JOBS = [left_side_job, right_side_job, inner_left_side_job, inner_right_sid
 # ROI for the floor line (orange/blue). v5 calls this the "line ROI"; the same
 # patch doubles as the close-range wall check (line_roi_wall_pct).
 line_roi_x, line_roi_y, line_roi_w, line_roi_h = 280, 190, 80, 40
-# Back-compat aliases for anything still using the old names.
-orange_roi_x, orange_roi_y, orange_roi_w, orange_roi_h = line_roi_x, line_roi_y, line_roi_w, line_roi_h
 
 # --- ROI Masks (Pre-computed for performance) ---
 
@@ -169,7 +163,6 @@ for job in WALL_JOBS:
 # Mask for the line ROI
 roi_mask_line = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
 cv2.rectangle(roi_mask_line, (line_roi_x, line_roi_y), (line_roi_x + line_roi_w, line_roi_y + line_roi_h), 255, -1)
-roi_mask_orange = roi_mask_line
 
 # Mask for "Close Black" Wall ROI (directly in front)
 roi_mask_close_black = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")

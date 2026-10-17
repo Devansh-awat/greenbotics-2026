@@ -12,7 +12,6 @@ cores -- which cost 9 fps of control loop even after every other cost was remove
 
 import json
 import multiprocessing as mp
-import time
 from multiprocessing import shared_memory
 
 import cv2
@@ -20,7 +19,7 @@ import numpy as np
 
 from src.logs.setup import wlog, _reset_child_logging
 from src.obstacle_challenge.tuning import (
-    CAMERA_FPS, FRAME_HEIGHT, FRAME_WIDTH, VIDEO_EVERY_N, VIDEO_FPS,
+    FRAME_HEIGHT, FRAME_WIDTH, VIDEO_EVERY_N, VIDEO_FPS,
     VIDEO_QUEUE_SLOTS,
 )
 from src.vision.pipeline import detections_to_record
@@ -209,7 +208,7 @@ class VideoEncoderProcess:
 class OverlayLog:
     """Per-frame control state for the offline annotator. One JSON object per line.
 
-    append()/append_passthrough() only buffer records in memory -- the json.dumps()
+    append() only buffers records in memory -- the json.dumps()
     + file write (real, synchronous disk I/O) used to happen right there on the
     control loop, gating how soon the loop got back to fetch the next frame. It's
     all done once in close(), after the run's main loop has already exited.
@@ -235,18 +234,6 @@ class OverlayLog:
         if detections is not None:
             rec["det"] = detections_to_record(detections)
         self._records.append(rec)
-
-    def append_passthrough(self, video_frame):
-        """Mark a frame as already annotated at record time.
-
-        The parking routines draw their own telemetry and never run the detection
-        pipeline, so there is nothing for the rebuild to replay. They store the drawn
-        frame instead, and this tells annotate_run.py to pass it through rather than
-        drawing detections the robot never computed over the top of it.
-        """
-        if not self._open:
-            return
-        self._records.append({"v": video_frame, "pre": True})
 
     def close(self):
         if not self._open:

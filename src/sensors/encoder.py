@@ -103,7 +103,7 @@ increment_cont:
 _zero_y = adafruit_pioasm.assemble("set y 0")
 
 class IncrementalEncoder:
-    def __init__(self, pin_a, pin_b=None, divisor=1, counts_per_rev=48 * 4.4 * 38 / 13, gear_ratio=1.0, wheel_diameter_mm=62.4):
+    def __init__(self, pin_a, divisor=1, counts_per_rev=48 * 4.4 * 38 / 13, gear_ratio=1.0, wheel_diameter_mm=62.4):
         """Create an incremental encoder on pin_a and the next higher pin
 
         Always operates in "x4" mode (one count per quadrature edge).

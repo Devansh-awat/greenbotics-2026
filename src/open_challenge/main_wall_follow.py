@@ -4,7 +4,7 @@ import threading
 import queue
 import cv2
 import numpy as np
-from gpiozero import Button, LED
+from gpiozero import LED
 import os
 import sys
 import traceback
@@ -14,7 +14,7 @@ from datetime import datetime
 import src.open_challenge.config as config
 
 # Import hardware control modules
-from src.sensors import bno086, camera, distance
+from src.sensors import bno086, camera
 from src.motors import motor, servo
 
 # Color Definitions from obstacle_challenge tuning

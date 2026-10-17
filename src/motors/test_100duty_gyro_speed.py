@@ -28,7 +28,6 @@ import numpy as np
 try:
     from src.motors import motor, servo
     from src.sensors import bno086
-    from src.obstacle_challenge import config
 except ImportError as err:
     print(f"FATAL: Failed to import hardware drivers from src: {err}")
     print("Ensure you are running this script from the greenbotics repository root.")

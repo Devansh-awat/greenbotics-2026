@@ -12,7 +12,7 @@ import numpy as np
 
 from src.sensors import distance
 from src.logs.setup import (
-    Throttle, _fmt, clog, ilog, perflog, slog,
+    clog, ilog, perflog, slog,
 )
 from src.obstacle_challenge.tuning import PERF_REPORT_PERIOD
 
@@ -238,8 +238,6 @@ class SensorThread(threading.Thread):
             self.initialization_complete.set()
             slog.debug("Initialization complete flag set.")
 
-            consecutive_none = {ch: 0 for ch in self.channels}
-            reinit_threshold = 30
             while not self.stop_event.is_set():
                 try:
                     raw_readings = {}
@@ -254,9 +252,6 @@ class SensorThread(threading.Thread):
                         for ch, val in raw_readings.items():
                             if val is not None:
                                 self.history[ch].append(val)
-                                consecutive_none[ch] = 0
-                            else:
-                                consecutive_none[ch] = consecutive_none.get(ch, 0) + 1
 
                             if self.history[ch]:
                                 sorted_vals = sorted(self.history[ch])
@@ -271,12 +266,6 @@ class SensorThread(threading.Thread):
                         self.distance_back = readings.get(distance.BACK_CHANNEL)
                         self.distance_left = readings.get(distance.LEFT_CHANNEL)
                         self.distance_right = readings.get(distance.RIGHT_CHANNEL)
-
-                    for ch, count in list(consecutive_none.items()):
-                        if count >= reinit_threshold:
-                            #ok = distance.reinit_sensor(ch)
-                            #consecutive_none[ch] = 0 if ok else count
-                            pass
 
                     time.sleep(0.02)  # account for timing budget
                 except Exception:
@@ -301,10 +290,6 @@ class SensorThread(threading.Thread):
                 'distance_right': self.distance_right,
                 'distance_back': self.distance_back
             }
-
-    def get_history(self, ch):
-        with self.lock:
-            return list(self.history[ch])
 
     def stop(self):
         self.stop_event.set()

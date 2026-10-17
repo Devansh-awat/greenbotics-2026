@@ -448,7 +448,6 @@ if __name__ == "__main__":
             detected_blue_object = detections['detected_blue']
             close_black_area = sum(obj['area'] for obj in detections.get('detected_close_black', []))
 
-            blue_detected_this_frame = bool(detected_blue_object)
             orange_detected_this_frame = bool(detected_orange_object)
             orange_detection_history.append(orange_detected_this_frame)
 
@@ -871,9 +870,8 @@ if __name__ == "__main__":
             debug.append(f"F:{frame_counter}")
             debug.append(f"Dir:{driving_direction or '?'}")
 
-            blocks_detail = ",".join(f"{b['color']}:{int(b['area'])}@y={b['centroid'][1]}" for b in detected_blocks) if detected_blocks else "-"
-
             if frame_debug_throttle:
+                blocks_detail = ",".join(f"{b['color']}:{int(b['area'])}@y={b['centroid'][1]}" for b in detected_blocks) if detected_blocks else "-"
                 log.debug("f=%d angle=%+6.1f rpm=%4.0f turns=%d lat=%5.2fms vis=%4.2fms "
                           "blocks=%d[%s] walls=%d skip=%d",
                           frame_counter, float(angle), commanded_rpm, turn_counter,

@@ -47,16 +47,9 @@ MARGIN_OTHER = 10                  # extra slack on S, V, L, a, b (0-255)
 BLUR_KERNEL = (5, 5)              # must match production preprocessing
 SAMPLE_DIR = os.path.join(os.path.dirname(__file__), 'color_samples')
 
-HSV_MAX = np.array([179, 255, 255])
-LAB_MAX = np.array([255, 255, 255])
-
 # Colours that should be kept disjoint from each other (similar hues).
 DECONFLICT_PAIRS = [('RED', 'MAGENTA')]
 # ---------------------------------------------------------------------------
-
-
-def _clip(vals, hi):
-    return np.clip(np.round(vals), 0, hi).astype(int)
 
 
 def _percentile_range(channel, margin, hi):
@@ -135,10 +128,10 @@ def _deconflict_lab(ranges, conv, a_name, b_name):
     bnd = int(round((ma + mb) / 2))
     lo_name, hi_name = (a_name, b_name) if ma < mb else (b_name, a_name)
     # lower-median cluster keeps upper[c] <= bnd; higher keeps lower[c] >= bnd.
-    lo_lower, lo_upper = ranges[lo_name][0]
+    _, lo_upper = ranges[lo_name][0]
     if lo_upper[c] > bnd:
         lo_upper[c] = bnd
-    hi_lower, hi_upper = ranges[hi_name][0]
+    hi_lower, _ = ranges[hi_name][0]
     if hi_lower[c] < bnd:
         hi_lower[c] = bnd
     return c

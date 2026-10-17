@@ -6,7 +6,6 @@ Images are saved as raw unannotated JPEGs to greenbotics-1/dataset/.
 import os
 import sys
 import cv2
-import time
 from datetime import datetime
 from gpiozero import Button
 from src.obstacle_challenge import config

@@ -106,7 +106,6 @@ class _ExtendedI2C(busio.I2C):
     """
 
     def __init__(self, bus_num):
-        self._bus_num = bus_num
         self.init(bus_num)
 
     def init(self, bus_num):
@@ -219,33 +218,6 @@ def initialise(i2c_bus_num=I2C_BUS, **_ignored):
     print(f"INFO: Sensor initialization complete. Status: {ok}. "
           f"Live channels: {sorted(_sensors.keys())}")
     return ok
-
-
-def reinit_sensor(channel, **_ignored):
-    """Reinitialize the sensor on the specified channel."""
-    global _sensors
-
-    channel = _resolve_channel(channel)
-    print("Reinitializing sensor on channel", channel)
-
-    if channel not in SENSORS:
-        return False
-
-    old = _sensors.pop(channel, None)
-    if old is not None:
-        try:
-            with _lock:
-                old.stop_ranging()
-        except Exception as e:
-            print(f"Warning: Could not stop existing sensor on channel {channel}: {e}")
-
-    try:
-        _bring_up(channel)
-        return True
-    except Exception as e:
-        print(f"Warning: Error during reinit on channel {channel}: {e}")
-        return False
-
 
 def get_diag(reset=True):
     """Return (and optionally reset) per-channel None-reason counters."""

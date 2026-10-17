@@ -2,8 +2,6 @@ import time
 import cv2
 import numpy as np
 import threading
-import sys
-import os
 
 from src.motors import motor, servo
 from src.sensors import camera

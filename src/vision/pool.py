@@ -14,10 +14,7 @@ for the wall scan anyway) and shared with the colour worker's output only at
 assembly time in VisionPool.process() -- the colour worker never re-derives it.
 """
 
-import logging
 import multiprocessing as mp
-import sys
-import time
 from multiprocessing import shared_memory
 
 import cv2

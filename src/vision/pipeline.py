@@ -15,7 +15,6 @@ import math
 import cv2
 import numpy as np
 
-from src.logs.setup import vlog
 from src.obstacle_challenge import tuning as _default_tuning
 
 # The live VisionPool, or None to process inline. Set by each challenge's main at
