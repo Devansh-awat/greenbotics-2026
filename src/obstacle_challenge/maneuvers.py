@@ -42,7 +42,6 @@ imu_thread = None         # ImuThread
 sensor_thread = None      # SensorThread
 video_encoder = None      # VideoEncoderProcess -- the driving video (raw or annotated)
 parking_video_encoder = None  # VideoEncoderProcess -- parking.mp4, always separate
-overlay_log = None        # OverlayLog, or None when not recording raw
 RECORD_RAW = False        # True when the encoder is storing untouched frames (-v)
 INITIAL_HEADING = None    # float, the heading locked in at the start of the run
 driving_direction = None  # 'clockwise' | 'counter-clockwise'
@@ -303,7 +302,6 @@ def parking():
     ROI_X_START = 600
     TARGET_Y_OFFSET_FROM_BOTTOM = 180
 
-    motor.stop_rpm_control()
     motor.start_rpm_control(150, "forward")
     past_frame_counter = 0
     plog.info("Tracking line to magenta stop...")
@@ -562,7 +560,7 @@ def parking2():
             break
         past_frame_counter = frame_counter
 
-        frame_height, frame_width, _ = frame.shape
+        frame_height, _, _ = frame.shape
         target_y_global = frame_height - TARGET_Y_OFFSET_FROM_BOTTOM
         target_y_in_roi = target_y_global - ROI_Y_START
 

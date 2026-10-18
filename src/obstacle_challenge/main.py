@@ -218,9 +218,7 @@ if __name__ == "__main__":
     cooldown_frames = 0
     orange_detection_history.append(False)
     turn_counter = 0
-    angle = 0
     prevangle = 0
-    prev_rpm = 0
     prev_wall_error = 0.0
 
     camera_thread = CameraThread(camera)
@@ -387,7 +385,6 @@ if __name__ == "__main__":
         prev_rpm = INITIAL_RPM
         last_block_target_rpm = INITIAL_RPM
         frames_since_block_seen = BLOCK_TARGET_GRACE_FRAMES
-        loop_frames = 0
         tracking_green_block = False
         green_post_pass_frames = 0
         tracking_red_block = False
@@ -411,9 +408,6 @@ if __name__ == "__main__":
                 continue
             skipped = max(0, frame_counter - past_frame_counter - 1)
             past_frame_counter = frame_counter
-            loop_frames += 1
-
-            sensor_readings = sensor_thread.get_readings()
 
             t_proc = time.perf_counter()
             detections = process_video_frame(frame)
@@ -444,6 +438,12 @@ if __name__ == "__main__":
                 )
             ]
             detected_walls = detections['detected_walls']
+
+            wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
+            wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
+            wall_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
+            wall_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
+
             detected_orange_object = detections['detected_orange']
             detected_blue_object = detections['detected_blue']
             close_black_area = sum(obj['area'] for obj in detections.get('detected_close_black', []))
@@ -579,10 +579,6 @@ if __name__ == "__main__":
                             RED_ORIGIN_Y = FRAME_HEIGHT
                             RED_IDEAL_ANGLE = math.degrees(math.atan2(RED_OTHER_X - RED_ORIGIN_X, RED_ORIGIN_Y - RED_OTHER_Y))
 
-                            wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
-                            wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
-                            wall_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
-                            wall_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
                             target = 300 if block_y > 170 and 200 < block_x < 440 else 150
                             candidate_magentas = [
                                 m for m in detections.get('detected_magenta', [])
@@ -670,10 +666,6 @@ if __name__ == "__main__":
                             GREEN_ORIGIN_Y = FRAME_HEIGHT
                             GREEN_IDEAL_ANGLE = math.degrees(math.atan2(GREEN_OTHER_X - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - GREEN_OTHER_Y))
 
-                            wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
-                            wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
-                            wall_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
-                            wall_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
                             target = 300 if block_y > 170 and 200 < block_x < 440 else 150
                             candidate_magentas = [
                                 m for m in detections.get('detected_magenta', [])
@@ -756,20 +748,16 @@ if __name__ == "__main__":
                 if frames_since_block_seen < BLOCK_TARGET_GRACE_FRAMES:
                     frames_since_block_seen += 1
                 prev_target_error = 0.0
-                left_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
-                right_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
-                wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
-                wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
 
-                total_left = left_pixel_size + wall_inner_left_size
-                total_right = right_pixel_size + wall_inner_right_size
+                total_left = wall_left_size + wall_inner_left_size
+                total_right = wall_right_size + wall_inner_right_size
 
                 if total_left < 700 and total_right > 100:
                     total_right = total_right * 2 + 25000
                 elif total_right < 700 and total_left > 100:
                     total_left = total_left * 2 + 25000
 
-                debug.extend([f"L:{int(left_pixel_size)}", f"R:{int(right_pixel_size)}"])
+                debug.extend([f"L:{int(wall_left_size)}", f"R:{int(wall_right_size)}"])
                 debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
                 wall_steering = True
                 wall_error = total_left - total_right
@@ -793,9 +781,9 @@ if __name__ == "__main__":
                         angle += 20
                     else:
                         angle += -20
-                elif left_pixel_size==0 and driving_direction=='counter-clockwise':
+                elif wall_left_size==0 and driving_direction=='counter-clockwise':
                     angle += -20
-                elif right_pixel_size==0 and driving_direction=='clockwise':
+                elif wall_right_size==0 and driving_direction=='clockwise':
                     angle += 20
 
             # ---- ACTUATE FIRST ------------------------------------------
@@ -901,8 +889,6 @@ if __name__ == "__main__":
                         f, detections, driving_direction, debug_info=debug,
                         visual_target_x=visual_target_x,
                         visual_target_line=visual_target_line))
-
-            angle = 0
 
             if button.is_pressed:
                 log.info("Stop button pressed -- ending run.")

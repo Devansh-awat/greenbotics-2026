@@ -66,6 +66,13 @@ from src.obstacle_challenge.tuning import (
     UPPER_GREEN,
     LOWER_MAGENTA,
     UPPER_MAGENTA,
+    USE_BLOCK_MORPH_CLOSE,
+    BLOCK_CLOSE_KERNEL,
+    RED_HANDOFF_X_EDGE,
+    RED_HANDOFF_Y_EDGE,
+    RED_HANDOFF_X_CENTER,
+    RED_HANDOFF_Y_CENTER,
+    GREEN_HANDOFF_MIN_Y,
 )
 
 

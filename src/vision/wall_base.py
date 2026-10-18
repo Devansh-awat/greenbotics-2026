@@ -40,8 +40,9 @@ MIN_BAND_POINTS = 4      # fewer base points than this inside the band -> not se
 # worst-case shift error is ~4 px at the band edges.
 BAND_SLOPE = 1.0
 
-LOWER_MAGENTA = np.array([145, 73, 40])
-UPPER_MAGENTA = np.array([175, 255, 255])
+# DIFferent values intentionaly
+LOWER_MAGENTA_ARENA = np.array([145, 73, 40])
+UPPER_MAGENTA_ARENA = np.array([175, 255, 255])
 
 
 def wall_base_points(frame, x0, x1, y_top, y_bot):
@@ -58,7 +59,7 @@ def wall_base_points(frame, x0, x1, y_top, y_bot):
     for k in range(1, WALL_DARK_RUN):
         sustained[k:] &= dark[:-k]
     sustained[:WALL_DARK_RUN - 1] = False
-    magenta = cv2.inRange(hsv, LOWER_MAGENTA, UPPER_MAGENTA) > 0
+    magenta = cv2.inRange(hsv, LOWER_MAGENTA_ARENA, UPPER_MAGENTA_ARENA) > 0
 
     # Lowest row (closest to the robot) of each kind, per column; -1 if none.
     flip = slice(None, None, -1)

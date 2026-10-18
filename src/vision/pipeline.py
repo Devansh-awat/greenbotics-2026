@@ -92,81 +92,6 @@ USE_GROUND_CONTACT = True
 GROUND_PROBE_DY = 12
 GROUND_CONTACT_MIN = 0.5
 
-# Placeholders for configurable parameters
-FRAME_WIDTH = 640
-FRAME_HEIGHT = 360
-FRAME_MIDPOINT_X = 320
-USE_LAB = False
-USE_BILATERAL = True
-BILATERAL_D = 5
-BILATERAL_SIGMA_COLOR = 50
-BILATERAL_SIGMA_SPACE = 50
-HSV_BEFORE_BLUR = True
-USE_BLOCK_MORPH_CLOSE = True
-BLOCK_CLOSE_KERNEL = np.ones((5, 5), np.uint8)
-USE_VISION_POOL = True
-VISION_POOL_TIMEOUT = 0.050
-VISION_WORKER_THREADS = 2
-SWAP_RED_GREEN = False
-
-WALL_MIN_AREA = 300
-BLOCK_MIN_AREA = 250
-MAGENTA_MIN_AREA = 300
-CLOSE_BLOCK_MIN_AREA = 15
-
-RED_HANDOFF_X_EDGE = 0
-RED_HANDOFF_Y_EDGE = 207
-RED_HANDOFF_X_CENTER = 150
-RED_HANDOFF_Y_CENTER = 240
-GREEN_HANDOFF_MIN_Y = 216
-
-left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 130, 135, 150
-right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 130, 135, 150
-inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h = 140, 155, 100, 100
-inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h = 400, 155, 100, 100
-line_roi_x, line_roi_y, line_roi_w, line_roi_h = 280, 190, 80, 40
-close_x, close_y, close_w, close_h = 140, 110, 360, 10
-full_frame_roi = (0, 80, 640, 170)
-close_block_roi = (280, 215, 80, 10)
-
-left_side_job = {'roi': (left_roi_x, left_roi_y, left_roi_w, left_roi_h), 'type': 'wall_left'}
-right_side_job = {'roi': (right_roi_x, right_roi_y, right_roi_w, right_roi_h), 'type': 'wall_right'}
-inner_left_side_job = {'roi': (inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h), 'type': 'wall_inner_left'}
-inner_right_side_job = {'roi': (inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h), 'type': 'wall_inner_right'}
-WALL_JOBS = [left_side_job, right_side_job, inner_left_side_job, inner_right_side_job]
-
-roi_mask_walls = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
-roi_mask_line = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
-roi_mask_close_black = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
-roi_mask_main_blocks = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
-roi_mask_close_blocks = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
-roi_mask_magenta = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
-
-GLOBAL_Y_OFFSET = 80
-GLOBAL_Y_END = 280
-SLICE_HEIGHT = 200
-
-ARENA_Y_TOP = GLOBAL_Y_OFFSET
-ARENA_Y_BOTTOM = GLOBAL_Y_END
-ARENA_BAND_H = ARENA_Y_BOTTOM - ARENA_Y_TOP
-ARENA_SEED_LOCAL = (float(ARENA_SEED_PT[0]), float(ARENA_SEED_PT[1] - ARENA_Y_TOP))
-_ARENA_ROWS = np.arange(ARENA_BAND_H, dtype=np.int32)[:, None]
-_ARENA_WALL_KERNEL = np.ones((MIN_WALL_THICK, 1), np.uint8)
-_ARENA_WALL_CLOSE_KERNEL = np.ones((WALL_GAP_SEAL, 1), np.uint8)
-ARENA_PASSTHROUGH = np.full((FRAME_HEIGHT, FRAME_WIDTH), 255, dtype="uint8")
-
-LINE_SLICE_Y0 = line_roi_y - GLOBAL_Y_OFFSET
-LINE_SLICE_Y1 = LINE_SLICE_Y0 + line_roi_h
-LINE_X0 = line_roi_x
-LINE_X1 = line_roi_x + line_roi_w
-
-# Scratch planes for the slice-sized global masks process_video_frame() rebuilds
-# every frame (red, green, blue, magenta, in that order). The ROI regions written
-# into them are fixed by the config, so they are zeroed once here and only the ROI
-# regions are overwritten per frame -- everything outside stays zero forever.
-_GLOBAL_MASK_SCRATCH = np.zeros((4, SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
-
-
 def configure(cfg):
     """Dynamically configure the vision pipeline with parameters from the specified config/tuning module."""
     global FRAME_WIDTH, FRAME_HEIGHT, FRAME_MIDPOINT_X
@@ -194,25 +119,25 @@ def configure(cfg):
     global LINE_SLICE_Y0, LINE_SLICE_Y1, LINE_X0, LINE_X1
     global _GLOBAL_MASK_SCRATCH
 
-    FRAME_WIDTH = getattr(cfg, 'FRAME_WIDTH', 640)
-    FRAME_HEIGHT = getattr(cfg, 'FRAME_HEIGHT', 360)
-    FRAME_MIDPOINT_X = getattr(cfg, 'FRAME_MIDPOINT_X', FRAME_WIDTH // 2)
+    FRAME_WIDTH = getattr(cfg, 'FRAME_WIDTH')
+    FRAME_HEIGHT = getattr(cfg, 'FRAME_HEIGHT')
+    FRAME_MIDPOINT_X = getattr(cfg, 'FRAME_MIDPOINT_X')
 
-    USE_LAB = getattr(cfg, 'USE_LAB', False)
-    USE_BILATERAL = getattr(cfg, 'USE_BILATERAL', True)
-    BILATERAL_D = getattr(cfg, 'BILATERAL_D', 5)
-    BILATERAL_SIGMA_COLOR = getattr(cfg, 'BILATERAL_SIGMA_COLOR', 50)
-    BILATERAL_SIGMA_SPACE = getattr(cfg, 'BILATERAL_SIGMA_SPACE', 50)
-    HSV_BEFORE_BLUR = getattr(cfg, 'HSV_BEFORE_BLUR', True)
-    USE_BLOCK_MORPH_CLOSE = getattr(cfg, 'USE_BLOCK_MORPH_CLOSE', True)
-    BLOCK_CLOSE_KERNEL = getattr(cfg, 'BLOCK_CLOSE_KERNEL', np.ones((5, 5), np.uint8))
-    USE_VISION_POOL = getattr(cfg, 'USE_VISION_POOL', True)
-    VISION_POOL_TIMEOUT = getattr(cfg, 'VISION_POOL_TIMEOUT', 0.050)
-    VISION_WORKER_THREADS = getattr(cfg, 'VISION_WORKER_THREADS', 2)
+    USE_LAB = getattr(cfg, 'USE_LAB')
+    USE_BILATERAL = getattr(cfg, 'USE_BILATERAL')
+    BILATERAL_D = getattr(cfg, 'BILATERAL_D')
+    BILATERAL_SIGMA_COLOR = getattr(cfg, 'BILATERAL_SIGMA_COLOR')
+    BILATERAL_SIGMA_SPACE = getattr(cfg, 'BILATERAL_SIGMA_SPACE')
+    HSV_BEFORE_BLUR = getattr(cfg, 'HSV_BEFORE_BLUR')
+    USE_BLOCK_MORPH_CLOSE = getattr(cfg, 'USE_BLOCK_MORPH_CLOSE')
+    BLOCK_CLOSE_KERNEL = getattr(cfg, 'BLOCK_CLOSE_KERNEL')
+    USE_VISION_POOL = getattr(cfg, 'USE_VISION_POOL')
+    VISION_POOL_TIMEOUT = getattr(cfg, 'VISION_POOL_TIMEOUT')
+    VISION_WORKER_THREADS = getattr(cfg, 'VISION_WORKER_THREADS')
 
-    ARENA_MASK_MODE = getattr(cfg, 'ARENA_MASK_MODE', 'walltop')
-    WALL_BAND_PX = getattr(cfg, 'WALL_BAND_PX', 0)
-    WALL_BAND_SLOPE = getattr(cfg, 'WALL_BAND_SLOPE', 0.9)
+    ARENA_MASK_MODE = getattr(cfg, 'ARENA_MASK_MODE')
+    WALL_BAND_PX = getattr(cfg, 'WALL_BAND_PX')
+    WALL_BAND_SLOPE = getattr(cfg, 'WALL_BAND_SLOPE')
     LOWER_WHITE = getattr(cfg, 'LOWER_WHITE')
     UPPER_WHITE = getattr(cfg, 'UPPER_WHITE')
     LOWER_BLACK = getattr(cfg, 'LOWER_BLACK')
@@ -241,49 +166,49 @@ def configure(cfg):
     if not USE_LAB:
         _FLOOR_RANGES.append((LOWER_RED_2, UPPER_RED_2))
 
-    WALL_MIN_AREA = getattr(cfg, 'WALL_MIN_AREA', 300)
-    BLOCK_MIN_AREA = getattr(cfg, 'BLOCK_MIN_AREA', 250)
-    MAGENTA_MIN_AREA = getattr(cfg, 'MAGENTA_MIN_AREA', 300)
-    CLOSE_BLOCK_MIN_AREA = getattr(cfg, 'CLOSE_BLOCK_MIN_AREA', 15)
+    WALL_MIN_AREA = getattr(cfg, 'WALL_MIN_AREA')
+    BLOCK_MIN_AREA = getattr(cfg, 'BLOCK_MIN_AREA')
+    MAGENTA_MIN_AREA = getattr(cfg, 'MAGENTA_MIN_AREA')
+    CLOSE_BLOCK_MIN_AREA = getattr(cfg, 'CLOSE_BLOCK_MIN_AREA')
 
-    RED_HANDOFF_X_EDGE = getattr(cfg, 'RED_HANDOFF_X_EDGE', 0)
-    RED_HANDOFF_Y_EDGE = getattr(cfg, 'RED_HANDOFF_Y_EDGE', 207)
-    RED_HANDOFF_X_CENTER = getattr(cfg, 'RED_HANDOFF_X_CENTER', 150)
-    RED_HANDOFF_Y_CENTER = getattr(cfg, 'RED_HANDOFF_Y_CENTER', 240)
-    GREEN_HANDOFF_MIN_Y = getattr(cfg, 'GREEN_HANDOFF_MIN_Y', 216)
+    RED_HANDOFF_X_EDGE = getattr(cfg, 'RED_HANDOFF_X_EDGE')
+    RED_HANDOFF_Y_EDGE = getattr(cfg, 'RED_HANDOFF_Y_EDGE')
+    RED_HANDOFF_X_CENTER = getattr(cfg, 'RED_HANDOFF_X_CENTER')
+    RED_HANDOFF_Y_CENTER = getattr(cfg, 'RED_HANDOFF_Y_CENTER')
+    GREEN_HANDOFF_MIN_Y = getattr(cfg, 'GREEN_HANDOFF_MIN_Y')
 
-    left_roi_x = getattr(cfg, 'left_roi_x', 0)
-    left_roi_y = getattr(cfg, 'left_roi_y', 130)
-    left_roi_w = getattr(cfg, 'left_roi_w', 135)
-    left_roi_h = getattr(cfg, 'left_roi_h', 150)
+    left_roi_x = getattr(cfg, 'left_roi_x')
+    left_roi_y = getattr(cfg, 'left_roi_y')
+    left_roi_w = getattr(cfg, 'left_roi_w')
+    left_roi_h = getattr(cfg, 'left_roi_h')
 
-    right_roi_x = getattr(cfg, 'right_roi_x', 505)
-    right_roi_y = getattr(cfg, 'right_roi_y', 130)
-    right_roi_w = getattr(cfg, 'right_roi_w', 135)
-    right_roi_h = getattr(cfg, 'right_roi_h', 150)
+    right_roi_x = getattr(cfg, 'right_roi_x')
+    right_roi_y = getattr(cfg, 'right_roi_y')
+    right_roi_w = getattr(cfg, 'right_roi_w')
+    right_roi_h = getattr(cfg, 'right_roi_h')
 
-    inner_left_roi_x = getattr(cfg, 'inner_left_roi_x', 140)
-    inner_left_roi_y = getattr(cfg, 'inner_left_roi_y', 155)
-    inner_left_roi_w = getattr(cfg, 'inner_left_roi_w', 100)
-    inner_left_roi_h = getattr(cfg, 'inner_left_roi_h', 100)
+    inner_left_roi_x = getattr(cfg, 'inner_left_roi_x')
+    inner_left_roi_y = getattr(cfg, 'inner_left_roi_y')
+    inner_left_roi_w = getattr(cfg, 'inner_left_roi_w')
+    inner_left_roi_h = getattr(cfg, 'inner_left_roi_h')
 
-    inner_right_roi_x = getattr(cfg, 'inner_right_roi_x', 400)
-    inner_right_roi_y = getattr(cfg, 'inner_right_roi_y', 155)
-    inner_right_roi_w = getattr(cfg, 'inner_right_roi_w', 100)
-    inner_right_roi_h = getattr(cfg, 'inner_right_roi_h', 100)
+    inner_right_roi_x = getattr(cfg, 'inner_right_roi_x')
+    inner_right_roi_y = getattr(cfg, 'inner_right_roi_y')
+    inner_right_roi_w = getattr(cfg, 'inner_right_roi_w')
+    inner_right_roi_h = getattr(cfg, 'inner_right_roi_h')
 
-    line_roi_x = getattr(cfg, 'line_roi_x', 280)
-    line_roi_y = getattr(cfg, 'line_roi_y', 190)
-    line_roi_w = getattr(cfg, 'line_roi_w', 80)
-    line_roi_h = getattr(cfg, 'line_roi_h', 40)
+    line_roi_x = getattr(cfg, 'line_roi_x')
+    line_roi_y = getattr(cfg, 'line_roi_y')
+    line_roi_w = getattr(cfg, 'line_roi_w')
+    line_roi_h = getattr(cfg, 'line_roi_h')
 
-    close_x = getattr(cfg, 'close_x', 140)
-    close_y = getattr(cfg, 'close_y', 110)
-    close_w = getattr(cfg, 'close_w', 360)
-    close_h = getattr(cfg, 'close_h', 10)
+    close_x = getattr(cfg, 'close_x')
+    close_y = getattr(cfg, 'close_y')
+    close_w = getattr(cfg, 'close_w')
+    close_h = getattr(cfg, 'close_h')
 
-    full_frame_roi = getattr(cfg, 'full_frame_roi', (0, 80, 640, 170))
-    close_block_roi = getattr(cfg, 'close_block_roi', (280, 215, 80, 10))
+    full_frame_roi = getattr(cfg, 'full_frame_roi')
+    close_block_roi = getattr(cfg, 'close_block_roi')
 
     left_side_job = {'roi': (left_roi_x, left_roi_y, left_roi_w, left_roi_h), 'type': 'wall_left'}
     right_side_job = {'roi': (right_roi_x, right_roi_y, right_roi_w, right_roi_h), 'type': 'wall_right'}
@@ -291,49 +216,49 @@ def configure(cfg):
     inner_right_side_job = {'roi': (inner_right_roi_x, inner_right_roi_y, inner_right_roi_w, inner_right_roi_h), 'type': 'wall_inner_right'}
     WALL_JOBS = [left_side_job, right_side_job, inner_left_side_job, inner_right_side_job]
 
-    roi_mask_walls = getattr(cfg, 'roi_mask_walls', None)
+    roi_mask_walls = getattr(cfg, 'roi_mask_walls')
     if roi_mask_walls is None:
         roi_mask_walls = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
         for job in WALL_JOBS:
             jx, jy, jw, jh = job['roi']
             cv2.rectangle(roi_mask_walls, (jx, jy), (jx + jw, jy + jh), 255, -1)
 
-    roi_mask_line = getattr(cfg, 'roi_mask_line', None)
+    roi_mask_line = getattr(cfg, 'roi_mask_line')
     if roi_mask_line is None:
         roi_mask_line = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
         cv2.rectangle(roi_mask_line, (line_roi_x, line_roi_y), (line_roi_x + line_roi_w, line_roi_y + line_roi_h), 255, -1)
 
-    roi_mask_close_black = getattr(cfg, 'roi_mask_close_black', None)
+    roi_mask_close_black = getattr(cfg, 'roi_mask_close_black')
     if roi_mask_close_black is None:
         roi_mask_close_black = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
         cv2.rectangle(roi_mask_close_black, (close_x, close_y), (close_x + close_w, close_y + close_h), 255, -1)
 
-    roi_mask_main_blocks = getattr(cfg, 'roi_mask_main_blocks', None)
+    roi_mask_main_blocks = getattr(cfg, 'roi_mask_main_blocks')
     if roi_mask_main_blocks is None:
         roi_mask_main_blocks = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
         if full_frame_roi and full_frame_roi[2] > 0 and full_frame_roi[3] > 0:
             fx, fy, fw, fh = full_frame_roi
             cv2.rectangle(roi_mask_main_blocks, (fx, fy), (fx + fw, fy + fh), 255, -1)
 
-    roi_mask_close_blocks = getattr(cfg, 'roi_mask_close_blocks', None)
+    roi_mask_close_blocks = getattr(cfg, 'roi_mask_close_blocks')
     if roi_mask_close_blocks is None:
         roi_mask_close_blocks = np.zeros((FRAME_HEIGHT, FRAME_WIDTH), dtype="uint8")
         if close_block_roi and close_block_roi[2] > 0 and close_block_roi[3] > 0:
             cx, cy, cw, ch = close_block_roi
             cv2.rectangle(roi_mask_close_blocks, (cx, cy), (cx + cw, cy + ch), 255, -1)
 
-    roi_mask_magenta = getattr(cfg, 'roi_mask_magenta', None)
+    roi_mask_magenta = getattr(cfg, 'roi_mask_magenta')
     if roi_mask_magenta is None:
         roi_mask_magenta = roi_mask_main_blocks.copy()
 
-    GLOBAL_Y_OFFSET = getattr(cfg, 'GLOBAL_Y_OFFSET', None)
+    GLOBAL_Y_OFFSET = getattr(cfg, 'GLOBAL_Y_OFFSET')
     if GLOBAL_Y_OFFSET is None:
         rois_y0 = [left_roi_y, right_roi_y, inner_left_roi_y, inner_right_roi_y, line_roi_y, close_y]
         if full_frame_roi and full_frame_roi[3] > 0: rois_y0.append(full_frame_roi[1])
         if close_block_roi and close_block_roi[3] > 0: rois_y0.append(close_block_roi[1])
         GLOBAL_Y_OFFSET = min(rois_y0)
 
-    GLOBAL_Y_END = getattr(cfg, 'GLOBAL_Y_END', None)
+    GLOBAL_Y_END = getattr(cfg, 'GLOBAL_Y_END')
     if GLOBAL_Y_END is None:
         rois_y1 = [left_roi_y + left_roi_h, right_roi_y + right_roi_h,
                    inner_left_roi_y + inner_left_roi_h, inner_right_roi_y + inner_right_roi_h,
@@ -997,7 +922,7 @@ def process_video_frame(frame):
                         'contour': contour_global
                     })
 
-    wall_contours_by_roi = {job['type']: [] for job in [left_side_job, right_side_job, inner_left_side_job, inner_right_side_job]}
+    wall_contours_by_roi = {job['type']: [] for job in WALL_JOBS}
     if cv2.countNonZero(final_mask_walls) > 0:
         contours, _ = cv2.findContours(final_mask_walls, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for c in contours:
