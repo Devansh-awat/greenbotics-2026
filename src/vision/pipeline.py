@@ -109,25 +109,6 @@ VISION_POOL_TIMEOUT = 0.050
 VISION_WORKER_THREADS = 2
 SWAP_RED_GREEN = False
 
-LOWER_BLACK = np.array([0, 0, 0])
-UPPER_BLACK = np.array([180, 95, 70])
-# The mat. Only read when ARENA_MASK_MODE != 'walltop'.
-LOWER_WHITE = np.array([0, 0, 110])
-UPPER_WHITE = np.array([180, 60, 255])
-_FLOOR_RANGES = []
-LOWER_ORANGE = np.array([6, 50, 182])
-UPPER_ORANGE = np.array([15, 255, 255])
-LOWER_BLUE = np.array([114, 50, 110])
-UPPER_BLUE = np.array([123, 255, 255])
-LOWER_RED_1 = np.array([0, 70, 43])
-UPPER_RED_1 = np.array([4, 230, 166])
-LOWER_RED_2 = np.array([175, 70, 43])
-UPPER_RED_2 = np.array([180, 230, 140])
-LOWER_GREEN = np.array([42, 85, 38])
-UPPER_GREEN = np.array([88, 190, 135])
-LOWER_MAGENTA = np.array([158, 73, 64])
-UPPER_MAGENTA = np.array([172, 255, 223])
-
 WALL_MIN_AREA = 300
 BLOCK_MIN_AREA = 250
 MAGENTA_MIN_AREA = 300
@@ -232,23 +213,22 @@ def configure(cfg):
     ARENA_MASK_MODE = getattr(cfg, 'ARENA_MASK_MODE', 'walltop')
     WALL_BAND_PX = getattr(cfg, 'WALL_BAND_PX', 0)
     WALL_BAND_SLOPE = getattr(cfg, 'WALL_BAND_SLOPE', 0.9)
-    LOWER_WHITE = getattr(cfg, 'LOWER_WHITE', np.array([0, 0, 110]))
-    UPPER_WHITE = getattr(cfg, 'UPPER_WHITE', np.array([180, 60, 255]))
-    LOWER_BLACK = getattr(cfg, 'LOWER_BLACK', np.array([0, 0, 0]))
-    UPPER_BLACK = getattr(cfg, 'UPPER_BLACK', np.array([180, 95, 70]))
-    LOWER_ORANGE = getattr(cfg, 'LOWER_ORANGE', np.array([6, 50, 182]))
-    UPPER_ORANGE = getattr(cfg, 'UPPER_ORANGE', np.array([15, 255, 255]))
-    LOWER_BLUE = getattr(cfg, 'LOWER_BLUE', np.array([114, 50, 110]))
-    UPPER_BLUE = getattr(cfg, 'UPPER_BLUE', np.array([123, 255, 255]))
-
-    LOWER_RED_1 = getattr(cfg, 'LOWER_RED_1', np.array([0, 70, 43]))
-    UPPER_RED_1 = getattr(cfg, 'UPPER_RED_1', np.array([4, 230, 166]))
-    LOWER_RED_2 = getattr(cfg, 'LOWER_RED_2', np.array([175, 70, 43]))
-    UPPER_RED_2 = getattr(cfg, 'UPPER_RED_2', np.array([180, 230, 140]))
-    LOWER_GREEN = getattr(cfg, 'LOWER_GREEN', np.array([42, 85, 38]))
-    UPPER_GREEN = getattr(cfg, 'UPPER_GREEN', np.array([88, 190, 135]))
-    LOWER_MAGENTA = getattr(cfg, 'LOWER_MAGENTA', np.array([158, 73, 64]))
-    UPPER_MAGENTA = getattr(cfg, 'UPPER_MAGENTA', np.array([172, 255, 223]))
+    LOWER_WHITE = getattr(cfg, 'LOWER_WHITE')
+    UPPER_WHITE = getattr(cfg, 'UPPER_WHITE')
+    LOWER_BLACK = getattr(cfg, 'LOWER_BLACK')
+    UPPER_BLACK = getattr(cfg, 'UPPER_BLACK')
+    LOWER_ORANGE = getattr(cfg, 'LOWER_ORANGE')
+    UPPER_ORANGE = getattr(cfg, 'UPPER_ORANGE')
+    LOWER_BLUE = getattr(cfg, 'LOWER_BLUE')
+    UPPER_BLUE = getattr(cfg, 'UPPER_BLUE')
+    LOWER_RED_1 = getattr(cfg, 'LOWER_RED_1')
+    UPPER_RED_1 = getattr(cfg, 'UPPER_RED_1')
+    LOWER_RED_2 = getattr(cfg, 'LOWER_RED_2')
+    UPPER_RED_2 = getattr(cfg, 'UPPER_RED_2')
+    LOWER_GREEN = getattr(cfg, 'LOWER_GREEN')
+    UPPER_GREEN = getattr(cfg, 'UPPER_GREEN')
+    LOWER_MAGENTA = getattr(cfg, 'LOWER_MAGENTA')
+    UPPER_MAGENTA = getattr(cfg, 'UPPER_MAGENTA')
     SWAP_RED_GREEN = getattr(cfg, 'SWAP_RED_GREEN', False)
 
     # Everything that counts as drivable arena for the non-'walltop' floor blob: the

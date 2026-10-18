@@ -130,7 +130,7 @@ if __name__ == "__main__":
     if args.raw_video:
         log.info("Raw video recording (-v): storing untouched frames -> %s. "
                  "Rebuild the annotated video with "
-                 "`python3 -m src.obstacle_challenge.annotate_run %s`",
+                 "`python3 -m src.tools.annotate_run %s`",
                  raw_video_path, run_folder)
 
     # If the between-runs idle-power trim is still active (powersave governor),
@@ -1018,7 +1018,7 @@ if __name__ == "__main__":
                              join_s, video_path)
                 else:
                     log.warning("Background annotation failed (%.2fs wait); rerun "
-                                "`python3 -m src.obstacle_challenge.annotate_run %s` "
+                                "`python3 -m src.tools.annotate_run %s` "
                                 "to retry.", join_s, run_folder)
             else:
                 # turn 13 was never reached -- stop button pressed early, or an
@@ -1033,7 +1033,7 @@ if __name__ == "__main__":
                 except Exception:
                     log.exception("Could not rebuild the annotated video. The run "
                                   "itself is fine -- rerun `python3 -m "
-                                  "src.obstacle_challenge.annotate_run %s` to retry",
+                                  "src.tools.annotate_run %s` to retry",
                                   run_folder)
 
         log.info("Run complete. Log saved to %s", log_path)

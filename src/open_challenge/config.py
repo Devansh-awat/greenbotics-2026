@@ -36,7 +36,6 @@ FRAME_MIDPOINT_X = FRAME_WIDTH // 2
 USE_VISION_POOL = True
 VISION_POOL_TIMEOUT = 0.050
 VISION_WORKER_THREADS = 2
-VIDEO_QUEUE_SLOTS = 8
 VIDEO_FOURCC = 'avc1'
 USE_LAB = False
 
@@ -51,15 +50,11 @@ VIBRATION_LOG_PERIOD = 0.5  # Log gyro vibration every 0.5 seconds
 
 # --- Color Definitions (Imported from Obstacle Challenge tuning) ---
 from src.obstacle_challenge.tuning import (
-    COLOR_RANGES,
-    HSV_RANGES,
-    LAB_RANGES,
     LOWER_BLACK,
     UPPER_BLACK,
     LOWER_WHITE,      # the mat, for the arena mask's floor blob. Imported by name, so
     UPPER_WHITE,      # without these two the open challenge would silently fall back
-                      # to pipeline.py's built-in default instead of your tuning.
-    LOWER_ORANGE,
+    LOWER_ORANGE,     # to pipeline.py's built-in default instead of your tuning.
     UPPER_ORANGE,
     LOWER_BLUE,
     UPPER_BLUE,
@@ -183,7 +178,6 @@ GLOBAL_Y_OFFSET = min(left_roi_y, right_roi_y, inner_left_roi_y, inner_right_roi
 GLOBAL_Y_END = max(left_roi_y + left_roi_h, right_roi_y + right_roi_h,
                    inner_left_roi_y + inner_left_roi_h, inner_right_roi_y + inner_right_roi_h,
                    line_roi_y + line_roi_h, close_y + close_h)
-SLICE_HEIGHT = GLOBAL_Y_END - GLOBAL_Y_OFFSET
 
 # GPIO Pin Configuration
 BUTTON_PIN = 23
