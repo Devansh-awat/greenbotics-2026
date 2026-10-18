@@ -84,6 +84,12 @@ def initialize(enable_gyro=True):
 
 
 _tare_offset = 0.0
+_last_tilt = None
+
+
+def get_tilt():
+    """Latest tilt from vertical in degrees (updated by get_readings), or None."""
+    return _last_tilt
 
 
 def _quaternion_to_heading(qi, qj, qk, qr):
@@ -93,6 +99,12 @@ def _quaternion_to_heading(qi, qj, qk, qr):
     cosy_cosp = 1.0 - 2.0 * (qj * qj + qk * qk)
     yaw = math.degrees(math.atan2(siny_cosp, cosy_cosp))
     return yaw % 360.0
+
+
+def _quaternion_to_tilt(qi, qj, qk, qr):
+    """Angle in degrees between the body Z axis and vertical (0 = level)."""
+    cos_tilt = max(-1.0, min(1.0, 1.0 - 2.0 * (qi * qi + qj * qj)))
+    return math.degrees(math.acos(cos_tilt))
 
 
 def _get_raw_heading():
@@ -140,6 +152,8 @@ def get_readings(raw=False):
                 g = sensor.gyro
             h = None
             if None not in (qi, qj, qk, qr):
+                global _last_tilt
+                _last_tilt = _quaternion_to_tilt(qi, qj, qk, qr)
                 h = _quaternion_to_heading(qi, qj, qk, qr)
                 if getattr(config, "INVERT_GYRO", False):
                     h = (360.0 - h) % 360.0

@@ -24,12 +24,13 @@ The legacy mux channel numbers still work: 0 maps to Front, 3 maps to Back.
 
 import struct
 import time
-import traceback
 import threading
 import busio
 from adafruit_blinka.microcontroller.generic_linux.i2c import I2C as _LinuxI2C
 from gpiozero import DigitalOutputDevice
 import adafruit_vl53l4cd
+
+from src.logs.setup import slog, Throttle
 
 # Patch adafruit_vl53l4cd.VL53L4CD._write_register to disable 1MHz Fast Plus mode
 # (writing 0x00 instead of 0x12 to register 0x002D). This keeps standard I2C filters
@@ -96,6 +97,7 @@ _sensors = {}
 _xshut_devices = {}
 _lock = threading.Lock()
 _diag = {}
+_err_throttle = {}
 
 
 class _ExtendedI2C(busio.I2C):
@@ -161,7 +163,7 @@ def _bring_up(channel, retries=None):
                 # Set range offset register (value in register is offset_mm * 4)
                 s._write_register(_REG_RANGE_OFFSET_MM, struct.pack(">h", int(RANGE_OFFSET_MM * 4)))
                 s.start_ranging()
-            print(f"  - {label}: up at 0x{new_address:02X} (attempt {attempt + 1})")
+            slog.info("%s: up at 0x%02X (attempt %d)", label, new_address, attempt + 1)
             _sensors[channel] = s
             return s
         except (OSError, ValueError, RuntimeError) as e:
@@ -188,7 +190,7 @@ def initialise(i2c_bus_num=I2C_BUS, **_ignored):
     try:
         _i2c = _ExtendedI2C(i2c_bus_num)
     except Exception as e:
-        print(f"FATAL: Could not initialize I2C bus {i2c_bus_num}. Error: {e}")
+        slog.error("Could not initialize I2C bus %s: %s", i2c_bus_num, e)
         return False
 
     try:
@@ -198,7 +200,7 @@ def initialise(i2c_bus_num=I2C_BUS, **_ignored):
             _xshut_devices[channel] = DigitalOutputDevice(channel, initial_value=False)
         time.sleep(0.05)
     except Exception as e:
-        print(f"FATAL: Could not initialize GPIO XSHUT devices. Error: {e}")
+        slog.error("Could not initialize GPIO XSHUT devices: %s", e)
         cleanup(silent=True)
         return False
 
@@ -209,14 +211,12 @@ def initialise(i2c_bus_num=I2C_BUS, **_ignored):
             _bring_up(channel)
         except Exception as e:
             if required:
-                print(f"distance.py: ERROR initializing {label}: {e}")
-                traceback.print_exc()
+                slog.exception("ERROR initializing %s: %s", label, e)
                 ok = False
             else:
-                print(f"distance.py: {label} not present (optional) — skipping. ({e})")
+                slog.info("%s not present (optional) — skipping. (%s)", label, e)
 
-    print(f"INFO: Sensor initialization complete. Status: {ok}. "
-          f"Live channels: {sorted(_sensors.keys())}")
+    slog.info("Sensor initialization complete. Status: %s. Live channels: %s", ok, sorted(_sensors.keys()))
     return ok
 
 def get_diag(reset=True):
@@ -266,21 +266,22 @@ def get_distance(channel):
         return float(distance_cm * 10.0)
     except (OSError, IOError) as e:
         _bump(channel, 'err')
-        print(f"\nI/O Error on channel {channel}. Error: {e}")
+        if _err_throttle.setdefault(actual_channel, Throttle(1.0)):
+            slog.warning("I/O Error on channel %s: %s", channel, e)
         return None
 
 
 def cleanup(silent=False):
     """Stops ranging on all initialized sensors and releases GPIOs."""
     if not silent:
-        print("\n--- Cleaning up Sensors ---")
+        slog.info("Cleaning up sensors")
     for channel, sensor in list(_sensors.items()):
         try:
             with _lock:
                 sensor.stop_ranging()
         except (OSError, AttributeError):
             if not silent:
-                print(f"Warning: Error during cleanup of sensor on channel {channel}.")
+                slog.warning("Error during cleanup of sensor on channel %s", channel)
 
     _sensors.clear()
 
@@ -303,7 +304,7 @@ def cleanup(silent=False):
         _i2c = None
 
     if not silent:
-        print("Cleanup complete.")
+        slog.info("Sensor cleanup complete.")
 
 
 if __name__ == "__main__":

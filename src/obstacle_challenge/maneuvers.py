@@ -249,8 +249,8 @@ def perform_initial_maneuver():
             servo.set_angle(0)
             return
         else:
-            # BUG: timed + direct duty -> drive_distance_with_gyro(..., <cm>, rpm=80).
-            drive_distance_with_gyro((INITIAL_HEADING+45)%360, 40, 300)
+            drive_distance_with_gyro((INITIAL_HEADING+90)%360, 20, 300)
+            drive_distance_with_gyro(INITIAL_HEADING, 10, 300,kp=3)
             motor.start_rpm_control(300, 'forward')
             while get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) > 5:
                 servo.set_angle(steer_with_gyro(imu_thread.get_heading(),INITIAL_HEADING,2))

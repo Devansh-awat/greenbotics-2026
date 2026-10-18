@@ -61,6 +61,7 @@ from datetime import datetime
 import cv2
 import numpy as np
 import threading
+import _thread
 from gpiozero import Button, LED
 import subprocess
 
@@ -369,6 +370,39 @@ if __name__ == "__main__":
     # turn 13" -- an aborted run (exception, or the stop button before turn 13) needs
     # the old synchronous rebuild as a fallback, since nothing else will have done it.
     bg_annotator = None
+
+    def _safety_watchdog():
+        """E-stop on sustained tilt or a stop-button press, even mid-maneuver.
+
+        The maneuvers block the main thread, so this runs on its own thread and
+        brakes the motor itself, then interrupts the main thread to unwind into
+        the cleanup in the finally block below."""
+        tilt_samples = 0
+        while True:
+            time.sleep(0.02)
+            reason = None
+            if button.is_pressed:
+                reason = "Stop button pressed"
+            else:
+                tilt = imu_thread.get_tilt()
+                tilt_samples = tilt_samples + 1 if (
+                    tilt is not None and tilt > config.TILT_THRESHOLD_DEGREES) else 0
+                if tilt_samples >= 5:
+                    reason = "Tilt %.1f deg exceeds %.1f deg" % (
+                        tilt, config.TILT_THRESHOLD_DEGREES)
+            if reason:
+                log.error("E-STOP: %s -- stopping run.", reason)
+                try:
+                    motor.stop_rpm_control()
+                    motor.brake()
+                except Exception:
+                    log.exception("Error braking in E-stop")
+                _thread.interrupt_main()
+                return
+
+    while button.is_pressed:  # don't treat the start press as a stop press
+        time.sleep(0.02)
+    threading.Thread(target=_safety_watchdog, name="safety", daemon=True).start()
 
     try:
         run_start_time = time.monotonic()
@@ -732,6 +766,9 @@ if __name__ == "__main__":
                                 else: angle = np.clip(angle, -35, 45)
                             else:
                                 angle = np.clip(angle, -35, 45)
+                            if block_x > 500 and block_y >= GREEN_HANDOFF_MIN_Y:
+                                angle = np.clip(angle, -GREEN_UNDER_LINE_MAX_ANGLE, GREEN_UNDER_LINE_MAX_ANGLE)
+                                debug.append("GLineCap")
 
                             debug.append(f"Blk:G({int(block_x)},{int(block_y)})")
                             if visual_target_x is not None:
@@ -890,11 +927,6 @@ if __name__ == "__main__":
                         visual_target_x=visual_target_x,
                         visual_target_line=visual_target_line))
 
-            if button.is_pressed:
-                log.info("Stop button pressed -- ending run.")
-                motor.stop_rpm_control()
-                motor.brake()
-                break
             if turn_counter >= 13:
                 motor.stop_rpm_control()
                 parking_start_time = time.monotonic()
@@ -943,6 +975,8 @@ if __name__ == "__main__":
                 servo.set_angle(0)
                 break
 
+    except KeyboardInterrupt:
+        log.warning("Run aborted by safety watchdog (or Ctrl-C).")
     except Exception:
         log.exception("ERROR during execution")
 

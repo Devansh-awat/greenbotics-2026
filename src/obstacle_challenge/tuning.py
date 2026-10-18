@@ -18,7 +18,7 @@ MAX_RPM = 0.5 * MAX_WHEEL_RPM
 MAX_ACCEL_PER_FRAME = 10.0
 MAX_DECEL_PER_FRAME = 200.0
 INITIAL_RPM = 50.0
-USE_VARIABLE_SPEED = False  # Set to True to re-enable variable speed based on steering & block height
+USE_VARIABLE_SPEED = True  # Set to True to re-enable variable speed based on steering & block height
 BLOCK_TARGET_GRACE_FRAMES = 12
 POST_GREEN_CLIP_FRAMES = 10
 POST_GREEN_MAX_ANGLE = 20
@@ -35,6 +35,9 @@ RED_HANDOFF_X_CENTER = 150
 RED_HANDOFF_Y_CENTER = 240
 
 GREEN_HANDOFF_MIN_Y = 216
+# Steering cap while the tracked green is under the green handoff line
+# (x > 500, y >= GREEN_HANDOFF_MIN_Y): stops a hard right swing just before a corner.
+GREEN_UNDER_LINE_MAX_ANGLE = 20
 
 ORANGE_COOLDOWN_FRAMES = 60
 

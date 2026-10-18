@@ -24,9 +24,13 @@ _MAX_PWM_RETRIES = 5
 _PWM_RETRY_DELAY = 0.1
 
 # --- Closed-loop WHEEL-RPM control ---
-# Max wheel speed: 1800 rpm output shaft (Pololu 4861 @ 12V) * 13/38 external gear = 616 wheel rpm.
+# Max motor (gearbox output shaft) speed, Pololu 4861 @ 12V.
+MAX_MOTOR_RPM = 1800.0
+# 13T motor pinion -> 38T wheel gear.
+EXTERNAL_GEAR_RATIO = 13.0 / 38.0
+# Max wheel speed: MAX_MOTOR_RPM * EXTERNAL_GEAR_RATIO = ~616 wheel rpm.
 # set_speed_rpm() / start_rpm_control() take a WHEEL rpm in 0..MAX_WHEEL_RPM.
-MAX_WHEEL_RPM = 1800.0 * 13.0 / 38.0  # ~615.8
+MAX_WHEEL_RPM = MAX_MOTOR_RPM * EXTERNAL_GEAR_RATIO
 # Minimum loop interval (s) before a fresh RPM measurement is trusted. Below this
 # the encoder delta is too small/noisy, so we skip the update.
 _RPM_MIN_DT = 0.02

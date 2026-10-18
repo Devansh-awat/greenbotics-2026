@@ -138,6 +138,11 @@ class ImuThread(threading.Thread):
         with self.lock:
             return self.gyro
 
+    def get_tilt(self):
+        """Latest tilt from vertical in degrees, or None if unavailable."""
+        getter = getattr(self.bno, "get_tilt", None)
+        return getter() if getter else None
+
     def get_vibration(self, window_sec=0.5):
         """Compute angular vibration statistics over recent gyro readings.
 
@@ -230,9 +235,10 @@ class SensorThread(threading.Thread):
             for attempt in range(3):
                 try:
                     slog.info("Initializing distance sensors (attempt %d/3)...", attempt + 1)
-                    self.dist.initialise()
-                    slog.info("Distance sensors initialized.")
-                    break
+                    if self.dist.initialise():
+                        slog.info("Distance sensors initialized.")
+                        break
+                    slog.error("Distance sensor initialization incomplete (attempt %d/3)", attempt + 1)
                 except Exception:
                     slog.exception("ERROR during distance sensor initialization")
             self.initialization_complete.set()
