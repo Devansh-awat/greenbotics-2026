@@ -270,10 +270,6 @@ class LiveColorTuner:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.56, (0, 255, 255), 1, cv2.LINE_AA
                     )
 
-                    for panel in range(3):
-                        cx = px + panel * w
-                        # cv2.rectangle(stacked, (cx - 1, py - 1), (cx + 1, py + 1), (0, 255, 255), 1)
-                        # cv2.drawMarker(stacked, (cx, py), (0, 255, 255), cv2.MARKER_CROSS, 12, 1)
                 else:
                     hud_text = (
                         f"Tuning: {self.active_color} | "

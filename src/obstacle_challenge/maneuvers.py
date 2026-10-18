@@ -199,7 +199,6 @@ def perform_initial_maneuver():
 
     time.sleep(0.5)
 
-    action_taken = "None"
     drive_target_heading = ninety_degree_heading
 
     if driving_direction == 'counter-clockwise':
@@ -243,7 +242,6 @@ def perform_initial_maneuver():
                 time.sleep(0.01)
             motor.stop_rpm_control()
             motor.brake()
-            action_taken = "DRIVE_FORWARD_RED_CW for 10cm"
             drive_distance_with_gyro(drive_target_heading, 17, rpm=200)
             motor.start_rpm_control(200, 'forward')
             while get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) > 5:
@@ -594,7 +592,7 @@ def parking2():
         mask_magenta = cv2.inRange(hsv_stop, HSV_RANGES['LOWER_MAGENTA'], HSV_RANGES['UPPER_MAGENTA'])
         magenta_pixel_count = cv2.countNonZero(mask_magenta)
 
-        cv2.rectangle(frame, (0, 330), (214, 360), (255, 0, 255), 2)
+        cv2.rectangle(frame, (0, 310), (214, 340), (255, 0, 255), 2)
         cv2.putText(frame, f"Magenta Pixels: {magenta_pixel_count}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
         state_text = f"Armed to Stop: {first_magenta_line_passed}"

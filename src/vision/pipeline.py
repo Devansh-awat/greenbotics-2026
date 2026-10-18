@@ -603,10 +603,6 @@ MASK_NAMES = COLOUR_MASK_NAMES + ('black',)
 # the full-slice version would have produced there anyway as far as any consumer is
 # concerned: global_blue_mask is built only from the line crop, and orange is only
 # read as mask_orange_line.
-LINE_SLICE_Y0 = line_roi_y - GLOBAL_Y_OFFSET
-LINE_SLICE_Y1 = LINE_SLICE_Y0 + line_roi_h
-LINE_X0 = line_roi_x
-LINE_X1 = line_roi_x + line_roi_w
 
 
 def filter_slice(frame):

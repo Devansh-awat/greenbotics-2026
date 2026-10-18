@@ -50,7 +50,6 @@ def _encoder_worker(path, fourcc_name, fps, size, shm_name, slot_bytes,
     shm = shared_memory.SharedMemory(name=shm_name)
     slots = np.ndarray((n_slots, size[1], size[0], 3), np.uint8, buffer=shm.buf)
     out = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*fourcc_name), fps, size)
-    written = 0
     try:
         while True:
             idx = work_q.get()
@@ -58,7 +57,6 @@ def _encoder_worker(path, fourcc_name, fps, size, shm_name, slot_bytes,
                 break
             try:
                 out.write(slots[idx])
-                written += 1
             finally:
                 free_q.put(idx)
     finally:

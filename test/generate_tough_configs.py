@@ -22,7 +22,6 @@ OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tough_con
 PILLAR_RADIUS = 28
 PARKING_WIDTH = 160
 PARKING_LENGTH = 100
-FONT_SIZE = 40
 TITLE_FONT_SIZE = 50
 
 # Colors for drawing
