@@ -531,8 +531,8 @@ if __name__ == "__main__":
                         # hold -- capture imu_thread.get_heading() before the swerve.
                         motor.reverse(60)
                         time.sleep(0.5)
-                        motor.forward(60)
                         servo.set_angle(-angle)
+                        motor.forward(60)
                         time.sleep(0.3)
                         motor.start_rpm_control(INITIAL_RPM, "forward")
                         prev_rpm = INITIAL_RPM
@@ -551,6 +551,7 @@ if __name__ == "__main__":
                     candidate_blocks = [b for b in detected_blocks if b['type'] == 'block']
                     block = None
                     cap_red_angle = False
+                    cap_green_angle = False
                     if candidate_blocks:
                         b0 = candidate_blocks[0]
                         b0_x, b0_y = b0['centroid']
@@ -569,6 +570,12 @@ if __name__ == "__main__":
                             and b0_y >= red_req_y
                         )
 
+                        b0_below_green_handoff = (
+                            b0['color'] == 'green'
+                            and b0_x > 500
+                            and b0_y >= GREEN_HANDOFF_MIN_Y
+                        )
+
                         if b0_below_red_handoff:
                             if len(candidate_blocks) > 1:
                                 b1 = candidate_blocks[1]
@@ -582,14 +589,17 @@ if __name__ == "__main__":
                             else:
                                 block = b0
                                 cap_red_angle = True
-                        elif (
-                            b0['color'] == 'green'
-                            and len(candidate_blocks) > 1
-                            and candidate_blocks[1]['color'] == 'green'
-                            and b0_x > 500
-                            and b0_y >= GREEN_HANDOFF_MIN_Y
-                        ):
-                            block = candidate_blocks[1]
+                        elif b0_below_green_handoff:
+                            if len(candidate_blocks) > 1:
+                                b1 = candidate_blocks[1]
+                                if b1['color'] == 'green':
+                                    block = b1
+                                else:
+                                    block = b0
+                                    cap_green_angle = True
+                            else:
+                                block = b0
+                                cap_green_angle = True
                         else:
                             block = b0
 
@@ -613,27 +623,23 @@ if __name__ == "__main__":
                             RED_ORIGIN_Y = FRAME_HEIGHT
                             RED_IDEAL_ANGLE = math.degrees(math.atan2(RED_OTHER_X - RED_ORIGIN_X, RED_ORIGIN_Y - RED_OTHER_Y))
 
-                            target = 300 if block_y > 170 and 200 < block_x < 440 else 150
                             candidate_magentas = [
                                 m for m in detections.get('detected_magenta', [])
                                 if (m['centroid'][0] - block_x) >= 65 and abs(m['target_y'] - block_y) < 65
                             ]
+                            target_x_line = None
                             if candidate_magentas and driving_direction == 'counter-clockwise':
                                 chosen_magenta = min(candidate_magentas, key=lambda m: m['centroid'][0] - block_x)
                                 magenta_left_x = chosen_magenta['contour'][:, 0, 0].min()
                                 red_right_x = block['contour'][:, 0, 0].max()
                                 target_x_line = int(0.55 * magenta_left_x + 0.45 * red_right_x)
-                                visual_target_x = target_x_line
-                                target_error = target_x_line - FRAME_MIDPOINT_X
-                                target_derivative = target_error - prev_target_error
-                                angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
-                                prev_target_error = target_error
                             elif wall_inner_right_size > 0 or wall_right_size > 0:
+                                # find rightmost edge of red block
                                 pts = block['contour'].reshape(-1, 2)
                                 bottom_pts = pts[pts[:, 1] >= pts[:, 1].max() - 2]
                                 corner_x = int(bottom_pts[:, 0].max()) if len(bottom_pts) > 0 else int(pts[:, 0].max())
                                 corner_y = int(pts[:, 1].max())
-
+                                # find leftmost edge of black wall, that is in same y region as red block
                                 found_black_x = None
                                 pure_black_mask = detections.get('pure_black_mask')
                                 if pure_black_mask is not None:
@@ -658,16 +664,13 @@ if __name__ == "__main__":
 
                                 if found_black_x is not None:
                                     target_x_line = int((corner_x + found_black_x) / 2)
-                                    visual_target_x = target_x_line
-                                    target_error = target_x_line - FRAME_MIDPOINT_X
-                                    target_derivative = target_error - prev_target_error
-                                    angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
-                                    prev_target_error = target_error
-                                else:
-                                    prev_target_error = 0.0
-                                    visual_target_line = ((RED_ORIGIN_X, RED_ORIGIN_Y), (block_x, block_y), RED_IDEAL_ANGLE, (RED_OTHER_X, RED_OTHER_Y))
-                                    current_angle = math.degrees(math.atan2(block_x - RED_ORIGIN_X, RED_ORIGIN_Y - block_y))
-                                    angle = (current_angle - RED_IDEAL_ANGLE) * 1.5
+
+                            if target_x_line is not None:
+                                visual_target_x = target_x_line
+                                target_error = target_x_line - FRAME_MIDPOINT_X
+                                target_derivative = target_error - prev_target_error
+                                angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
+                                prev_target_error = target_error
                             else:
                                 prev_target_error = 0.0
                                 visual_target_line = ((RED_ORIGIN_X, RED_ORIGIN_Y), (block_x, block_y), RED_IDEAL_ANGLE, (RED_OTHER_X, RED_OTHER_Y))
@@ -684,7 +687,6 @@ if __name__ == "__main__":
                             debug.append(f"Blk:R({int(block_x)},{int(block_y)})")
                             if visual_target_x is not None:
                                 debug.append(f"MidX:{int(visual_target_x)}")
-                            debug.append(f"Tgt:{int(target)}")
                             debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
 
                         elif block_color == 'green':
@@ -700,27 +702,23 @@ if __name__ == "__main__":
                             GREEN_ORIGIN_Y = FRAME_HEIGHT
                             GREEN_IDEAL_ANGLE = math.degrees(math.atan2(GREEN_OTHER_X - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - GREEN_OTHER_Y))
 
-                            target = 300 if block_y > 170 and 200 < block_x < 440 else 150
                             candidate_magentas = [
                                 m for m in detections.get('detected_magenta', [])
                                 if (block_x - m['centroid'][0]) >= 65 and abs(m['target_y'] - block_y) < 35
                             ]
+                            target_x_line = None
                             if candidate_magentas and driving_direction == 'clockwise':
                                 chosen_magenta = min(candidate_magentas, key=lambda m: block_x - m['centroid'][0])
                                 magenta_right_x = chosen_magenta['contour'][:, 0, 0].max()
                                 green_left_x = block['contour'][:, 0, 0].min()
                                 target_x_line = int(0.55 * magenta_right_x + 0.45 * green_left_x)
-                                visual_target_x = target_x_line
-                                target_error = target_x_line - FRAME_MIDPOINT_X
-                                target_derivative = target_error - prev_target_error
-                                angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
-                                prev_target_error = target_error
                             elif wall_inner_left_size > 0 or wall_left_size > 0:
+                                # find leftmost edge of green block
                                 pts = block['contour'].reshape(-1, 2)
                                 bottom_pts = pts[pts[:, 1] >= pts[:, 1].max() - 2]
                                 corner_x = int(bottom_pts[:, 0].min()) if len(bottom_pts) > 0 else int(pts[:, 0].min())
                                 corner_y = int(pts[:, 1].max())
-
+                                # find rightmost edge of black wall, that is in same y region as green block
                                 found_black_x = None
                                 pure_black_mask = detections.get('pure_black_mask')
                                 if pure_black_mask is not None:
@@ -745,16 +743,13 @@ if __name__ == "__main__":
 
                                 if found_black_x is not None:
                                     target_x_line = int((corner_x + found_black_x) / 2)
-                                    visual_target_x = target_x_line
-                                    target_error = target_x_line - FRAME_MIDPOINT_X
-                                    target_derivative = target_error - prev_target_error
-                                    angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
-                                    prev_target_error = target_error
-                                else:
-                                    prev_target_error = 0.0
-                                    visual_target_line = ((GREEN_ORIGIN_X, GREEN_ORIGIN_Y), (block_x, block_y), GREEN_IDEAL_ANGLE, (GREEN_OTHER_X, GREEN_OTHER_Y))
-                                    current_angle = math.degrees(math.atan2(block_x - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - block_y))
-                                    angle = (current_angle - GREEN_IDEAL_ANGLE) * 1.5
+
+                            if target_x_line is not None:
+                                visual_target_x = target_x_line
+                                target_error = target_x_line - FRAME_MIDPOINT_X
+                                target_derivative = target_error - prev_target_error
+                                angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
+                                prev_target_error = target_error
                             else:
                                 prev_target_error = 0.0
                                 visual_target_line = ((GREEN_ORIGIN_X, GREEN_ORIGIN_Y), (block_x, block_y), GREEN_IDEAL_ANGLE, (GREEN_OTHER_X, GREEN_OTHER_Y))
@@ -766,14 +761,13 @@ if __name__ == "__main__":
                                 else: angle = np.clip(angle, -35, 45)
                             else:
                                 angle = np.clip(angle, -35, 45)
-                            if block_x > 500 and block_y >= GREEN_HANDOFF_MIN_Y:
+                            if cap_green_angle:
                                 angle = np.clip(angle, -GREEN_UNDER_LINE_MAX_ANGLE, GREEN_UNDER_LINE_MAX_ANGLE)
                                 debug.append("GLineCap")
 
                             debug.append(f"Blk:G({int(block_x)},{int(block_y)})")
                             if visual_target_x is not None:
                                 debug.append(f"MidX:{int(visual_target_x)}")
-                            debug.append(f"Tgt:{int(target)}")
                             debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
             if not is_close_block and block is None:
                 if tracking_green_block:
@@ -789,9 +783,16 @@ if __name__ == "__main__":
                 total_left = wall_left_size + wall_inner_left_size
                 total_right = wall_right_size + wall_inner_right_size
 
-                if total_left < 700 and total_right > 100:
+                left_gone = total_left < 700 and total_right > 100
+                right_gone = total_right < 700 and total_left > 100
+                if left_gone and right_gone:
+                    # Both walls weak (each 100-700): ambiguous, so turn the way we drive.
+                    # Clockwise the inner wall is on the right, so "right gone" is the corner.
+                    right_gone = driving_direction == 'clockwise'
+                    left_gone = not right_gone
+                if left_gone:
                     total_right = total_right * 2 + 25000
-                elif total_right < 700 and total_left > 100:
+                elif right_gone:
                     total_left = total_left * 2 + 25000
 
                 debug.extend([f"L:{int(wall_left_size)}", f"R:{int(wall_right_size)}"])

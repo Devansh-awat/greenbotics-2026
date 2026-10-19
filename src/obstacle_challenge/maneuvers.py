@@ -231,22 +231,12 @@ def perform_initial_maneuver():
 
     else:
         if detected_block_color == 'green':
-            drive_straight_with_gyro((INITIAL_HEADING+30)%360, 0.5, 50, 'forward',2)
+            drive_distance_with_gyro((INITIAL_HEADING+20)%360, 10, 150)
             log.info("Initial maneuver: green block, short forward.")
             return
         elif detected_block_color == 'red':
-            motor.start_rpm_control(200, 'forward')
-            while get_angular_difference(ninety_degree_heading, imu_thread.get_heading()) > 5:
-                servo.set_angle(steer_with_gyro(imu_thread.get_heading(), ninety_degree_heading))
-                time.sleep(0.01)
-            motor.stop_rpm_control()
-            motor.brake()
-            drive_distance_with_gyro(drive_target_heading, 17, rpm=200)
-            motor.start_rpm_control(200, 'forward')
-            while get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) > 5:
-                servo.set_angle(steer_with_gyro(imu_thread.get_heading(),INITIAL_HEADING,2))
-            motor.stop_rpm_control()
-            servo.set_angle(0)
+            drive_distance_with_gyro(ninety_degree_heading, 17, rpm=200,kp=3)
+            drive_distance_with_gyro(INITIAL_HEADING, 10, 200,kp=3)
             return
         else:
             drive_distance_with_gyro((INITIAL_HEADING+90)%360, 20, 300)
