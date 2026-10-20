@@ -73,6 +73,8 @@ from src.obstacle_challenge.tuning import (
     RED_HANDOFF_X_CENTER,
     RED_HANDOFF_Y_CENTER,
     GREEN_HANDOFF_MIN_Y,
+    GREEN_HANDOFF_MIN_X,
+    OBJECTS,          # what the vision pipeline looks for -- see tuning.py
 )
 
 
@@ -125,6 +127,22 @@ WALL_KD = 0.0005
 CLOSE_BLACK_AREA_THRESHOLD = 3000
 LINE_ROI_WALL_PCT_THRESHOLD = 50
 CORNER_TURN_ANGLE = 35
+
+# --- Rule constants (src/open_challenge/rules.py) -------------------------
+STEER_LIMIT = 40                  # hard steering limit on every command (degrees)
+# Only one INNER wall seen: inflate it to (2 * area + INNER_ONE_SIDE_BOOST).
+INNER_ONE_SIDE_BOOST = 1000
+# One side almost empty (< ONE_SIDE_MIN) while the other has some wall (> ONE_SIDE_SEEN):
+# the seen side is boosted to (2 * area + ONE_SIDE_BOOST).
+WALL_ONE_SIDE_MIN = 700
+WALL_ONE_SIDE_SEEN = 100
+WALL_ONE_SIDE_BOOST = 25000
+
+# --- Run plan (the phases in src/open_challenge/main.py: drive -> final -> done) ---
+FINAL_AFTER_TURNS = 12            # after this many turns, the final straight starts...
+FINAL_HEADING_TOLERANCE = 30      # ...once the heading is within this of the start heading
+MAX_TURNS = 13                    # safety stop: never drive past this many turns
+FINAL_COAST_ABOVE_RPM = 350       # STRAIGHT_RPM above this: coast the final straight, then brake
 
 # Edge-preserving filter instead of GaussianBlur (v5). Keeps the wall/mat boundary
 # crisp where the blur smears it. d=5 only -- NEVER pass d=-1 (480 ms/frame).

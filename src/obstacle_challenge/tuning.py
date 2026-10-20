@@ -47,6 +47,106 @@ WALL_KP = 0.0006
 WALL_KD = 0.0003
 
 
+# ---------------------------------------------------------------------------
+# Run plan (the phases in main.py: start -> drive -> finish)
+# ---------------------------------------------------------------------------
+DO_INITIAL_MANEUVER = True   # False = skip the scripted start, drive straight away
+TURNS_TO_FINISH = 13         # orange-line turns before the drive phase ends (3 laps = 12 corners + 1)
+FINISH_MODE = 'park'         # 'park' = parallel park after the laps; 'stop' = just brake
+
+
+# ---------------------------------------------------------------------------
+# Rule constants (src/obstacle_challenge/rules.py). Every number the rules use.
+# Angles: positive = steer right, negative = steer left.
+# ---------------------------------------------------------------------------
+
+# --- Hard steering limit, applied to every command ---
+STEER_LIMIT = 40
+
+# --- Ignoring pillars cut off by the top of the camera view ---
+# A green pillar far left (x < 200) or red pillar far right (x > 440) that touches
+# the top of full_frame_roi is a pillar on the NEXT straight seen over a corner.
+EDGE_IGNORE_GREEN_MAX_X = 200
+EDGE_IGNORE_RED_MIN_X = 440
+EDGE_IGNORE_TOP_PX = 2
+
+# --- Close-block reflex (rule_close_block): reverse, then swerve ---
+# Steering angle while reversing, per colour and driving direction. A colour not
+# listed here never triggers the reflex. 'after_s': ignored until this many seconds
+# into the run (the magenta parking walls are right beside the start).
+CLOSE_SWERVE = {
+    'red':     {'clockwise': -25, 'counter-clockwise': -25},
+    'green':   {'clockwise': 30,  'counter-clockwise': 30},
+    'magenta': {'clockwise': -25, 'counter-clockwise': 30, 'after_s': 5.0},
+}
+CLOSE_SWERVE_REVERSE_DUTY = 60     # % duty, open loop
+CLOSE_SWERVE_REVERSE_S = 0.5
+CLOSE_SWERVE_FORWARD_DUTY = 60
+CLOSE_SWERVE_FORWARD_S = 0.3
+
+# --- Passing a pillar (rule_red / rule_green) ---
+# Fallback when no gap can be found: steer so the line from ORIGIN to the pillar
+# matches the line from ORIGIN to OTHER, times BLOCK_ANGLE_GAIN.
+RED_ORIGIN_X, RED_ORIGIN_Y = 0, 360        # bottom-left corner of the frame
+RED_OTHER_X, RED_OTHER_Y = 297, 0
+GREEN_ORIGIN_X, GREEN_ORIGIN_Y = 640, 360  # bottom-right corner of the frame
+GREEN_OTHER_X, GREEN_OTHER_Y = 343, 0
+BLOCK_ANGLE_GAIN = 1.5
+
+# Aiming between a pillar and a magenta parking wall beside it.
+MAGENTA_BESIDE_MIN_DX = 65        # magenta must be at least this far to the side (px)
+RED_MAGENTA_MAX_DY = 65           # and within this many px vertically
+GREEN_MAGENTA_MAX_DY = 35
+MAGENTA_AIM_WEIGHT = 0.55         # aim = 0.55 * magenta edge + 0.45 * pillar edge
+BLOCK_AIM_WEIGHT = 0.45
+
+# Aiming between a pillar and the black wall beside it: rows scanned around the
+# pillar's bottom corner.
+WALL_GAP_SCAN_DY = 10
+
+# A side inner wall this big (px area) forces the steering away from it.
+BIG_INNER_WALL_AREA = 3000
+AWAY_FROM_LEFT_WALL = (15, 45)    # angle range when the inner LEFT wall is big
+AWAY_FROM_RIGHT_WALL = (-45, -15)
+RED_ANGLE_RANGE = (-45, 35)
+GREEN_ANGLE_RANGE = (-35, 45)
+RED_UNDER_LINE_MIN_ANGLE = -20    # red below its handoff line: no harder left than this
+
+# Green handoff line: x > this and y >= GREEN_HANDOFF_MIN_Y.
+GREEN_HANDOFF_MIN_X = 500
+
+# --- After passing a pillar: limit steering for a few frames ---
+# First colour (in this order) with frames left wins. corner_max_angle: used instead
+# when a corner is close (None = never).
+POST_RED_CORNER_MAX_ANGLE = 40
+POST_PASS = {
+    'green': dict(frames=POST_GREEN_CLIP_FRAMES, max_angle=POST_GREEN_MAX_ANGLE,
+                  wall_max_angle=POST_GREEN_WALL_MAX_ANGLE, corner_max_angle=None),
+    'red':   dict(frames=POST_RED_CLIP_FRAMES, max_angle=POST_RED_MAX_ANGLE,
+                  wall_max_angle=POST_RED_MAX_ANGLE, corner_max_angle=POST_RED_CORNER_MAX_ANGLE),
+}
+
+# --- Wall following (rule_wall_follow) ---
+# One side almost empty (< ONE_SIDE_MIN) while the other has some wall (> ONE_SIDE_SEEN):
+# the seen side is boosted to (2 * area + ONE_SIDE_BOOST).
+WALL_ONE_SIDE_MIN = 700
+WALL_ONE_SIDE_SEEN = 100
+WALL_ONE_SIDE_BOOST = 25000
+WALL_ANGLE_BIAS = 1
+# A corner is close: big black area in the close ROI, or the line ROI mostly wall.
+CORNER_CLOSE_BLACK_AREA = 3000
+CORNER_LINE_WALL_PCT = 50
+CORNER_PUSH = {'clockwise': 20, 'counter-clockwise': -35}
+NO_WALL_LINE_PUSH = {'clockwise': 35, 'counter-clockwise': -35}   # no walls + line seen
+NO_WALL_PUSH = {'clockwise': 20, 'counter-clockwise': -20}        # no walls at all
+OUTER_WALL_MISSING_PUSH = 20      # outer wall (right if CW, left if CCW) not seen
+
+# --- Speed ---
+SPEED_FULL_STEER_ANGLE = 40.0     # at this steering angle, speed is halved
+SPEED_STEER_SLOWDOWN = 0.5
+SPEED_ROI_BOTTOM_PAD = 20         # bottom px of full_frame_roi: pillar this low = MIN_RPM
+
+
 # --- Opt-in vision changes (2026-08-25) -------------------------------------
 # Every one of these defaults to the ORIGINAL behaviour. With this block untouched
 # the pipeline is byte-identical to the last commit (verified over 750 frames).
@@ -257,6 +357,71 @@ WALL_MIN_AREA = 300
 BLOCK_MIN_AREA = 250
 MAGENTA_MIN_AREA = 300
 CLOSE_BLOCK_MIN_AREA = 15
+LINE_MIN_AREA = 20
+
+# ---------------------------------------------------------------------------
+# OBJECTS -- every coloured thing the camera looks for. ONE entry per colour.
+# ---------------------------------------------------------------------------
+# To detect a NEW colour: measure its range with src/tools/color_tuning.py, then add
+# an entry at the END. Nothing in src/vision needs to change. (Black walls are not
+# in here -- they come from the arena mask.)
+#
+#   kind         'pillar' : stands on the mat. Every contour in full_frame_roi goes
+#                           into detections['detected_blocks'] as
+#                           {type 'block', color <name>}, nearest (lowest) first.
+#                'marker' : every contour in full_frame_roi goes into
+#                           detections['detected_<name>'] (with target_x, target_y).
+#                'line'   : painted on the mat; only looked for in the line ROI.
+#                           The biggest contour goes into detections['detected_<name>'].
+#                'custom' : only looked for inside its own `roi`. Every contour goes
+#                           into detections['detected_<name>'], like a marker.
+#   roi          custom only: (x, y, w, h) in full-frame pixels. Only rows the
+#                challenge processes count: 80..280 obstacle, 110..290 open. The
+#                part outside is cut off (a warning is logged). Drawn in the video.
+#   arena        custom only, default True: also ignore pixels outside the arena
+#                mask (off the mat / above the walls). False = keep the whole roi.
+#   ranges       [(lower, upper), ...]. A pixel matching ANY range counts.
+#   min_area     smallest contour (px) that counts.
+#   close        pillar/marker: also look in close_block_roi; hits go into detected_blocks with
+#                type 'close_block' (rules.rule_close_block swerves away from it if
+#                the colour is in CLOSE_SWERVE). Uses CLOSE_BLOCK_MIN_AREA.
+#   morph_close  fill small holes in the mask (only if USE_BLOCK_MORPH_CLOSE).
+#   not_wall     a dark pixel of this colour is never counted as black wall.
+#   close_black  counts as an obstacle in the close-black ROI, like a black wall.
+#   draw         BGR colour in the annotated video.
+#   target       pillars only, default True. False = never chosen as
+#                world.target_block (rules.pick_target_block skips it); it is still
+#                detected and in world.blocks / world.seen('<name>').
+#
+# In rules.py, world.seen('<name>') returns this frame's detections of any entry.
+OBJECTS = {
+    'red': dict(
+        kind='pillar',
+        # HSV red wraps round 180 -> 0, so it needs two ranges; LAB needs one.
+        ranges=[(LOWER_RED_1, UPPER_RED_1)] + ([] if USE_LAB else [(LOWER_RED_2, UPPER_RED_2)]),
+        min_area=BLOCK_MIN_AREA, close=True, morph_close=True, not_wall=True,
+        draw=(0, 0, 255)),
+    'green': dict(
+        kind='pillar',
+        ranges=[(LOWER_GREEN, UPPER_GREEN)],
+        min_area=BLOCK_MIN_AREA, close=True, morph_close=True, not_wall=True,
+        draw=(0, 255, 0)),
+    'magenta': dict(
+        kind='marker',
+        ranges=[(LOWER_MAGENTA, UPPER_MAGENTA)],
+        min_area=MAGENTA_MIN_AREA, close=True, close_black=True,
+        draw=(255, 0, 255)),
+    'orange': dict(
+        kind='line',
+        ranges=[(LOWER_ORANGE, UPPER_ORANGE)],
+        min_area=LINE_MIN_AREA,
+        draw=(0, 165, 255)),
+    'blue': dict(
+        kind='line',
+        ranges=[(LOWER_BLUE, UPPER_BLUE)],
+        min_area=LINE_MIN_AREA, not_wall=True,
+        draw=(255, 0, 0)),
+}
 
 left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 130, 135, 150
 right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 130, 135, 150

@@ -51,15 +51,12 @@ Run it from the repo root:  python3 -m src.obstacle_challenge.main
 """
 
 import argparse
-import math
 import os
 import sys
 import time
-from collections import deque
 from datetime import datetime
 
 import cv2
-import numpy as np
 import threading
 import _thread
 from gpiozero import Button, LED
@@ -68,7 +65,7 @@ import subprocess
 from src.motors import motor, servo
 from src.sensors import bno086, camera, distance
 
-from src.obstacle_challenge import config, control, maneuvers
+from src.obstacle_challenge import config, control, maneuvers, rules
 from src.threads.hw_threads import (
     CameraThread, ImuThread, PerfMonitor, SensorThread,
 )
@@ -80,6 +77,216 @@ from src.tools.power_mode import ensure_performance
 from src.vision import pipeline as vision
 from src.vision.pipeline import annotate_video_frame, process_video_frame
 from src.vision.pool import VisionPool
+
+
+def detect_driving_direction(camera_thread, video_encoder, overlay_log, record_raw):
+    """Clockwise if more inner wall is seen on the left than on the right, over
+    up to 60 frames (3 agreeing frames in a row decide). Records the frames."""
+    driving_direction = 'clockwise'
+    past_frame_counter = 0
+    max_direction_frames = 60
+    consecutive_required = 3
+    candidate_direction = None
+    consecutive_count = 0
+
+    log.info("Detecting start driving direction from camera frames...")
+    for _ in range(max_direction_frames):
+        frame, past_frame_counter, _ = camera_thread.get_next_frame(past_frame_counter)
+        if frame is None:
+            continue
+
+        detections = process_video_frame(frame)
+        wall_inner_left_size = sum(obj['area'] for obj in detections.get('detected_walls', []) if obj['type'] == 'wall_inner_left')
+        wall_inner_right_size = sum(obj['area'] for obj in detections.get('detected_walls', []) if obj['type'] == 'wall_inner_right')
+
+        if wall_inner_left_size == 0 and wall_inner_right_size == 0:
+            current_dir_label = "unknown"
+            consecutive_count = 0
+            log.debug("Direction detect: 0 px on both sides (left=0, right=0), waiting for more frames...")
+        elif wall_inner_left_size > wall_inner_right_size:
+            current_dir_label = "clockwise"
+            if candidate_direction == current_dir_label:
+                consecutive_count += 1
+            else:
+                candidate_direction = current_dir_label
+                consecutive_count = 1
+        elif wall_inner_right_size > wall_inner_left_size:
+            current_dir_label = "counter-clockwise"
+            if candidate_direction == current_dir_label:
+                consecutive_count += 1
+            else:
+                candidate_direction = current_dir_label
+                consecutive_count = 1
+        else:
+            current_dir_label = "equal"
+            consecutive_count = 0
+
+        debug_items = [
+            f"StartDir:{current_dir_label}",
+            f"L:{int(wall_inner_left_size)}",
+            f"R:{int(wall_inner_right_size)}",
+        ]
+
+        # Record direction detection frames into the video
+        if record_raw:
+            if video_encoder.write(frame, tag=past_frame_counter):
+                if overlay_log is not None:
+                    overlay_log.append(
+                        len(video_encoder.tags) - 1,
+                        current_dir_label,
+                        debug_items,
+                        visual_target_x=None,
+                        visual_target_line=None,
+                        detections=detections,
+                    )
+        else:
+            video_encoder.write(
+                frame, tag=past_frame_counter,
+                prepare=lambda f, det=detections, d_dir=current_dir_label, dbg=debug_items: annotate_video_frame(
+                    f, det, d_dir,
+                    debug_info=dbg,
+                    visual_target_x=None,
+                    visual_target_line=None,
+                ),
+            )
+
+        log.info("Direction detect frame - left: %.0f, right: %.0f -> candidate: %s (%d/%d)",
+                 wall_inner_left_size, wall_inner_right_size,
+                 current_dir_label, consecutive_count, consecutive_required)
+
+        if candidate_direction is not None and consecutive_count >= consecutive_required:
+            driving_direction = candidate_direction
+            break
+
+    if candidate_direction is not None and consecutive_count < consecutive_required:
+        driving_direction = candidate_direction
+        log.warning("Direction detection reached max frames without full consensus, using last candidate: %s", driving_direction)
+    elif candidate_direction is None:
+        log.warning("Direction detection found 0 px on both sides across %d frames, defaulting to clockwise",
+                    max_direction_frames)
+        driving_direction = 'clockwise'
+
+    return driving_direction
+
+
+def actuate(cmd, prev_angle):
+    """Carry out a rules.Command: the swerve reflex if asked for, then servo, then
+    motor. Returns the angle now on the servo."""
+    if cmd.swerve is not None:
+        log.warning("CLOSE BLOCK (%s) -- reverse-and-swerve, angle=%d", cmd.rule, cmd.swerve)
+        motor.stop_rpm_control()
+        servo.set_angle(cmd.swerve)
+        # BUG: direct duty + stopwatch. This is the reflex that backs off a pillar
+        # filling the frame, and it is the WORST place in the program to be open-loop:
+        # 60% duty for 0.5 s covers a very different distance on a fresh battery than
+        # on a flat one, and it is running because we are about to hit something.
+        # Convert to encoder distance, e.g.
+        #     control.drive_distance_with_gyro(heading, 12, rpm=80, direction='reverse')
+        # then the same 12 cm comes back every time. Needs a heading to hold --
+        # capture imu_thread.get_heading() before the swerve.
+        motor.reverse(CLOSE_SWERVE_REVERSE_DUTY)
+        time.sleep(CLOSE_SWERVE_REVERSE_S)
+        servo.set_angle(-cmd.swerve)
+        motor.forward(CLOSE_SWERVE_FORWARD_DUTY)
+        time.sleep(CLOSE_SWERVE_FORWARD_S)
+        motor.start_rpm_control(INITIAL_RPM, "forward")
+    if cmd.angle != prev_angle:
+        servo.set_angle(cmd.angle)
+    if cmd.rpm_changed:
+        motor.set_rpm_target(cmd.rpm, "forward")
+    return cmd.angle
+
+
+def drive_phase(camera_thread, video_encoder, overlay_log, record_raw, perf,
+                driving_direction, run_start_time, mem, stop_when):
+    """The per-frame loop: see -> decide (rules.py) -> act -> record. Runs until
+    stop_when(world, mem) returns something truthy, checked at the end of every
+    frame, and returns that value. `mem` (rules.Memory) carries over between
+    phases."""
+    motor.start_rpm_control(INITIAL_RPM, "forward")
+    mem.prev_rpm = INITIAL_RPM
+    # Same detail is already in the overlay JSON (one record per recorded frame,
+    # replayable by annotate_run.py), so this is just a coarse human-readable
+    # heartbeat -- throttled hard to keep the log file grep-able.
+    frame_debug_throttle = Throttle(1.0)
+    prev_angle = 0
+    past_frame_counter = 0
+
+    while True:
+        # Blocking wait -- no busy-spin. `capture_ts` is when the camera thread
+        # actually received this frame, which is what capture->servo latency is
+        # measured against.
+        frame, frame_counter, capture_ts = camera_thread.get_next_frame(past_frame_counter)
+        if frame is None:
+            continue
+        skipped = max(0, frame_counter - past_frame_counter - 1)
+        past_frame_counter = frame_counter
+
+        # ---- SEE ----------------------------------------------------------
+        t_proc = time.perf_counter()
+        detections = process_video_frame(frame)
+        proc_ms = (time.perf_counter() - t_proc) * 1000.0
+        world = rules.build_world(detections, driving_direction,
+                                  time.monotonic() - run_start_time)
+        if rules.count_turns(world, mem):
+            log.info("turn_counter ----------------> %d", mem.turns)
+
+        # ---- DECIDE + ACT FIRST -------------------------------------------
+        # Steering happens immediately after the decision. Annotation, recording and
+        # telemetry all come afterwards: the old loop did them first, which put up
+        # to ~25 ms between seeing a frame and reacting to it.
+        cmd = rules.decide(world, mem)
+        prev_angle = actuate(cmd, prev_angle)
+
+        latency_ms = (time.monotonic() - capture_ts) * 1000.0
+        # ---- everything below is off the critical path --------------------
+
+        perf.add(latency_ms, proc_ms, skipped)
+        perf.maybe_report()
+
+        debug = cmd.debug + [
+            f"Angle:{int(cmd.angle)}",
+            f"Turns:{mem.turns}",
+            f"RPM:{int(cmd.rpm)}",
+            f"Lat:{int(latency_ms)}ms",
+            f"F:{frame_counter}",
+            f"Dir:{driving_direction or '?'}",
+            f"Rule:{cmd.rule}",
+        ]
+
+        if frame_debug_throttle:
+            blocks_detail = ",".join(f"{b['color']}:{int(b['area'])}@y={b['centroid'][1]}"
+                                     for b in world.blocks) if world.blocks else "-"
+            log.debug("f=%d rule=%s angle=%+6.1f rpm=%4.0f turns=%d lat=%5.2fms vis=%4.2fms "
+                      "blocks=%d[%s] walls=%d skip=%d",
+                      frame_counter, cmd.rule, float(cmd.angle), cmd.rpm, mem.turns,
+                      latency_ms, proc_ms, len(world.blocks), blocks_detail,
+                      len(detections['detected_walls']), skipped)
+
+        if record_raw:
+            # The frame goes in untouched -- no annotation, no filtering. Both are
+            # reapplied offline by annotate_run.py, which is the whole point: the
+            # loop pays for a memcpy instead of a draw pass.
+            if video_encoder.write(frame, tag=frame_counter):
+                # tags gets one entry per accepted frame, so its last index IS the
+                # video frame number this overlay record belongs to. append() only
+                # buffers in memory; the file is written by OverlayLog.close().
+                overlay_log.append(
+                    len(video_encoder.tags) - 1, driving_direction, debug,
+                    cmd.target_x, cmd.target_line, detections)
+        else:
+            # Annotation is handed to write() rather than done first, so its cost
+            # is only spent on frames that actually get recorded.
+            video_encoder.write(
+                frame, tag=frame_counter,
+                prepare=lambda f: annotate_video_frame(
+                    f, detections, driving_direction, debug_info=debug,
+                    visual_target_x=cmd.target_x,
+                    visual_target_line=cmd.target_line))
+
+        stop = stop_when(world, mem)
+        if stop:
+            return stop
 
 
 if __name__ == "__main__":
@@ -215,12 +422,6 @@ if __name__ == "__main__":
     button = Button(config.BUTTON_PIN)
     led = LED(config.LED_PIN)
 
-    orange_detection_history = deque([False] * ORANGE_DETECTION_HISTORY_LENGTH, maxlen=ORANGE_DETECTION_HISTORY_LENGTH)
-    cooldown_frames = 0
-    orange_detection_history.append(False)
-    turn_counter = 0
-    prevangle = 0
-    prev_wall_error = 0.0
 
     camera_thread = CameraThread(camera)
     camera_thread.start()
@@ -249,89 +450,7 @@ if __name__ == "__main__":
         time.sleep(1)
     led.off()
     subprocess.run(["pinctrl", "FAN_PWM", "op", "dl"], check=False)
-    driving_direction = 'clockwise'
-    past_frame_counter = 0
-    max_direction_frames = 60
-    consecutive_required = 3
-    candidate_direction = None
-    consecutive_count = 0
-
-    log.info("Detecting start driving direction from camera frames...")
-    for _ in range(max_direction_frames):
-        frame, past_frame_counter, _ = camera_thread.get_next_frame(past_frame_counter)
-        if frame is None:
-            continue
-
-        detections = process_video_frame(frame)
-        wall_inner_left_size = sum(obj['area'] for obj in detections.get('detected_walls', []) if obj['type'] == 'wall_inner_left')
-        wall_inner_right_size = sum(obj['area'] for obj in detections.get('detected_walls', []) if obj['type'] == 'wall_inner_right')
-
-        if wall_inner_left_size == 0 and wall_inner_right_size == 0:
-            current_dir_label = "unknown"
-            consecutive_count = 0
-            log.debug("Direction detect: 0 px on both sides (left=0, right=0), waiting for more frames...")
-        elif wall_inner_left_size > wall_inner_right_size:
-            current_dir_label = "clockwise"
-            if candidate_direction == current_dir_label:
-                consecutive_count += 1
-            else:
-                candidate_direction = current_dir_label
-                consecutive_count = 1
-        elif wall_inner_right_size > wall_inner_left_size:
-            current_dir_label = "counter-clockwise"
-            if candidate_direction == current_dir_label:
-                consecutive_count += 1
-            else:
-                candidate_direction = current_dir_label
-                consecutive_count = 1
-        else:
-            current_dir_label = "equal"
-            consecutive_count = 0
-
-        debug_items = [
-            f"StartDir:{current_dir_label}",
-            f"L:{int(wall_inner_left_size)}",
-            f"R:{int(wall_inner_right_size)}",
-        ]
-
-        # Record direction detection frames into the video
-        if record_raw:
-            if video_encoder.write(frame, tag=past_frame_counter):
-                if overlay_log is not None:
-                    overlay_log.append(
-                        len(video_encoder.tags) - 1,
-                        current_dir_label,
-                        debug_items,
-                        visual_target_x=None,
-                        visual_target_line=None,
-                        detections=detections,
-                    )
-        else:
-            video_encoder.write(
-                frame, tag=past_frame_counter,
-                prepare=lambda f, det=detections, d_dir=current_dir_label, dbg=debug_items: annotate_video_frame(
-                    f, det, d_dir,
-                    debug_info=dbg,
-                    visual_target_x=None,
-                    visual_target_line=None,
-                ),
-            )
-
-        log.info("Direction detect frame - left: %.0f, right: %.0f -> candidate: %s (%d/%d)",
-                 wall_inner_left_size, wall_inner_right_size,
-                 current_dir_label, consecutive_count, consecutive_required)
-
-        if candidate_direction is not None and consecutive_count >= consecutive_required:
-            driving_direction = candidate_direction
-            break
-
-    if candidate_direction is not None and consecutive_count < consecutive_required:
-        driving_direction = candidate_direction
-        log.warning("Direction detection reached max frames without full consensus, using last candidate: %s", driving_direction)
-    elif candidate_direction is None:
-        log.warning("Direction detection found 0 px on both sides across %d frames, defaulting to clockwise",
-                    max_direction_frames)
-        driving_direction = 'clockwise'
+    driving_direction = detect_driving_direction(camera_thread, video_encoder, overlay_log, record_raw)
 
     log.info("Decided driving direction: %s", driving_direction)
 
@@ -364,8 +483,8 @@ if __name__ == "__main__":
 
     perf = PerfMonitor()
 
-    # Set once turn 13 starts the background rebuild (see the turn_counter >= 13
-    # branch below). Declared here, before the run can fail, so the `finally` block
+    # Set once the finish phase starts the background rebuild (see the finish
+    # phase below). Declared here, before the run can fail, so the `finally` block
     # can tell "rebuild already started in the background" apart from "never reached
     # turn 13" -- an aborted run (exception, or the stop button before turn 13) needs
     # the old synchronous rebuild as a fallback, since nothing else will have done it.
@@ -406,533 +525,35 @@ if __name__ == "__main__":
 
     try:
         run_start_time = time.monotonic()
-        past_frame_counter = 0
-        frame_counter = 0
-        maneuvers.perform_initial_maneuver()
-        log.info("Initial maneuver done; entering main control loop.")
 
-        motor.start_rpm_control(INITIAL_RPM, "forward")
-        # Same detail is already in the overlay JSON (one record per recorded frame,
-        # replayable by annotate_run.py), so this is just a coarse human-readable
-        # heartbeat -- throttled hard to keep the log file grep-able.
-        frame_debug_throttle = Throttle(1.0)
-        prev_rpm = INITIAL_RPM
-        last_block_target_rpm = INITIAL_RPM
-        frames_since_block_seen = BLOCK_TARGET_GRACE_FRAMES
-        tracking_green_block = False
-        green_post_pass_frames = 0
-        tracking_red_block = False
-        red_post_pass_frames = 0
-        prev_target_error = 0.0
+        # ---- The run, as phases: start -> drive -> finish -> done ----------
+        # Each phase runs once and names the next. To change the shape of the run
+        # (skip the start maneuver, stop instead of parking, add a phase), edit
+        # DO_INITIAL_MANEUVER / TURNS_TO_FINISH / FINISH_MODE in tuning.py or this
+        # block.
+        # The rules' memory (turn count, tracking, ...): carries over between phases.
+        mem = rules.Memory()
+        phase = 'start'
+        while phase != 'done':
+            log.info("=== Phase: %s ===", phase)
 
-        while True:
-            target_rpm = INITIAL_RPM
-            angle = 0
-            active_block_y = None
-            wall_steering = False
-            debug = []
-            visual_target_x = None
-            visual_target_line = None
+            if phase == 'start':
+                if DO_INITIAL_MANEUVER:
+                    maneuvers.perform_initial_maneuver()
+                    log.info("Initial maneuver done; entering main control loop.")
+                phase = 'drive'
 
-            # Blocking wait -- no busy-spin. `capture_ts` is when the camera thread
-            # actually received this frame, which is what capture->servo latency is
-            # measured against.
-            frame, frame_counter, capture_ts = camera_thread.get_next_frame(past_frame_counter)
-            if frame is None:
-                continue
-            skipped = max(0, frame_counter - past_frame_counter - 1)
-            past_frame_counter = frame_counter
+            elif phase == 'drive':
+                drive_phase(camera_thread, video_encoder, overlay_log, record_raw, perf,
+                            driving_direction, run_start_time, mem,
+                            stop_when=lambda world, mem: mem.turns >= TURNS_TO_FINISH)
+                phase = 'finish'
 
-            t_proc = time.perf_counter()
-            detections = process_video_frame(frame)
-            proc_ms = (time.perf_counter() - t_proc) * 1000.0
-
-            if detections.get('detected_magenta'):
-                if driving_direction == 'clockwise':
-                    detections['detected_magenta'].sort(key=lambda x: x['centroid'][0])
-                else:
-                    detections['detected_magenta'].sort(key=lambda x: x['centroid'][0], reverse=True)
-            detected_blocks = [
-                b for b in detections['detected_blocks']
-                if not (
-                    (
-                        b.get('color') == 'green'
-                        and b.get('centroid', (0, 0))[0] < 200
-                        and b.get('contour') is not None
-                        and len(b['contour']) > 0
-                        and b['contour'].reshape(-1, 2)[:, 1].min() <= full_frame_roi[1] + 2
-                    )
-                    or (
-                        b.get('color') == 'red'
-                        and b.get('centroid', (0, 0))[0] > 440
-                        and b.get('contour') is not None
-                        and len(b['contour']) > 0
-                        and b['contour'].reshape(-1, 2)[:, 1].min() <= full_frame_roi[1] + 2
-                    )
-                )
-            ]
-            detected_walls = detections['detected_walls']
-
-            wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
-            wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
-            wall_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
-            wall_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
-
-            detected_orange_object = detections['detected_orange']
-            detected_blue_object = detections['detected_blue']
-            close_black_area = sum(obj['area'] for obj in detections.get('detected_close_black', []))
-
-            orange_detected_this_frame = bool(detected_orange_object)
-            orange_detection_history.append(orange_detected_this_frame)
-
-            if cooldown_frames > 0:
-                cooldown_frames -= 1
-            elif not orange_detection_history[0] and sum(orange_detection_history) == (ORANGE_DETECTION_HISTORY_LENGTH - 1):
-                turn_counter += 1
-                cooldown_frames = ORANGE_COOLDOWN_FRAMES
-                log.info("turn_counter ----------------> %d", turn_counter)
-            is_close_block = False
-            block = None
-            if detected_blocks:
-                for block in detected_blocks:
-                    if block['type'] == 'close_block':
-                        is_close_block = True
-                        if block['color'] == 'magenta' and (time.monotonic()-run_start_time) > 5:
-                            if driving_direction == 'clockwise':
-                                angle = -25
-                            else:
-                                angle = 30
-                        elif block['color'] == 'red':
-                            angle = -25
-                        elif block['color'] == 'green':
-                            angle = 30
-                        # elif block['color'] == 'black':
-                        #     # Temporarily disabled reverse on close black
-                        #     if driving_direction == 'clockwise':
-                        #         angle = 30
-                        #     else:
-                        #         angle = -25
-                        else:
-                            is_close_block = False
-                            break
-                        log.warning("CLOSE BLOCK (%s) -- reverse-and-swerve, angle=%d",
-                                    block['color'], angle)
-                        motor.stop_rpm_control()
-                        servo.set_angle(angle)
-                        # BUG: direct duty + stopwatch. This is the reflex that backs
-                        # off a pillar filling the frame, and it is the WORST place in
-                        # the program to be open-loop: 60% duty for 0.5 s covers a very
-                        # different distance on a fresh battery than on a flat one, and
-                        # it is running because we are about to hit something. Convert
-                        # to encoder distance, e.g.
-                        #     control.drive_distance_with_gyro(heading, 12, rpm=80,
-                        #                                      direction='reverse')
-                        # then the same 12 cm comes back every time. Needs a heading to
-                        # hold -- capture imu_thread.get_heading() before the swerve.
-                        motor.reverse(60)
-                        time.sleep(0.5)
-                        servo.set_angle(-angle)
-                        motor.forward(60)
-                        time.sleep(0.3)
-                        motor.start_rpm_control(INITIAL_RPM, "forward")
-                        prev_rpm = INITIAL_RPM
-                        target_rpm = INITIAL_RPM
-                        last_block_target_rpm = INITIAL_RPM
-                        frames_since_block_seen = BLOCK_TARGET_GRACE_FRAMES
-                        if block['color'] == 'green' or (block['color'] == 'black' and driving_direction == 'clockwise'):
-                            green_post_pass_frames = POST_GREEN_CLIP_FRAMES
-                        elif block['color'] == 'red' or (block['color'] == 'black' and driving_direction == 'counter-clockwise'):
-                            red_post_pass_frames = POST_RED_CLIP_FRAMES
-                        tracking_green_block = False
-                        tracking_red_block = False
-                        break
-
-                if not is_close_block:
-                    candidate_blocks = [b for b in detected_blocks if b['type'] == 'block']
-                    block = None
-                    cap_red_angle = False
-                    cap_green_angle = False
-                    if candidate_blocks:
-                        b0 = candidate_blocks[0]
-                        b0_x, b0_y = b0['centroid']
-
-                        # Slanted threshold for red block handoff:
-                        if RED_HANDOFF_X_CENTER != RED_HANDOFF_X_EDGE:
-                            red_req_y = RED_HANDOFF_Y_EDGE + (RED_HANDOFF_Y_CENTER - RED_HANDOFF_Y_EDGE) * (
-                                (b0_x - RED_HANDOFF_X_EDGE) / (RED_HANDOFF_X_CENTER - RED_HANDOFF_X_EDGE)
-                            )
-                        else:
-                            red_req_y = RED_HANDOFF_Y_CENTER
-
-                        b0_below_red_handoff = (
-                            b0['color'] == 'red'
-                            and b0_x < RED_HANDOFF_X_CENTER
-                            and b0_y >= red_req_y
-                        )
-
-                        b0_below_green_handoff = (
-                            b0['color'] == 'green'
-                            and b0_x > 500
-                            and b0_y >= GREEN_HANDOFF_MIN_Y
-                        )
-
-                        if b0_below_red_handoff:
-                            if len(candidate_blocks) > 1:
-                                b1 = candidate_blocks[1]
-                                if b1['color'] == 'green':
-                                    block = b0
-                                elif b1['color'] == 'red':
-                                    block = b1
-                                else:
-                                    block = b0
-                                    cap_red_angle = True
-                            else:
-                                block = b0
-                                cap_red_angle = True
-                        elif b0_below_green_handoff:
-                            if len(candidate_blocks) > 1:
-                                b1 = candidate_blocks[1]
-                                if b1['color'] == 'green':
-                                    block = b1
-                                else:
-                                    block = b0
-                                    cap_green_angle = True
-                            else:
-                                block = b0
-                                cap_green_angle = True
-                        else:
-                            block = b0
-
-                    if block is not None:
-                        prev_wall_error = 0.0
-                        block_color = block['color']
-                        block_x, block_y = block['centroid']
-                        active_block_y = block_y
-                        frames_since_block_seen = 0
-
-                        if block_color == 'red':
-                            if tracking_green_block:
-                                tracking_green_block = False
-                                green_post_pass_frames = POST_GREEN_CLIP_FRAMES
-                            tracking_red_block = True
-                            red_post_pass_frames = 0
-                            # TUNING PARAMETERS
-                            RED_OTHER_X = 297
-                            RED_OTHER_Y = 0
-                            RED_ORIGIN_X = 0
-                            RED_ORIGIN_Y = FRAME_HEIGHT
-                            RED_IDEAL_ANGLE = math.degrees(math.atan2(RED_OTHER_X - RED_ORIGIN_X, RED_ORIGIN_Y - RED_OTHER_Y))
-
-                            candidate_magentas = [
-                                m for m in detections.get('detected_magenta', [])
-                                if (m['centroid'][0] - block_x) >= 65 and abs(m['target_y'] - block_y) < 65
-                            ]
-                            target_x_line = None
-                            if candidate_magentas and driving_direction == 'counter-clockwise':
-                                chosen_magenta = min(candidate_magentas, key=lambda m: m['centroid'][0] - block_x)
-                                magenta_left_x = chosen_magenta['contour'][:, 0, 0].min()
-                                red_right_x = block['contour'][:, 0, 0].max()
-                                target_x_line = int(0.55 * magenta_left_x + 0.45 * red_right_x)
-                            elif wall_inner_right_size > 0 or wall_right_size > 0:
-                                # find rightmost edge of red block
-                                pts = block['contour'].reshape(-1, 2)
-                                bottom_pts = pts[pts[:, 1] >= pts[:, 1].max() - 2]
-                                corner_x = int(bottom_pts[:, 0].max()) if len(bottom_pts) > 0 else int(pts[:, 0].max())
-                                corner_y = int(pts[:, 1].max())
-                                # find leftmost edge of black wall, that is in same y region as red block
-                                found_black_x = None
-                                pure_black_mask = detections.get('pure_black_mask')
-                                if pure_black_mask is not None:
-                                    y_min_bound = min(inner_right_roi_y, right_roi_y)
-                                    y_max_bound = max(inner_right_roi_y + inner_right_roi_h, right_roi_y + right_roi_h) - 1
-                                    y_start = max(y_min_bound, corner_y - 10)
-                                    y_end = min(y_max_bound, corner_y + 10)
-                                    scan_start_x = max(corner_x + 1, inner_right_roi_x)
-                                    scan_end_x = right_roi_x + (right_roi_w // 2)
-                                    ys_min = max(1, y_start - GLOBAL_Y_OFFSET)
-                                    ys_max = min(pure_black_mask.shape[0] - 2, y_end - GLOBAL_Y_OFFSET)
-                                    xs_min = max(1, scan_start_x)
-                                    xs_max = min(pure_black_mask.shape[1] - 2, scan_end_x)
-                                    if ys_min <= ys_max and xs_min <= xs_max:
-                                        crop = pure_black_mask[ys_min - 1 : ys_max + 2, xs_min - 1 : xs_max + 2]
-                                        eroded = cv2.erode(crop, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
-                                        valid_eroded = eroded[1:-1, 1:-1]
-                                        col_has_black = np.any(valid_eroded > 0, axis=0)
-                                        cols = np.where(col_has_black)[0]
-                                        if len(cols) > 0:
-                                            found_black_x = int(xs_min + cols[0])
-
-                                if found_black_x is not None:
-                                    target_x_line = int((corner_x + found_black_x) / 2)
-
-                            if target_x_line is not None:
-                                visual_target_x = target_x_line
-                                target_error = target_x_line - FRAME_MIDPOINT_X
-                                target_derivative = target_error - prev_target_error
-                                angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
-                                prev_target_error = target_error
-                            else:
-                                prev_target_error = 0.0
-                                visual_target_line = ((RED_ORIGIN_X, RED_ORIGIN_Y), (block_x, block_y), RED_IDEAL_ANGLE, (RED_OTHER_X, RED_OTHER_Y))
-                                current_angle = math.degrees(math.atan2(block_x - RED_ORIGIN_X, RED_ORIGIN_Y - block_y))
-                                angle = (current_angle - RED_IDEAL_ANGLE) * 1.5
-                            if wall_inner_left_size > 3000: angle = np.clip(angle, 15, 45)
-                            elif wall_inner_right_size > 3000: angle = np.clip(angle, -45, -15)
-                            else: angle = np.clip(angle, -45, 35)
-
-                            if cap_red_angle and wall_inner_right_size <= 3000:
-                                angle = max(-20, angle)
-                                debug.append("RCap:-20")
-
-                            debug.append(f"Blk:R({int(block_x)},{int(block_y)})")
-                            if visual_target_x is not None:
-                                debug.append(f"MidX:{int(visual_target_x)}")
-                            debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
-
-                        elif block_color == 'green':
-                            if tracking_red_block:
-                                tracking_red_block = False
-                                red_post_pass_frames = POST_RED_CLIP_FRAMES
-                            tracking_green_block = True
-                            green_post_pass_frames = 0
-                            # TUNING PARAMETERS
-                            GREEN_OTHER_X = 343
-                            GREEN_OTHER_Y = 0
-                            GREEN_ORIGIN_X = FRAME_WIDTH
-                            GREEN_ORIGIN_Y = FRAME_HEIGHT
-                            GREEN_IDEAL_ANGLE = math.degrees(math.atan2(GREEN_OTHER_X - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - GREEN_OTHER_Y))
-
-                            candidate_magentas = [
-                                m for m in detections.get('detected_magenta', [])
-                                if (block_x - m['centroid'][0]) >= 65 and abs(m['target_y'] - block_y) < 35
-                            ]
-                            target_x_line = None
-                            if candidate_magentas and driving_direction == 'clockwise':
-                                chosen_magenta = min(candidate_magentas, key=lambda m: block_x - m['centroid'][0])
-                                magenta_right_x = chosen_magenta['contour'][:, 0, 0].max()
-                                green_left_x = block['contour'][:, 0, 0].min()
-                                target_x_line = int(0.55 * magenta_right_x + 0.45 * green_left_x)
-                            elif wall_inner_left_size > 0 or wall_left_size > 0:
-                                # find leftmost edge of green block
-                                pts = block['contour'].reshape(-1, 2)
-                                bottom_pts = pts[pts[:, 1] >= pts[:, 1].max() - 2]
-                                corner_x = int(bottom_pts[:, 0].min()) if len(bottom_pts) > 0 else int(pts[:, 0].min())
-                                corner_y = int(pts[:, 1].max())
-                                # find rightmost edge of black wall, that is in same y region as green block
-                                found_black_x = None
-                                pure_black_mask = detections.get('pure_black_mask')
-                                if pure_black_mask is not None:
-                                    y_min_bound = min(inner_left_roi_y, left_roi_y)
-                                    y_max_bound = max(inner_left_roi_y + inner_left_roi_h, left_roi_y + left_roi_h) - 1
-                                    y_start = max(y_min_bound, corner_y - 10)
-                                    y_end = min(y_max_bound, corner_y + 10)
-                                    scan_start_x = min(corner_x - 1, inner_left_roi_x + inner_left_roi_w - 1)
-                                    scan_end_x = left_roi_x + (left_roi_w // 2)
-                                    ys_min = max(1, y_start - GLOBAL_Y_OFFSET)
-                                    ys_max = min(pure_black_mask.shape[0] - 2, y_end - GLOBAL_Y_OFFSET)
-                                    xs_min = max(1, scan_end_x)
-                                    xs_max = min(pure_black_mask.shape[1] - 2, scan_start_x)
-                                    if ys_min <= ys_max and xs_min <= xs_max:
-                                        crop = pure_black_mask[ys_min - 1 : ys_max + 2, xs_min - 1 : xs_max + 2]
-                                        eroded = cv2.erode(crop, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
-                                        valid_eroded = eroded[1:-1, 1:-1]
-                                        col_has_black = np.any(valid_eroded > 0, axis=0)
-                                        cols = np.where(col_has_black)[0]
-                                        if len(cols) > 0:
-                                            found_black_x = int(xs_min + cols[-1])
-
-                                if found_black_x is not None:
-                                    target_x_line = int((corner_x + found_black_x) / 2)
-
-                            if target_x_line is not None:
-                                visual_target_x = target_x_line
-                                target_error = target_x_line - FRAME_MIDPOINT_X
-                                target_derivative = target_error - prev_target_error
-                                angle = (target_error * TARGET_LINE_KP) + (target_derivative * TARGET_LINE_KD)
-                                prev_target_error = target_error
-                            else:
-                                prev_target_error = 0.0
-                                visual_target_line = ((GREEN_ORIGIN_X, GREEN_ORIGIN_Y), (block_x, block_y), GREEN_IDEAL_ANGLE, (GREEN_OTHER_X, GREEN_OTHER_Y))
-                                current_angle = math.degrees(math.atan2(block_x - GREEN_ORIGIN_X, GREEN_ORIGIN_Y - block_y))
-                                angle = (current_angle - GREEN_IDEAL_ANGLE) * 1.5
-                            if visual_target_x is None:
-                                if wall_inner_left_size > 3000: angle = np.clip(angle, 15, 45)
-                                elif wall_inner_right_size > 3000: angle = np.clip(angle, -45, -15)
-                                else: angle = np.clip(angle, -35, 45)
-                            else:
-                                angle = np.clip(angle, -35, 45)
-                            if cap_green_angle:
-                                angle = np.clip(angle, -GREEN_UNDER_LINE_MAX_ANGLE, GREEN_UNDER_LINE_MAX_ANGLE)
-                                debug.append("GLineCap")
-
-                            debug.append(f"Blk:G({int(block_x)},{int(block_y)})")
-                            if visual_target_x is not None:
-                                debug.append(f"MidX:{int(visual_target_x)}")
-                            debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
-            if not is_close_block and block is None:
-                if tracking_green_block:
-                    tracking_green_block = False
-                    green_post_pass_frames = POST_GREEN_CLIP_FRAMES
-                if tracking_red_block:
-                    tracking_red_block = False
-                    red_post_pass_frames = POST_RED_CLIP_FRAMES
-                if frames_since_block_seen < BLOCK_TARGET_GRACE_FRAMES:
-                    frames_since_block_seen += 1
-                prev_target_error = 0.0
-
-                total_left = wall_left_size + wall_inner_left_size
-                total_right = wall_right_size + wall_inner_right_size
-
-                left_gone = total_left < 700 and total_right > 100
-                right_gone = total_right < 700 and total_left > 100
-                if left_gone and right_gone:
-                    # Both walls weak (each 100-700): ambiguous, so turn the way we drive.
-                    # Clockwise the inner wall is on the right, so "right gone" is the corner.
-                    right_gone = driving_direction == 'clockwise'
-                    left_gone = not right_gone
-                if left_gone:
-                    total_right = total_right * 2 + 25000
-                elif right_gone:
-                    total_left = total_left * 2 + 25000
-
-                debug.extend([f"L:{int(wall_left_size)}", f"R:{int(wall_right_size)}"])
-                debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
-                wall_steering = True
-                wall_error = total_left - total_right
-                wall_derivative = wall_error - prev_wall_error
-                debug.append(f"Err:{int(wall_error)}")
-                debug.append(f"Wall%:{int(detections.get('line_roi_wall_pct', 0))}")
-                angle = (wall_error * WALL_KP) + (wall_derivative * WALL_KD) + 1
-                prev_wall_error = wall_error
-                if close_black_area > 3000 or detections.get('line_roi_wall_pct', 0) > 50:
-                    if driving_direction == 'clockwise':
-                        angle += 20
-                    else:
-                        angle += -35
-                if total_left == 0 and total_right == 0 and (detected_orange_object or detected_blue_object):
-                    if driving_direction == 'clockwise':
-                        angle += 35
-                    else:
-                        angle += -35
-                if total_left == 0 and total_right == 0:
-                    if driving_direction == 'clockwise':
-                        angle += 20
-                    else:
-                        angle += -20
-                elif wall_left_size==0 and driving_direction=='counter-clockwise':
-                    angle += -20
-                elif wall_right_size==0 and driving_direction=='clockwise':
-                    angle += 20
-
-            # ---- ACTUATE FIRST ------------------------------------------
-            # Steering happens here, immediately after the decision. Annotation,
-            # recording and telemetry all come afterwards. The old loop did the
-            # opposite -- annotate, write, then sleep(1/60 - elapsed), THEN steer --
-            # which put up to ~25 ms between seeing a frame and reacting to it.
-            if green_post_pass_frames > 0:
-                # No close-black override any more: it only fired clockwise (nose-on to
-                # the outer wall after the pass) and let the angle reach 40. Wall-follow
-                # steering gets its own, looser cap; block tracking keeps the tight one.
-                cap = POST_GREEN_WALL_MAX_ANGLE if wall_steering else POST_GREEN_MAX_ANGLE
-                angle = np.clip(angle, -cap, cap)
-                debug.append(f"GClip{'W' if wall_steering else ''}:{green_post_pass_frames}")
-                green_post_pass_frames -= 1
-            elif red_post_pass_frames > 0:
-                if close_black_area > 3000 or detections.get('line_roi_wall_pct', 0) > 50:
-                    angle = np.clip(angle, -40, 40)
-                    debug.append(f"RClipOvr:{red_post_pass_frames}")
-                else:
-                    angle = np.clip(angle, -POST_RED_MAX_ANGLE, POST_RED_MAX_ANGLE)
-                    debug.append(f"RClip:{red_post_pass_frames}")
-                red_post_pass_frames -= 1
-            else:
-                angle = np.clip(angle, -40, 40)
-            if angle != prevangle:
-                servo.set_angle(angle)
-            prevangle = angle
-
-            # Dynamic speed calculation based on linear block height and steering angle
-            if USE_VARIABLE_SPEED:
-                a = min(1.0, abs(angle) / 40.0)
-                f_steering = 1.0 - (0.5 * a)
-
-                if active_block_y is not None:
-                    roi_y_min = full_frame_roi[1]
-                    roi_y_max = full_frame_roi[1] + full_frame_roi[3]
-                    # Linear scale from top of ROI (y_min) down to 20px before ROI bottom.
-                    # Lower 20px of ROI stays at lowest RPM (MIN_RPM).
-                    scale_y_max = max(roi_y_min + 1, roi_y_max - 20)
-                    y_clamped = np.clip(active_block_y, roi_y_min, scale_y_max)
-                    h = 1.0 - (y_clamped - roi_y_min) / (scale_y_max - roi_y_min)
-                    f_height = h
-                    target_rpm = MIN_RPM + (MAX_RPM - MIN_RPM) * f_height * f_steering
-                    last_block_target_rpm = target_rpm
-                elif frames_since_block_seen < BLOCK_TARGET_GRACE_FRAMES:
-                    target_rpm = last_block_target_rpm * f_steering
-                else:
-                    target_rpm = MIN_RPM + (MAX_RPM - MIN_RPM) * f_steering
-            else:
-                target_rpm = MIN_RPM
-
-            # Apply rate limiter (+10 RPM accel, -200 RPM decel per frame)
-            rpm_diff = target_rpm - prev_rpm
-            rpm_diff = np.clip(rpm_diff, -MAX_DECEL_PER_FRAME, MAX_ACCEL_PER_FRAME)
-            commanded_rpm = prev_rpm + rpm_diff
-
-            if commanded_rpm != prev_rpm:
-                motor.set_rpm_target(commanded_rpm, "forward")
-            prev_rpm = commanded_rpm
-
-            latency_ms = (time.monotonic() - capture_ts) * 1000.0
-            # ---- everything below is off the critical path ----------------
-
-            perf.add(latency_ms, proc_ms, skipped)
-            perf.maybe_report()
-
-            debug.append(f"Angle:{int(angle)}")
-            debug.append(f"Turns:{turn_counter}")
-            debug.append(f"RPM:{int(commanded_rpm)}")
-            debug.append(f"Lat:{int(latency_ms)}ms")
-            debug.append(f"F:{frame_counter}")
-            debug.append(f"Dir:{driving_direction or '?'}")
-
-            if frame_debug_throttle:
-                blocks_detail = ",".join(f"{b['color']}:{int(b['area'])}@y={b['centroid'][1]}" for b in detected_blocks) if detected_blocks else "-"
-                log.debug("f=%d angle=%+6.1f rpm=%4.0f turns=%d lat=%5.2fms vis=%4.2fms "
-                          "blocks=%d[%s] walls=%d skip=%d",
-                          frame_counter, float(angle), commanded_rpm, turn_counter,
-                          latency_ms, proc_ms, len(detected_blocks), blocks_detail, len(detected_walls),
-                          skipped)
-
-            if record_raw:
-                # The frame goes in untouched -- no annotation, no filtering. Both are
-                # reapplied offline by annotate_run.py, which is the whole point: the
-                # loop pays for a memcpy instead of a draw pass.
-                if video_encoder.write(frame, tag=frame_counter):
-                    # tags gets one entry per accepted frame, so its last index IS the
-                    # video frame number this overlay record belongs to. append() only
-                    # buffers in memory now -- the json.dumps()+file write is real
-                    # synchronous disk I/O that used to run right here on the control
-                    # loop, gating how soon the loop got back to the next frame. It's
-                    # deferred to OverlayLog.close() (run once, after the loop exits).
-                    overlay_log.append(
-                        len(video_encoder.tags) - 1, driving_direction, debug,
-                        visual_target_x, visual_target_line, detections)
-            else:
-                # Annotation is handed to write() rather than done first, so the 1.88 ms
-                # is only spent on frames that actually get recorded.
-                video_encoder.write(
-                    frame, tag=frame_counter,
-                    prepare=lambda f: annotate_video_frame(
-                        f, detections, driving_direction, debug_info=debug,
-                        visual_target_x=visual_target_x,
-                        visual_target_line=visual_target_line))
-
-            if turn_counter >= 13:
+            elif phase == 'finish':
                 motor.stop_rpm_control()
                 parking_start_time = time.monotonic()
-                time_before_parking = parking_start_time - run_start_time
-                log.info("--- Time before parking (13 turns complete): %.2fs ---", time_before_parking)
+                log.info("--- Time before finish (%d turns complete): %.2fs ---",
+                         TURNS_TO_FINISH, parking_start_time - run_start_time)
 
                 if record_raw and not args.no_annotate:
                     # Finalising the driving video (video_encoder.stop(), which joins
@@ -962,19 +583,22 @@ if __name__ == "__main__":
                     maneuvers.bind(bg_annotator=bg_annotator)
                     log.info("Re-annotation started in the background during parking.")
 
-                if driving_direction == 'clockwise':
-                    maneuvers.parking()
+                if FINISH_MODE == 'park':
+                    if driving_direction == 'clockwise':
+                        maneuvers.parking()
+                    else:
+                        maneuvers.parking2()
                 else:
-                    # offset_heading = (INITIAL_HEADING - 5) % 360
-                    # log.info("Offsetting initial heading for CCW parking2: %.1f° -> %.1f°", INITIAL_HEADING, offset_heading)
-                    # maneuvers.bind(INITIAL_HEADING=offset_heading)
-                    maneuvers.parking2()
+                    log.info("FINISH_MODE=%r: stopping without parking.", FINISH_MODE)
                 run_end_time = time.monotonic()
-                log.info("--- Time spent in parking: %.2fs ---", run_end_time - parking_start_time)
+                log.info("--- Time spent in finish: %.2fs ---", run_end_time - parking_start_time)
                 log.info("--- Total run time: %.2fs ---", run_end_time - run_start_time)
                 motor.brake()
                 servo.set_angle(0)
-                break
+                phase = 'done'
+
+            else:
+                raise ValueError(f"unknown phase {phase!r}")
 
     except KeyboardInterrupt:
         log.warning("Run aborted by safety watchdog (or Ctrl-C).")
@@ -1007,7 +631,7 @@ if __name__ == "__main__":
         log.info("All threads have completed.")
 
         # Child processes last: the encoders still have queued frames to flush.
-        # video_encoder.stop() is a no-op if the turn_counter >= 13 branch already
+        # video_encoder.stop() is a no-op if the finish phase already
         # stopped it -- VideoEncoderProcess.stop() tolerates being called twice.
         try:
             video_encoder.stop()

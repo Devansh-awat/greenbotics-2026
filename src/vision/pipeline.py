@@ -11,6 +11,7 @@ saved frames. Shared by both the obstacle and open challenges.
 
 import ast
 import base64
+import logging
 import math
 import cv2
 import numpy as np
@@ -102,9 +103,9 @@ def configure(cfg):
     global LOWER_BLACK, UPPER_BLACK, LOWER_WHITE, UPPER_WHITE, _FLOOR_RANGES
     global LOWER_ORANGE, UPPER_ORANGE, LOWER_BLUE, UPPER_BLUE
     global LOWER_RED_1, UPPER_RED_1, LOWER_RED_2, UPPER_RED_2, LOWER_GREEN, UPPER_GREEN, LOWER_MAGENTA, UPPER_MAGENTA
-    global SWAP_RED_GREEN
+    global SWAP_RED_GREEN, OBJECTS, COLOUR_MASK_NAMES, MASK_NAMES, DETECTION_LISTS
     global WALL_MIN_AREA, BLOCK_MIN_AREA, MAGENTA_MIN_AREA, CLOSE_BLOCK_MIN_AREA
-    global RED_HANDOFF_X_EDGE, RED_HANDOFF_Y_EDGE, RED_HANDOFF_X_CENTER, RED_HANDOFF_Y_CENTER, GREEN_HANDOFF_MIN_Y
+    global RED_HANDOFF_X_EDGE, RED_HANDOFF_Y_EDGE, RED_HANDOFF_X_CENTER, RED_HANDOFF_Y_CENTER, GREEN_HANDOFF_MIN_Y, GREEN_HANDOFF_MIN_X
     global left_roi_x, left_roi_y, left_roi_w, left_roi_h
     global right_roi_x, right_roi_y, right_roi_w, right_roi_h
     global inner_left_roi_x, inner_left_roi_y, inner_left_roi_w, inner_left_roi_h
@@ -117,7 +118,7 @@ def configure(cfg):
     global GLOBAL_Y_OFFSET, GLOBAL_Y_END, SLICE_HEIGHT
     global ARENA_Y_TOP, ARENA_Y_BOTTOM, ARENA_BAND_H, _ARENA_ROWS, _ARENA_WALL_KERNEL, _ARENA_WALL_CLOSE_KERNEL, ARENA_PASSTHROUGH, ARENA_SEED_LOCAL
     global LINE_SLICE_Y0, LINE_SLICE_Y1, LINE_X0, LINE_X1
-    global _GLOBAL_MASK_SCRATCH
+    global _GLOBAL_MASK_SCRATCH, _PATCHES
 
     FRAME_WIDTH = getattr(cfg, 'FRAME_WIDTH')
     FRAME_HEIGHT = getattr(cfg, 'FRAME_HEIGHT')
@@ -156,15 +157,20 @@ def configure(cfg):
     UPPER_MAGENTA = getattr(cfg, 'UPPER_MAGENTA')
     SWAP_RED_GREEN = getattr(cfg, 'SWAP_RED_GREEN', False)
 
+    # What to look for: one entry per colour, see OBJECTS in tuning.py. The colour
+    # masks (and the vision pool's shared-memory planes) are in OBJECTS order.
+    OBJECTS = getattr(cfg, 'OBJECTS', None) or _default_tuning.OBJECTS
+    COLOUR_MASK_NAMES = tuple(OBJECTS)    # black comes from build_arena_mask_from_prepared
+    MASK_NAMES = COLOUR_MASK_NAMES + ('black',)
+    DETECTION_LISTS = (('detected_blocks', 'detected_walls')
+                       + tuple('detected_' + n for n, o in OBJECTS.items() if o['kind'] != 'pillar')
+                       + ('detected_close_black', 'detected_line_roi_wall'))
+
     # Everything that counts as drivable arena for the non-'walltop' floor blob: the
     # white mat, plus the things standing ON it. The block/line colours must be in
     # here or every pillar is a hole in the blob and stops the upward walk on its own
-    # base. RED_2 is HSV's hue wrap-around and has no meaning in LAB.
-    _FLOOR_RANGES = [(LOWER_WHITE, UPPER_WHITE), (LOWER_RED_1, UPPER_RED_1),
-                     (LOWER_GREEN, UPPER_GREEN), (LOWER_MAGENTA, UPPER_MAGENTA),
-                     (LOWER_ORANGE, UPPER_ORANGE), (LOWER_BLUE, UPPER_BLUE)]
-    if not USE_LAB:
-        _FLOOR_RANGES.append((LOWER_RED_2, UPPER_RED_2))
+    # base.
+    _FLOOR_RANGES = [(LOWER_WHITE, UPPER_WHITE)] + [r for o in OBJECTS.values() for r in o['ranges']]
 
     WALL_MIN_AREA = getattr(cfg, 'WALL_MIN_AREA')
     BLOCK_MIN_AREA = getattr(cfg, 'BLOCK_MIN_AREA')
@@ -176,6 +182,7 @@ def configure(cfg):
     RED_HANDOFF_X_CENTER = getattr(cfg, 'RED_HANDOFF_X_CENTER')
     RED_HANDOFF_Y_CENTER = getattr(cfg, 'RED_HANDOFF_Y_CENTER')
     GREEN_HANDOFF_MIN_Y = getattr(cfg, 'GREEN_HANDOFF_MIN_Y')
+    GREEN_HANDOFF_MIN_X = getattr(cfg, 'GREEN_HANDOFF_MIN_X', 500)
 
     left_roi_x = getattr(cfg, 'left_roi_x')
     left_roi_y = getattr(cfg, 'left_roi_y')
@@ -283,7 +290,26 @@ def configure(cfg):
     LINE_X0 = line_roi_x
     LINE_X1 = line_roi_x + line_roi_w
 
-    _GLOBAL_MASK_SCRATCH = np.zeros((4, SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
+    # Where each 'line' and 'custom' entry is looked for: (x0, y0, x1, y1), y in
+    # slice rows. Only these pixels are thresholded. A custom roi is clipped to the
+    # rows this config processes (GLOBAL_Y_OFFSET..GLOBAL_Y_END) -- the band differs
+    # between the obstacle and open challenge, and OBJECTS is shared by both.
+    _PATCHES = {}
+    for name, obj in OBJECTS.items():
+        if obj['kind'] == 'line':
+            _PATCHES[name] = (LINE_X0, LINE_SLICE_Y0, LINE_X1, LINE_SLICE_Y1)
+        elif obj['kind'] == 'custom':
+            x, y, w, h = obj['roi']
+            x0, x1 = max(0, x), max(0, min(FRAME_WIDTH, x + w))
+            y0, y1 = max(GLOBAL_Y_OFFSET, y), max(GLOBAL_Y_OFFSET, min(GLOBAL_Y_END, y + h))
+            if (x0, y0, x1, y1) != (x, y, x + w, y + h):
+                logging.getLogger('robot.vision').warning(
+                    "OBJECTS[%r] roi %r clipped to x %d..%d, y %d..%d (only rows %d..%d are processed)",
+                    name, obj['roi'], x0, x1, y0, y1, GLOBAL_Y_OFFSET, GLOBAL_Y_END)
+            _PATCHES[name] = (x0, y0 - GLOBAL_Y_OFFSET, max(x0, x1), max(y0, y1) - GLOBAL_Y_OFFSET)
+
+    # One slice-sized plane per OBJECTS entry, for the not_wall / close_black masks.
+    _GLOBAL_MASK_SCRATCH = np.zeros((len(OBJECTS), SLICE_HEIGHT, FRAME_WIDTH), dtype="uint8")
 
 # Initialise defaults using obstacle challenge tuning
 configure(_default_tuning)
@@ -518,16 +544,13 @@ def build_arena_mask(frame):
 # Colour thresholding (the half of the pipeline that does NOT need the arena mask)
 # ---------------------------------------------------------------------------
 
-COLOUR_MASK_NAMES = ('red', 'green', 'magenta', 'orange', 'blue')  # black comes from
-                                                                     # build_arena_mask_from_prepared
-MASK_NAMES = COLOUR_MASK_NAMES + ('black',)
-
-# Orange and blue are ONLY ever read inside the line ROI (an 80x40 patch), so they
-# are thresholded on that patch alone rather than over the whole 640x200 slice --
-# 40x fewer pixels. The rest of their mask planes stay zero, which is exactly what
-# the full-slice version would have produced there anyway as far as any consumer is
-# concerned: global_blue_mask is built only from the line crop, and orange is only
-# read as mask_orange_line.
+# COLOUR_MASK_NAMES / MASK_NAMES / DETECTION_LISTS are set by configure() from OBJECTS.
+#
+# 'line' objects (orange, blue) are ONLY ever read inside the line ROI (an 80x40
+# patch), so they are thresholded on that patch alone rather than over the whole
+# 640x200 slice -- 40x fewer pixels. The rest of their mask planes stay zero, which is
+# exactly what the full-slice version would have produced there anyway as far as any
+# consumer is concerned: only the line crop is ever read.
 
 
 def filter_slice(frame):
@@ -578,61 +601,57 @@ def prepare_colour_slice(frame):
     return cs_slice
 
 
+def _threshold(cs, ranges):
+    """Pixels inside ANY of the (lower, upper) ranges."""
+    lo, hi = ranges[0]
+    mask = cv2.inRange(cs, lo, hi)
+    for lo, hi in ranges[1:]:
+        cv2.bitwise_or(mask, cv2.inRange(cs, lo, hi), dst=mask)
+    return mask
+
+
 def compute_colour_masks_only(cs_slice, out=None):
-    """Threshold the prepared slice into the FIVE non-black colour masks. Black is
-    owned by build_arena_mask_from_prepared() (it needs it for the wall scan anyway)
-    -- see compute_colour_masks_from_prepared() for the caller that stitches both
-    together into the full six-mask dict.
+    """Threshold the prepared slice into one mask per OBJECTS entry. Black is owned
+    by build_arena_mask_from_prepared() (it needs it for the wall scan anyway) -- see
+    compute_colour_masks_from_prepared() for the caller that adds it.
 
     Every operation here is pointwise, so thresholding the whole slice and cropping
     afterwards is identical to the old code's crop-then-threshold -- which is what
     lets this run in a worker process independently of the arena mask.
 
-    `out`, if given, is a (5, SLICE_HEIGHT, FRAME_WIDTH) uint8 view into shared
-    memory to write into directly, avoiding an allocation + copy per frame.
+    `out`, if given, is a (len(OBJECTS), SLICE_HEIGHT, FRAME_WIDTH) uint8 view into
+    shared memory to write into directly, in OBJECTS order.
     """
-    red = cv2.inRange(cs_slice, LOWER_RED_1, UPPER_RED_1)
-    if not USE_LAB:
-        # In HSV, red wraps around 180->0, so it needs two ranges combined.
-        # In LAB red is continuous and the first range is the whole story.
-        cv2.bitwise_or(red, cv2.inRange(cs_slice, LOWER_RED_2, UPPER_RED_2), dst=red)
+    masks = {}
+    for name, obj in OBJECTS.items():
+        if name in _PATCHES:
+            continue
+        mask = _threshold(cs_slice, obj['ranges'])
+        if obj.get('morph_close') and USE_BLOCK_MORPH_CLOSE:
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, BLOCK_CLOSE_KERNEL)
+        masks[name] = mask
 
-    green = cv2.inRange(cs_slice, LOWER_GREEN, UPPER_GREEN)
+    if SWAP_RED_GREEN and 'red' in masks and 'green' in masks:
+        masks['red'], masks['green'] = masks['green'], masks['red']
 
-    if USE_BLOCK_MORPH_CLOSE:
-        red = cv2.morphologyEx(red, cv2.MORPH_CLOSE, BLOCK_CLOSE_KERNEL)
-        green = cv2.morphologyEx(green, cv2.MORPH_CLOSE, BLOCK_CLOSE_KERNEL)
-
-    if SWAP_RED_GREEN:
-        red, green = green, red
-
-    if out is None:
-        orange = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), np.uint8)
-        blue = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), np.uint8)
-    else:
-        orange, blue = out[3], out[4]
-        orange[:] = 0
-        blue[:] = 0
-
-    line_cs = cs_slice[LINE_SLICE_Y0:LINE_SLICE_Y1, LINE_X0:LINE_X1]
-    orange[LINE_SLICE_Y0:LINE_SLICE_Y1, LINE_X0:LINE_X1] = cv2.inRange(
-        line_cs, LOWER_ORANGE, UPPER_ORANGE)
-    blue[LINE_SLICE_Y0:LINE_SLICE_Y1, LINE_X0:LINE_X1] = cv2.inRange(
-        line_cs, LOWER_BLUE, UPPER_BLUE)
-
-    masks = {
-        'red': red,
-        'green': green,
-        'magenta': cv2.inRange(cs_slice, LOWER_MAGENTA, UPPER_MAGENTA),
-        'orange': orange,
-        'blue': blue,
-    }
-    if out is not None:
-        # orange/blue were written in place above; copy the rest.
-        for i, name in enumerate(COLOUR_MASK_NAMES):
-            if name not in ('orange', 'blue'):
-                out[i] = masks[name]
-    return masks
+    for i, (name, obj) in enumerate(OBJECTS.items()):
+        if name in _PATCHES:
+            # Line / custom ROI patch only; zero elsewhere.
+            if out is None:
+                mask = np.zeros((SLICE_HEIGHT, FRAME_WIDTH), np.uint8)
+            else:
+                mask = out[i]
+                mask[:] = 0
+            x0, y0, x1, y1 = _PATCHES[name]
+            if x1 > x0 and y1 > y0:
+                patch = _threshold(cs_slice[y0:y1, x0:x1], obj['ranges'])
+                if obj['kind'] == 'custom' and obj.get('morph_close') and USE_BLOCK_MORPH_CLOSE:
+                    patch = cv2.morphologyEx(patch, cv2.MORPH_CLOSE, BLOCK_CLOSE_KERNEL)
+                mask[y0:y1, x0:x1] = patch
+            masks[name] = mask
+        elif out is not None:
+            out[i] = masks[name]
+    return {name: masks[name] for name in OBJECTS}
 
 
 def compute_colour_masks_from_prepared(cs_slice, mask_black, out=None):
@@ -661,8 +680,8 @@ def process_video_frame(frame):
     process, then two branches run concurrently when the pool is up:
       - build_arena_mask_from_prepared    -- worker 'vision-arena' (also owns the
         shared black threshold, since it needs it for the wall scan anyway)
-      - compute_colour_masks_only         -- worker 'vision-colour' (red/green/
-        magenta/orange/blue; black comes from the arena worker, not re-thresholded)
+      - compute_colour_masks_only         -- worker 'vision-colour' (every OBJECTS
+        colour; black comes from the arena worker, not re-thresholded)
     The two branches are independent of each other until the bitwise_and below, so
     this is still a fork-join, not a pipeline: the frame we act on is the frame we
     just captured, never the previous one. Contour extraction and all decisions stay
@@ -671,11 +690,11 @@ def process_video_frame(frame):
     processed_data = {
         'detected_blocks': [],
         'detected_walls': [],
-        'detected_orange': [],
-        'detected_blue': [],
-        'detected_magenta': [],
         'detected_close_black': []
     }
+    for name, obj in OBJECTS.items():
+        if obj['kind'] != 'pillar':
+            processed_data['detected_' + name] = []
 
     my_slice = max(0, full_frame_roi[1] - GLOBAL_Y_OFFSET)
     ly_slice = line_roi_y - GLOBAL_Y_OFFSET
@@ -718,76 +737,78 @@ def process_video_frame(frame):
     processed_data['arena_sky'] = arena_sky
     processed_data['arena_seeded'] = floor_mask is not None
 
-    # --- 1. Crop the slice-sized masks down to each ROI ---
+    # --- 1. Crop each colour mask down to the ROIs its OBJECTS kind uses, gated to
+    #        the arena. All of these ROIs sit inside the arena band.
     mx, my, mw, mh = full_frame_roi
     lx, ly, lw, lh = line_roi_x, line_roi_y, line_roi_w, line_roi_h
     cx, cy, cw, ch = close_block_roi
+    has_main, has_line, has_close = mw > 0 and mh > 0, lw > 0 and lh > 0, cw > 0 and ch > 0
 
     def crop(mask, y0, h, x0, w):
         return mask[y0:y0 + h, x0:x0 + w]
 
-    mask_red_main = crop(masks['red'], my_slice, mh, mx, mw)
-    mask_green_main = crop(masks['green'], my_slice, mh, mx, mw)
-    mask_magenta_main = crop(masks['magenta'], my_slice, mh, mx, mw)
+    def gated(crop_, arena_crop, has):
+        return cv2.bitwise_and(crop_, arena_crop) if has else crop_
 
-    mask_orange_line = crop(masks['orange'], ly_slice, lh, lx, lw)
-    mask_blue_line = crop(masks['blue'], ly_slice, lh, lx, lw)
+    arena_main = arena_mask[my:my + mh, mx:mx + mw]
+    arena_line = arena_mask[ly:ly + lh, lx:lx + lw]
+    arena_close = arena_mask[cy:cy + ch, cx:cx + cw]
 
-    mask_red_close = crop(masks['red'], cy_slice, ch, cx, cw)
-    mask_green_close = crop(masks['green'], cy_slice, ch, cx, cw)
-    mask_magenta_close = crop(masks['magenta'], cy_slice, ch, cx, cw)
+    main_crops, close_crops, line_crops, custom_crops = {}, {}, {}, {}
+    for name, obj in OBJECTS.items():
+        if obj['kind'] == 'line':
+            line_crops[name] = gated(crop(masks[name], ly_slice, lh, lx, lw), arena_line, has_line)
+        elif obj['kind'] == 'custom':
+            x0, y0, x1, y1 = _PATCHES[name]
+            c = crop(masks[name], y0, y1 - y0, x0, x1 - x0)
+            if obj.get('arena', True) and c.size:
+                c = cv2.bitwise_and(c, arena_mask[GLOBAL_Y_OFFSET + y0:GLOBAL_Y_OFFSET + y1, x0:x1])
+            custom_crops[name] = c
+        else:
+            main_crops[name] = gated(crop(masks[name], my_slice, mh, mx, mw), arena_main, has_main)
+            if obj.get('close'):
+                close_crops[name] = gated(crop(masks[name], cy_slice, ch, cx, cw), arena_close, has_close)
 
-    # Gate each to the arena. All of these ROIs sit inside the arena band.
-    if mw > 0 and mh > 0:
-        arena_main = arena_mask[my:my + mh, mx:mx + mw]
-        mask_red_main = cv2.bitwise_and(mask_red_main, arena_main)
-        mask_green_main = cv2.bitwise_and(mask_green_main, arena_main)
-        mask_magenta_main = cv2.bitwise_and(mask_magenta_main, arena_main)
-
-    if lw > 0 and lh > 0:
-        arena_line = arena_mask[ly:ly + lh, lx:lx + lw]
-        mask_orange_line = cv2.bitwise_and(mask_orange_line, arena_line)
-        mask_blue_line = cv2.bitwise_and(mask_blue_line, arena_line)
-
-    if cw > 0 and ch > 0:
-        arena_close = arena_mask[cy:cy + ch, cx:cx + cw]
-        mask_red_close = cv2.bitwise_and(mask_red_close, arena_close)
-        mask_green_close = cv2.bitwise_and(mask_green_close, arena_close)
-        mask_magenta_close = cv2.bitwise_and(mask_magenta_close, arena_close)
-
-    # --- 2. Reconstruct slice-sized global masks for wall/black detection ---
+    # --- 2. Reconstruct slice-sized masks for the not_wall / close_black colours ---
     # Preallocated scratch, zero outside the ROI regions by construction: the ROIs
     # are fixed at configure() time, so exactly the same regions are overwritten
-    # every frame and nothing stale can survive outside them. Plain assignment
-    # replaces the old zeros()+bitwise_or per plane -- OR into a zeroed buffer is
-    # assignment. Where the main and close-block ROIs overlap, both crops come from
-    # the same source mask gated by the same arena mask, so their values are
-    # identical and write order does not matter (tests/test_vision_pipeline.py
-    # checks this equivalence against the old composition on real frames).
-    global_red_mask, global_green_mask, global_blue_mask, global_magenta_mask = \
-        _GLOBAL_MASK_SCRATCH
-
-    if mw > 0 and mh > 0:
-        global_red_mask[my_slice:my_slice+mh, mx:mx+mw] = mask_red_main
-        global_green_mask[my_slice:my_slice+mh, mx:mx+mw] = mask_green_main
-        global_magenta_mask[my_slice:my_slice+mh, mx:mx+mw] = mask_magenta_main
-
-    if cw > 0 and ch > 0:
-        global_red_mask[cy_slice:cy_slice+ch, cx:cx+cw] = mask_red_close
-        global_green_mask[cy_slice:cy_slice+ch, cx:cx+cw] = mask_green_close
-        global_magenta_mask[cy_slice:cy_slice+ch, cx:cx+cw] = mask_magenta_close
-
-    if lw > 0 and lh > 0:
-        global_blue_mask[ly_slice:ly_slice+lh, lx:lx+lw] = mask_blue_line
+    # every frame and nothing stale can survive outside them. Where two ROIs overlap,
+    # both crops come from the same source mask gated by the same arena mask, so
+    # their values are identical and write order does not matter.
+    planes = {}
+    for i, (name, obj) in enumerate(OBJECTS.items()):
+        if not (obj.get('not_wall') or obj.get('close_black')):
+            continue
+        plane = _GLOBAL_MASK_SCRATCH[i]
+        if name in main_crops and has_main:
+            plane[my_slice:my_slice + mh, mx:mx + mw] = main_crops[name]
+        if name in close_crops and has_close:
+            plane[cy_slice:cy_slice + ch, cx:cx + cw] = close_crops[name]
+        if name in line_crops and has_line:
+            plane[ly_slice:ly_slice + lh, lx:lx + lw] = line_crops[name]
+        if name in custom_crops:
+            x0, y0, x1, y1 = _PATCHES[name]
+            plane[y0:y1, x0:x1] = custom_crops[name]
+        planes[name] = plane
 
     # --- 3. Wall and black detection ---
     mask_black = masks['black']
 
-    mask_red_or_green = cv2.bitwise_or(global_red_mask, global_green_mask)
-    mask_red_or_green_or_blue = cv2.bitwise_or(mask_red_or_green, global_blue_mask)
+    # Black that is not a not_wall colour (a dark pillar is not a wall).
+    not_wall = [planes[n] for n, o in OBJECTS.items() if o.get('not_wall')]
+    if not_wall:
+        not_wall_mask = not_wall[0]
+        for plane in not_wall[1:]:
+            not_wall_mask = cv2.bitwise_or(not_wall_mask, plane)
+        pure_black_mask = cv2.bitwise_and(mask_black, cv2.bitwise_not(not_wall_mask))
+    else:
+        pure_black_mask = mask_black.copy()
 
-    pure_black_mask = cv2.bitwise_and(mask_black, cv2.bitwise_not(mask_red_or_green_or_blue))
-    black_or_magenta_mask = cv2.bitwise_or(pure_black_mask, global_magenta_mask)
+    # The close-black ROI also counts close_black colours (magenta parking walls).
+    black_or_magenta_mask = pure_black_mask
+    for name, obj in OBJECTS.items():
+        if obj.get('close_black'):
+            black_or_magenta_mask = cv2.bitwise_or(black_or_magenta_mask, planes[name])
 
     roi_mask_walls_slice = roi_mask_walls[GLOBAL_Y_OFFSET:GLOBAL_Y_END, :]
     roi_mask_close_black_slice = roi_mask_close_black[GLOBAL_Y_OFFSET:GLOBAL_Y_END, :]
@@ -804,30 +825,37 @@ def process_video_frame(frame):
 
     # --- 4. Contour finding (fast-fail on empty masks) ---
 
-    if cv2.countNonZero(mask_magenta_main) > 0:
-        contours, _ = cv2.findContours(mask_magenta_main, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Markers (in the pillar ROI) and custom entries (in their own roi): every
+    # contour bigger than min_area.
+    for name, obj in OBJECTS.items():
+        if obj['kind'] == 'marker':
+            mask, ox, oy = main_crops[name], mx, GLOBAL_Y_OFFSET + my_slice
+        elif obj['kind'] == 'custom':
+            mask, ox, oy = custom_crops[name], _PATCHES[name][0], GLOBAL_Y_OFFSET + _PATCHES[name][1]
+        else:
+            continue
+        if mask.size == 0 or cv2.countNonZero(mask) == 0:
+            continue
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area > MAGENTA_MIN_AREA:
+            if area > obj['min_area']:
                 M = cv2.moments(contour)
                 if M["m00"] != 0:
-                    ccx = int(M["m10"] / M["m00"]) + mx
-                    ccy = int(M["m01"] / M["m00"]) + (GLOBAL_Y_OFFSET + my_slice)
-                    contour_global = contour + [mx, GLOBAL_Y_OFFSET + my_slice]
+                    ccx = int(M["m10"] / M["m00"]) + ox
+                    ccy = int(M["m01"] / M["m00"]) + oy
+                    contour_global = contour + [ox, oy]
 
+                    # target_x: whichever side edge is nearer the frame centre.
                     leftmost_x = contour_global[:, 0, 0].min()
                     rightmost_x = contour_global[:, 0, 0].max()
-
-                    dist_to_center_left = abs(leftmost_x - FRAME_MIDPOINT_X)
-                    dist_to_center_right = abs(rightmost_x - FRAME_MIDPOINT_X)
-
-                    if dist_to_center_left <= dist_to_center_right:
+                    if abs(leftmost_x - FRAME_MIDPOINT_X) <= abs(rightmost_x - FRAME_MIDPOINT_X):
                         target_x = leftmost_x
                     else:
                         target_x = rightmost_x
 
-                    processed_data['detected_magenta'].append({
-                        'type': 'magenta_block',
+                    processed_data['detected_' + name].append({
+                        'type': name + '_block',
                         'area': area,
                         'centroid': (ccx, ccy),
                         'contour': contour_global,
@@ -861,48 +889,41 @@ def process_video_frame(frame):
         return blocks
 
     mask_black_close = crop(pure_black_mask, cy_slice, ch, cx, cw)
-    if cw > 0 and ch > 0:
-        arena_close = arena_mask[cy:cy + ch, cx:cx + cw]
+    if has_close:
         mask_black_close = cv2.bitwise_and(mask_black_close, arena_close)
 
+    # Pillars in the main ROI, then everything in the close ROI, in OBJECTS order.
     all_detected_blocks = []
-    all_detected_blocks.extend(process_block_contours(mask_red_main, mx, GLOBAL_Y_OFFSET + my_slice, 'block', 'red', BLOCK_MIN_AREA))
-    all_detected_blocks.extend(process_block_contours(mask_green_main, mx, GLOBAL_Y_OFFSET + my_slice, 'block', 'green', BLOCK_MIN_AREA))
-    all_detected_blocks.extend(process_block_contours(mask_red_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'red', CLOSE_BLOCK_MIN_AREA))
-    all_detected_blocks.extend(process_block_contours(mask_green_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'green', CLOSE_BLOCK_MIN_AREA))
-    all_detected_blocks.extend(process_block_contours(mask_magenta_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'magenta', CLOSE_BLOCK_MIN_AREA))
-    all_detected_blocks.extend(process_block_contours(mask_black_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'black', CLOSE_BLOCK_MIN_AREA))
+    for name, obj in OBJECTS.items():
+        if obj['kind'] == 'pillar':
+            all_detected_blocks.extend(process_block_contours(
+                main_crops[name], mx, GLOBAL_Y_OFFSET + my_slice, 'block', name, obj['min_area']))
+    for name in close_crops:
+        all_detected_blocks.extend(process_block_contours(
+            close_crops[name], cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', name, CLOSE_BLOCK_MIN_AREA))
+    all_detected_blocks.extend(process_block_contours(
+        mask_black_close, cx, GLOBAL_Y_OFFSET + cy_slice, 'close_block', 'black', CLOSE_BLOCK_MIN_AREA))
 
     main_blocks = [b for b in all_detected_blocks if b['type'] == 'block']
     other_blocks = [b for b in all_detected_blocks if b['type'] != 'block']
     main_blocks.sort(key=lambda b: b['centroid'][1], reverse=True)
     processed_data['detected_blocks'] = main_blocks + other_blocks
 
-    if cv2.countNonZero(mask_orange_line) > 0:
-        contours, _ = cv2.findContours(mask_orange_line, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Lines: the biggest contour in the line ROI.
+    for name, mask in line_crops.items():
+        if cv2.countNonZero(mask) == 0:
+            continue
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
             contour_areas = [(cv2.contourArea(c), c) for c in contours]
             area, biggest_contour = max(contour_areas, key=lambda x: x[0])
-            if area > 20:
+            if area > OBJECTS[name]['min_area']:
                 M = cv2.moments(biggest_contour)
                 if M["m00"] != 0:
                     ocx = int(M["m10"] / M["m00"]) + lx
                     ocy = int(M["m01"] / M["m00"]) + ly
                     biggest_contour_global = biggest_contour + [lx, ly]
-                    processed_data['detected_orange'].append({'type': 'orange_block', 'color': 'orange', 'area': area, 'centroid': (ocx, ocy), 'contour': biggest_contour_global})
-
-    if cv2.countNonZero(mask_blue_line) > 0:
-        contours, _ = cv2.findContours(mask_blue_line, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if contours:
-            contour_areas = [(cv2.contourArea(c), c) for c in contours]
-            area, biggest_contour = max(contour_areas, key=lambda x: x[0])
-            if area > 20:
-                M = cv2.moments(biggest_contour)
-                if M["m00"] != 0:
-                    bcx = int(M["m10"] / M["m00"]) + lx
-                    bcy = int(M["m01"] / M["m00"]) + ly
-                    biggest_contour_global = biggest_contour + [lx, ly]
-                    processed_data['detected_blue'].append({'type': 'blue_block', 'color': 'blue', 'area': area, 'centroid': (bcx, bcy), 'contour': biggest_contour_global})
+                    processed_data['detected_' + name].append({'type': name + '_block', 'color': name, 'area': area, 'centroid': (ocx, ocy), 'contour': biggest_contour_global})
 
     if cv2.countNonZero(final_mask_close_black) > 0:
         contours, _ = cv2.findContours(final_mask_close_black, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -991,13 +1012,10 @@ def process_video_frame(frame):
 # rather than JSON integer lists: 0.04 ms/frame instead of 0.14, and coordinates are
 # 0..640 so int16 is lossless here. Median 3.2 KB/frame, 0.09 MB/s at 28 fps.
 
-DETECTION_LISTS = (
-    'detected_blocks', 'detected_walls', 'detected_orange', 'detected_blue',
-    'detected_magenta', 'detected_close_black', 'detected_line_roi_wall',
-)
+# DETECTION_LISTS (the detection keys to serialise) is set by configure() from OBJECTS.
 # Per-object scalars worth keeping. Absent keys are skipped rather than written null:
-# detected_line_roi_wall entries carry only a contour, and magenta alone has target_x.
-_OBJ_SCALARS = ('color', 'area', 'centroid', 'type', 'target_x')
+# detected_line_roi_wall entries carry only a contour, and magenta alone has target_x/y.
+_OBJ_SCALARS = ('color', 'area', 'centroid', 'type', 'target_x', 'target_y')
 
 
 def _enc_pts(arr):
@@ -1024,7 +1042,7 @@ def detections_to_record(detections):
                 if s in o:
                     v = o[s]
                     e[s] = [int(v[0]), int(v[1])] if s == 'centroid' else (
-                        float(v) if s == 'area' else (int(v) if s == 'target_x' else v))
+                        float(v) if s == 'area' else (int(v) if s in ('target_x', 'target_y') else v))
             objs.append(e)
         rec[key] = objs
 
@@ -1057,6 +1075,9 @@ def record_to_detections(rec):
             for s in _OBJ_SCALARS:
                 if s in e:
                     o[s] = tuple(e[s]) if s == 'centroid' else e[s]
+            if 'target_x' in o and 'target_y' not in o:
+                # Recorded before target_y was logged; it is always the centroid's y.
+                o['target_y'] = o['centroid'][1]
             objs.append(o)
         out[key] = objs
     if 'arena_contours' in rec:
@@ -1087,6 +1108,10 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
         all_rois.append(close_block_roi)
     for x, y, w, h in all_rois:
         cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), light_blue, 2)
+    for name, (x0, y0, x1, y1) in _PATCHES.items():
+        if OBJECTS[name]['kind'] == 'custom':
+            cv2.rectangle(annotated_frame, (x0, GLOBAL_Y_OFFSET + y0), (x1, GLOBAL_Y_OFFSET + y1),
+                          OBJECTS[name].get('draw', (255, 255, 255)), 1)
 
     # --- Arena mask overlay (v5) ---
     # Live, the mask is on hand and the outline is derived here. Replayed from a
@@ -1129,36 +1154,30 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
         cv2.drawContours(annotated_frame, [wall['contour']], -1, (0, 0, 0), 2)
 
     for block in detections['detected_blocks']:
-        draw_color = (255, 255, 255)
-        if block['color'] == 'red':
-            draw_color = (0, 0, 255)
-        elif block['color'] == 'green':
-            draw_color = (0, 255, 0)
-        elif block['color'] == 'magenta':
-            draw_color = (255, 0, 255)
-        elif block['color'] == 'black':
+        if block['color'] == 'black':
             draw_color = (0, 0, 0)
+        else:
+            draw_color = OBJECTS.get(block['color'], {}).get('draw', (255, 255, 255))
         cv2.drawContours(annotated_frame, [block['contour']], -1, draw_color, 2)
-
-    for orange_obj in detections['detected_orange']:
-        cv2.drawContours(annotated_frame, [orange_obj['contour']], -1, (0, 165, 255), 2)
-
-    for blue_obj in detections['detected_blue']:
-        cv2.drawContours(annotated_frame, [blue_obj['contour']], -1, (255, 0, 0), 2)
 
     for black_obj in detections.get('detected_close_black', []):
         cv2.drawContours(annotated_frame, [black_obj['contour']], -1, (0, 0, 0), 2)
 
-    for magenta_obj in detections['detected_magenta']:
-        cv2.drawContours(annotated_frame, [magenta_obj['contour']], -1, (255, 0, 255), 2)
-        if driving_direction == 'counter-clockwise' and magenta_obj.get('contour') is not None:
-            target_x = int(magenta_obj['contour'].reshape(-1, 2)[:, 0].min())
-        elif driving_direction == 'clockwise' and magenta_obj.get('contour') is not None:
-            target_x = int(magenta_obj['contour'].reshape(-1, 2)[:, 0].max())
-        else:
-            target_x = magenta_obj.get('target_x', int(magenta_obj['centroid'][0]))
-        mcy = magenta_obj['centroid'][1]
-        cv2.circle(annotated_frame, (target_x, mcy), 7, (255, 255, 255), -1)
+    for name, obj in OBJECTS.items():
+        if obj['kind'] == 'pillar':
+            continue
+        for o in detections.get('detected_' + name, []):
+            cv2.drawContours(annotated_frame, [o['contour']], -1, obj.get('draw', (255, 255, 255)), 2)
+            if obj['kind'] != 'marker':
+                continue
+            # Marker: white dot on the edge the rules aim past.
+            if driving_direction == 'counter-clockwise' and o.get('contour') is not None:
+                target_x = int(o['contour'].reshape(-1, 2)[:, 0].min())
+            elif driving_direction == 'clockwise' and o.get('contour') is not None:
+                target_x = int(o['contour'].reshape(-1, 2)[:, 0].max())
+            else:
+                target_x = o.get('target_x', int(o['centroid'][0]))
+            cv2.circle(annotated_frame, (target_x, o['centroid'][1]), 7, (255, 255, 255), -1)
 
     if visual_target_x is not None:
         cv2.line(annotated_frame, (visual_target_x, 0), (visual_target_x, FRAME_HEIGHT), target_line_color, 2)
@@ -1189,7 +1208,7 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
     # Handoff threshold line for green blocks
     cv2.line(
         annotated_frame,
-        (500, int(GREEN_HANDOFF_MIN_Y)),
+        (int(GREEN_HANDOFF_MIN_X), int(GREEN_HANDOFF_MIN_Y)),
         (FRAME_WIDTH, int(GREEN_HANDOFF_MIN_Y)),
         (0, 255, 0), 2
     )

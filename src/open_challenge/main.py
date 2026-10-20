@@ -7,13 +7,13 @@ the same `process_video_frame()` -- arena mask + colour thresholding
 fork-joined across two worker processes via VisionPool -- the same
 CameraThread/ImuThread (src/threads/hw_threads.py), the same
 VideoEncoderProcess for recording, and the same `robot.*` logging pipeline
-(src/logs/setup.py). Only the driving logic below is open-challenge specific
-(no pillars, no parking).
+(src/logs/setup.py). The per-frame decisions are in src/open_challenge/rules.py
+(same World / Memory / Command / RULES shape as the obstacle challenge); this file
+holds the setup, actuate(), drive_phase() and the run's phases (drive -> final).
 
-process_video_frame() also detects pillars and the parking (magenta) walls,
-which don't exist on the open track -- `detected_blocks` and
-`detected_magenta` simply come back empty every frame, which this loop never
-reads.
+process_video_frame() looks for pillars only inside full_frame_roi /
+close_block_roi, which config.py sets to (0, 0, 0, 0) for the open track, so
+`detected_blocks` comes back empty. Give them a real size to see pillars here.
 
 Run it from the repo root:  python3 -m src.open_challenge.main
 """
@@ -23,19 +23,17 @@ import math
 import os
 import threading
 import time
-from collections import deque
 from datetime import datetime
 
 import cv2
-import numpy as np
 from gpiozero import Button, LED
 
 from src.motors import motor, servo
 from src.sensors import bno086, camera
 
-from src.open_challenge import config
+from src.open_challenge import config, rules
 from src.open_challenge.config import *
-from src.open_challenge.schedule import SpeedSchedule
+from src.obstacle_challenge import control
 from src.obstacle_challenge.control import get_angular_difference
 from src.threads.hw_threads import CameraThread, ImuThread, PerfMonitor
 from src.logs.setup import Throttle, ilog, log, setup_logging, shutdown_logging
@@ -46,24 +44,107 @@ from src.vision.pipeline import annotate_video_frame, process_video_frame
 from src.vision.pool import VisionPool
 
 
-_FRONT_WALL_KERNEL = cv2.getStructuringElement(cv2.MORPH_RECT, (1, FRONT_WALL_MIN_THICK))
+def actuate(cmd, prev_angle):
+    """Carry out a rules.Command: new rpm target if it changed, then the servo.
+    Returns the angle now on the servo."""
+    if cmd.rpm_changed:
+        motor.set_rpm_target(cmd.rpm, direction="forward")
+        log.info("rpm target -> %d (%s)", cmd.rpm,
+                 "corner" if cmd.rpm == CORNER_RPM else
+                 "straight" if cmd.rpm == STRAIGHT_RPM else cmd.rule)
+    if cmd.angle != prev_angle:
+        servo.set_angle(cmd.angle)
+    return cmd.angle
 
 
-def front_wall_base_row(frame):
-    """Image row where the wall ahead meets the floor (0 = no wall in sight).
+class DriveContext:
+    """The live objects every drive phase needs, created once in __main__."""
+    def __init__(self, camera_thread, imu_thread, video_encoder, perf, run_start_time):
+        self.camera_thread = camera_thread
+        self.imu_thread = imu_thread
+        self.video_encoder = video_encoder
+        self.perf = perf
+        self.run_start_time = run_start_time
+        self.past_frame_counter = 0
+        self.prev_angle = 0
+        self.frame_debug_throttle = Throttle(1.0)
+        self.vibration_throttle = Throttle(getattr(config, "VIBRATION_LOG_PERIOD", 0.5))
+        self.latest_vibration_deg_s = 0.0
 
-    Median over the centre columns of the bottom of the lowest thick dark run.
-    Rises monotonically as the robot closes on a corner, well before the
-    close-black / line-ROI corner triggers fire, so it is the cue to slow down.
-    """
-    crop = frame[FRONT_WALL_Y0:FRONT_WALL_Y1, FRONT_WALL_X0:FRONT_WALL_X1]
-    dark = (crop.max(axis=2) <= FRONT_WALL_DARK_V).astype(np.uint8) * 255
-    dark = cv2.morphologyEx(dark, cv2.MORPH_OPEN, _FRONT_WALL_KERNEL)
-    has = dark.any(axis=0)
-    if has.mean() < 0.5:
-        return 0
-    bottoms = dark.shape[0] - 1 - np.argmax(dark[::-1] > 0, axis=0)
-    return int(np.median(bottoms[has])) + FRONT_WALL_Y0
+
+def drive_phase(ctx, mem, stop_when):
+    """The per-frame loop: see -> decide (rules.py) -> act -> record. Runs until
+    stop_when(world, mem) returns something truthy, checked at the end of every
+    frame, and returns that value."""
+    while True:
+        # Blocking wait -- no busy-spin, same as the obstacle loop.
+        frame, frame_counter, capture_ts = ctx.camera_thread.get_next_frame(ctx.past_frame_counter)
+        if frame is None:
+            continue
+        skipped = max(0, frame_counter - ctx.past_frame_counter - 1)
+        ctx.past_frame_counter = frame_counter
+
+        # ---- SEE ----------------------------------------------------------
+        t_proc = time.perf_counter()
+        detections = process_video_frame(frame)
+        proc_ms = (time.perf_counter() - t_proc) * 1000.0
+        world = rules.build_world(detections, frame, mem, time.monotonic() - ctx.run_start_time)
+        if rules.learn_direction(world, mem):
+            log.info("%s line seen first -> driving_direction = %s",
+                     "Orange" if world.orange else "Blue", mem.direction)
+        if rules.count_turns(world, mem):
+            log.info("turn_counter ----------------> %d", mem.turns)
+
+        # ---- DECIDE + ACT FIRST -------------------------------------------
+        # Annotation and recording come after.
+        cmd = rules.decide(world, mem)
+        ctx.prev_angle = actuate(cmd, ctx.prev_angle)
+
+        current_rpm = motor.get_measured_rpm()
+        latency_ms = (time.monotonic() - capture_ts) * 1000.0
+        # ---- everything below is off the critical path --------------------
+
+        ctx.perf.add(latency_ms, proc_ms, skipped)
+        ctx.perf.maybe_report(extra=f" | {current_rpm:5.1f} rpm (target {mem.target_rpm:.0f})")
+
+        debug = cmd.debug + [
+            f"Angle:{int(cmd.angle)}",
+            f"RPM:{int(round(current_rpm))}/{int(mem.target_rpm)}",
+            f"WallRow:{world.wall_row}",
+            f"Turns:{mem.turns}",
+            f"Dir:{mem.direction or '?'}",
+            f"Vib:{ctx.latest_vibration_deg_s:.1f}",
+            f"Rule:{cmd.rule}",
+        ]
+
+        if ctx.vibration_throttle:
+            vib = ctx.imu_thread.get_vibration(getattr(config, "VIBRATION_LOG_PERIOD", 0.5))
+            if vib:
+                ctx.latest_vibration_deg_s = vib["total_deg_s"]
+                ilog.info(
+                    "Gyro vibration: %5.2f deg/s | pitch/roll wobble: %5.2f deg/s (x: %4.1f, y: %4.1f) | yaw jitter: %5.2f deg/s | peak: %5.2f deg/s (%d samples)",
+                    vib["total_deg_s"],
+                    vib["pitch_roll_deg_s"],
+                    vib["axes_deg_s"][0],
+                    vib["axes_deg_s"][1],
+                    vib["yaw_jitter_deg_s"],
+                    vib["peak_deg_s"],
+                    vib["samples"],
+                )
+
+        if ctx.frame_debug_throttle:
+            log.debug("f=%d rule=%s angle=%+6.1f turns=%d rpm=%5.1f lat=%5.2fms vis=%4.2fms walls=%d skip=%d",
+                      frame_counter, cmd.rule, float(cmd.angle), mem.turns, current_rpm, latency_ms,
+                      proc_ms, len(detections['detected_walls']), skipped)
+
+        ctx.video_encoder.write(
+            frame, tag=frame_counter,
+            prepare=lambda f: annotate_video_frame(
+                f, detections, mem.direction, debug_info=debug))
+
+        stop = stop_when(world, mem)
+        if stop:
+            return stop
 
 
 if __name__ == "__main__":
@@ -143,246 +224,92 @@ if __name__ == "__main__":
             INITIAL_HEADING = heading
         time.sleep(0.05)
     log.info("Initial heading locked: %.1f", INITIAL_HEADING)
+    # The gyro drive moves in control.py (drive_distance_with_gyro, ...) read the
+    # IMU through this; bound here so a phase can use them.
+    control.bind(imu_thread=imu_thread)
 
-    orange_detection_history = deque([False] * ORANGE_DETECTION_HISTORY_LENGTH, maxlen=ORANGE_DETECTION_HISTORY_LENGTH)
-    cooldown_frames = 0
-    turn_counter = 0
-
-    prev_angle = 0
-    prev_wall_error = 0.0
-    past_frame_counter = 0
-    # Set from the first floor line we see: orange first -> clockwise, blue first
-    # -> counter-clockwise. v5 decides this from the inner wall areas instead, but
-    # that only works from the parking position, which the open challenge doesn't
-    # start in. Until a line has been seen it stays None and the corner turn falls
-    # back to comparing the two sides.
-    driving_direction = None
-    final_run_initiated = False
-    final_run_start_time = None
-    final_run_start_pos = None
-
-    cpr = motor.encoder.counts_per_rev if (motor.encoder is not None) else (48 * 4.4 * 38 / 13)
-    wheel_diameter_mm = motor.encoder.wheel_diameter_mm if (motor.encoder is not None) else 62.4
-    circ_cm = (math.pi * wheel_diameter_mm) / 10.0
-
-    # Speed schedule: STRAIGHT_RPM on straights, CORNER_RPM from the moment the
-    # front wall gets close (before the corner) until shortly after the turn.
-    speed_schedule = SpeedSchedule()
-    target_rpm = STRAIGHT_RPM
+    # The rules' memory: turn count, direction (learned from the first floor line --
+    # orange first -> clockwise, blue first -> counter-clockwise), wall error, speed
+    # schedule. It carries over from one phase to the next.
+    mem = rules.Memory()
 
     perf = PerfMonitor()
-    frame_debug_throttle = Throttle(1.0)
-    vibration_throttle = Throttle(getattr(config, "VIBRATION_LOG_PERIOD", 0.5))
-    latest_vibration_deg_s = 0.0
     run_start_time = None
 
     try:
         run_start_time = time.monotonic()
         motor.start_rpm_control(STRAIGHT_RPM, direction="forward",
                                 ff_reseed=RPM_FF_RESEED, brake_err=RPM_BRAKE_ERR)
+        ctx = DriveContext(camera_thread, imu_thread, video_encoder, perf, run_start_time)
 
-        while True:
-            angle = 0
-            debug = []
+        # ---- The run, as phases: drive -> final -> done ----------------------
+        # Each phase runs once and names the next. To change the shape of the run,
+        # edit FINAL_AFTER_TURNS / MAX_TURNS in config.py, or add a phase here.
+        phase = 'drive'
+        while phase != 'done':
+            log.info("=== Phase: %s ===", phase)
 
-            # Blocking wait -- no busy-spin, same as the obstacle loop.
-            frame, frame_counter, capture_ts = camera_thread.get_next_frame(past_frame_counter)
-            if frame is None:
-                continue
-            skipped = max(0, frame_counter - past_frame_counter - 1)
-            past_frame_counter = frame_counter
+            if phase == 'drive':
+                # Laps, until the final straight can start (or the safety stop).
+                def drive_done(world, mem):
+                    if (mem.turns == FINAL_AFTER_TURNS and get_angular_difference(
+                            imu_thread.get_heading(), INITIAL_HEADING) < FINAL_HEADING_TOLERANCE):
+                        return 'final'
+                    if mem.turns >= MAX_TURNS:
+                        return 'stop'
+                    return None
+                phase = drive_phase(ctx, mem, drive_done)
 
-            t_proc = time.perf_counter()
-            detections = process_video_frame(frame)
-            proc_ms = (time.perf_counter() - t_proc) * 1000.0
-
-            detected_orange_object = detections['detected_orange']
-            detected_blue_object = detections['detected_blue']
-
-            # --- Driving direction (first line wins) ---
-            if driving_direction is None:
-                if detected_orange_object:
-                    driving_direction = 'clockwise'
-                    log.info("Orange line seen first -> driving_direction = clockwise")
-                elif detected_blue_object:
-                    driving_direction = 'counter-clockwise'
-                    log.info("Blue line seen first -> driving_direction = counter-clockwise")
-
-            # --- Turn Counting Logic ---
-            orange_detected_this_frame = bool(detected_orange_object)
-            orange_detection_history.append(orange_detected_this_frame)
-
-            if cooldown_frames > 0:
-                cooldown_frames -= 1
-            elif not orange_detection_history[0] and sum(orange_detection_history) == (ORANGE_DETECTION_HISTORY_LENGTH - 1):
-                turn_counter += 1
-                cooldown_frames = ORANGE_COOLDOWN_FRAMES
-                log.info("turn_counter ----------------> %d", turn_counter)
-
-            # --- Speed schedule (look-ahead) ---
-            wall_row = front_wall_base_row(frame)
-            corner_close = (sum(o['area'] for o in detections.get('detected_close_black', []))
-                            > CLOSE_BLACK_AREA_THRESHOLD
-                            or detections.get('line_roi_wall_pct', 0) > LINE_ROI_WALL_PCT_THRESHOLD)
-            corner_mode = speed_schedule.update(
-                time.monotonic(), wall_row, corner_close=corner_close,
-                turn_counted=(cooldown_frames == ORANGE_COOLDOWN_FRAMES))
-            if not final_run_initiated:
-                want_rpm = CORNER_RPM if corner_mode else STRAIGHT_RPM
-                if want_rpm != target_rpm:
-                    target_rpm = want_rpm
-                    motor.set_rpm_target(target_rpm, direction="forward")
-                    log.info("rpm target -> %d (%s) wall_row=%d", target_rpm,
-                             "corner" if target_rpm == CORNER_RPM else "straight", wall_row)
-
-            # --- Steering Logic ---
-            detected_walls = detections['detected_walls']
-            left_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_left')
-            right_pixel_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_right')
-            wall_inner_left_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_left')
-            wall_inner_right_size = sum(obj['area'] for obj in detected_walls if obj['type'] == 'wall_inner_right')
-
-            # If one side has inner wall and other does not, inflate that inner wall size
-            if wall_inner_left_size > 0 and wall_inner_right_size == 0:
-                wall_inner_left_size = wall_inner_left_size * 2 + 1000
-            elif wall_inner_right_size > 0 and wall_inner_left_size == 0:
-                wall_inner_right_size = wall_inner_right_size * 2 + 1000
-
-            # Combine outer and inner ROIs per side before checking if one side is lost
-            total_left = left_pixel_size + wall_inner_left_size
-            total_right = right_pixel_size + wall_inner_right_size
-
-            # One side gone: push the side we CAN see hard, so the robot swings away
-            # from the wall it is about to clip rather than drifting on a small error.
-            if total_left < 700 and total_right > 100:
-                total_right = total_right * 2 + 25000
-            elif total_right < 700 and total_left > 100:
-                total_left = total_left * 2 + 25000
-
-            # PD on the left/right area imbalance
-            wall_error = total_left - total_right
-            wall_derivative = wall_error - prev_wall_error
-            angle = (wall_error * WALL_KP) + (wall_derivative * WALL_KD)
-            prev_wall_error = wall_error
-
-            # Corner: a black band right in front, or the line ROI filled with wall.
-            # ADDS to the PD angle rather than overriding it, so the wall error still
-            # shapes how tight the turn is.
-            if driving_direction == 'counter-clockwise':
-                corner_turn = -CORNER_TURN_ANGLE
-            elif driving_direction == 'clockwise':
-                corner_turn = CORNER_TURN_ANGLE
-            else:
-                # Direction not established yet: turn away from the bigger wall.
-                corner_turn = (-CORNER_TURN_ANGLE if total_left < total_right
-                               else CORNER_TURN_ANGLE)
-
-            close_black_area = sum(obj['area'] for obj in detections.get('detected_close_black', []))
-            if (close_black_area > CLOSE_BLACK_AREA_THRESHOLD
-                    or detections.get('line_roi_wall_pct', 0) > LINE_ROI_WALL_PCT_THRESHOLD):
-                angle += corner_turn
-            # Both walls out of frame with a floor line under us: mid-corner, keep
-            # turning. Stacks with the trigger above, as in v5.
-            if total_left == 0 and total_right == 0 and (detected_orange_object or detected_blue_object):
-                angle += corner_turn
-
-            # --- ACTUATE FIRST ---
-            # Steer immediately after deciding; annotation and recording come after.
-            angle = np.clip(angle, -40, 40)
-            if angle != prev_angle:
-                servo.set_angle(angle)
-            prev_angle = angle
-
-            current_rpm = motor.get_measured_rpm()
-            latency_ms = (time.monotonic() - capture_ts) * 1000.0
-            # ---- everything below is off the critical path ----------------
-
-            perf.add(latency_ms, proc_ms, skipped)
-            perf.maybe_report(extra=f" | {current_rpm:5.1f} rpm (target {target_rpm:.0f})")
-
-            debug.extend([f"L:{int(left_pixel_size)}", f"R:{int(right_pixel_size)}"])
-            debug.extend([f"IL:{int(wall_inner_left_size)}", f"IR:{int(wall_inner_right_size)}"])
-            debug.append(f"Err:{int(wall_error)}")
-            debug.append(f"Wall%:{int(detections.get('line_roi_wall_pct', 0))}")
-            debug.append(f"Angle:{int(angle)}")
-            debug.append(f"RPM:{int(round(current_rpm))}/{int(target_rpm)}")
-            debug.append(f"WallRow:{wall_row}")
-            debug.append(f"Turns:{turn_counter}")
-            debug.append(f"Dir:{driving_direction or '?'}")
-            debug.append(f"Vib:{latest_vibration_deg_s:.1f}")
-
-            if vibration_throttle:
-                vib = imu_thread.get_vibration(getattr(config, "VIBRATION_LOG_PERIOD", 0.5))
-                if vib:
-                    latest_vibration_deg_s = vib["total_deg_s"]
-                    ilog.info(
-                        "Gyro vibration: %5.2f deg/s | pitch/roll wobble: %5.2f deg/s (x: %4.1f, y: %4.1f) | yaw jitter: %5.2f deg/s | peak: %5.2f deg/s (%d samples)",
-                        vib["total_deg_s"],
-                        vib["pitch_roll_deg_s"],
-                        vib["axes_deg_s"][0],
-                        vib["axes_deg_s"][1],
-                        vib["yaw_jitter_deg_s"],
-                        vib["peak_deg_s"],
-                        vib["samples"],
-                    )
-
-            if frame_debug_throttle:
-                log.debug("f=%d angle=%+6.1f turns=%d rpm=%5.1f lat=%5.2fms vis=%4.2fms walls=%d skip=%d",
-                          frame_counter, float(angle), turn_counter, current_rpm, latency_ms, proc_ms,
-                          len(detected_walls), skipped)
-
-            video_encoder.write(
-                frame, tag=frame_counter,
-                prepare=lambda f: annotate_video_frame(
-                    f, detections, driving_direction, debug_info=debug))
-
-            # --- Exit Conditions ---
-            if turn_counter == 12 and not final_run_initiated and get_angular_difference(imu_thread.get_heading(), INITIAL_HEADING) < 30:
-                final_run_initiated = True
-                final_run_start_time = time.monotonic()
-                final_run_start_pos = motor.encoder_position()
-                if STRAIGHT_RPM > 350:
-                    # High speed (> 350): coast motor immediately, brake when distance or time exceeded
+            elif phase == 'final':
+                # Back in the start section: drive FINAL_STOP_DISTANCE_CM more, then stop.
+                final_start_time = time.monotonic()
+                final_start_pos = motor.encoder_position()
+                cpr = motor.encoder.counts_per_rev if (motor.encoder is not None) else (48 * 4.4 * 38 / 13)
+                wheel_diameter_mm = motor.encoder.wheel_diameter_mm if (motor.encoder is not None) else 62.4
+                circ_cm = (math.pi * wheel_diameter_mm) / 10.0
+                coast = STRAIGHT_RPM > FINAL_COAST_ABOVE_RPM
+                mem.hold_speed = True   # the speed schedule stops changing the rpm
+                if coast:
+                    # High speed: coast motor immediately, brake when distance or time exceeded
                     motor.stop_rpm_control(brake=False)
-                    log.info("12 turns reached & heading aligned. Final run initiated (STRAIGHT_RPM > 350): coasting motor (brake if dist >= %.1f cm or time >= %.2f s)...",
-                             FINAL_STOP_DISTANCE_CM, FINAL_STOP_DELAY)
+                    log.info("%d turns reached & heading aligned. Final run initiated (STRAIGHT_RPM > %d): coasting motor (brake if dist >= %.1f cm or time >= %.2f s)...",
+                             FINAL_AFTER_TURNS, FINAL_COAST_ABOVE_RPM, FINAL_STOP_DISTANCE_CM, FINAL_STOP_DELAY)
                 else:
-                    # Lower speed (<= 350): continue driving at own speed, stop after distance reached
-                    log.info("12 turns reached. Driving final %.1f cm (encoder-based at %.0f RPM) before stop...",
-                             FINAL_STOP_DISTANCE_CM, target_rpm)
+                    # Lower speed: continue driving at own speed, stop after distance reached
+                    log.info("%d turns reached. Driving final %.1f cm (encoder-based at %.0f RPM) before stop...",
+                             FINAL_AFTER_TURNS, FINAL_STOP_DISTANCE_CM, mem.target_rpm)
 
-            if final_run_initiated:
-                curr_pos = motor.encoder_position()
-                dist_traveled_cm = 0.0
-                encoder_done = False
-                if curr_pos is not None and final_run_start_pos is not None:
-                    delta_ticks = abs(curr_pos - final_run_start_pos)
-                    dist_traveled_cm = (delta_ticks / cpr) * circ_cm
-                    encoder_done = (dist_traveled_cm >= FINAL_STOP_DISTANCE_CM)
-
-                elapsed_time = time.monotonic() - final_run_start_time
-                timeout_done = elapsed_time >= FINAL_STOP_DELAY
-
-                if STRAIGHT_RPM > 350:
-                    # Coasting mode: brake only if distance or time exceeded
-                    if encoder_done or timeout_done:
-                        reason = "distance exceeded" if encoder_done else "time exceeded"
-                        log.info("Final run brake condition met (%s: %.1f cm / %.2fs). Braking.",
-                                 reason, dist_traveled_cm, elapsed_time)
-                        motor.brake()
-                        break
+                def final_done(world, mem):
+                    curr_pos = motor.encoder_position()
+                    dist_cm = 0.0
+                    if curr_pos is not None and final_start_pos is not None:
+                        dist_cm = (abs(curr_pos - final_start_pos) / cpr) * circ_cm
+                    elapsed = time.monotonic() - final_start_time
+                    if dist_cm >= FINAL_STOP_DISTANCE_CM or elapsed >= FINAL_STOP_DELAY:
+                        log.info("Final run done (%s: %.1f cm / %.2fs).",
+                                 "distance" if dist_cm >= FINAL_STOP_DISTANCE_CM else "time",
+                                 dist_cm, elapsed)
+                        return 'brake' if coast else 'stop_rpm'
+                    if mem.turns >= MAX_TURNS:
+                        return 'stop'
+                    return None
+                ending = drive_phase(ctx, mem, final_done)
+                if ending == 'brake':
+                    motor.brake()
+                    phase = 'done'
+                elif ending == 'stop_rpm':
+                    motor.stop_rpm_control()
+                    phase = 'done'
                 else:
-                    # Normal driving mode: stop after distance reached (with timeout fallback)
-                    if encoder_done or timeout_done:
-                        log.info("Final distance complete (%.1f cm / %s). Stopping.",
-                                 dist_traveled_cm, "encoder" if encoder_done else "timeout fallback")
-                        motor.stop_rpm_control()
-                        break
+                    phase = ending
 
-            if turn_counter >= 13:
+            elif phase == 'stop':
                 motor.stop_rpm_control()
                 motor.brake()
-                break
+                phase = 'done'
+
+            else:
+                raise ValueError(f"unknown phase {phase!r}")
 
     except Exception:
         log.exception("ERROR during execution")
