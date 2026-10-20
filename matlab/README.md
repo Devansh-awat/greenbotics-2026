@@ -46,6 +46,8 @@ point of simulating.
 4. Complete the full mission — **3 laps + parallel parking** — in both driving
    directions, without touching walls, signs, or parking barriers.
 5. Measure everything and validate statistically over batches of layouts.
+6. Analyse the steering as a control system: log both loops every step and
+   check that the controller behaves as designed, run by run.
 
 ## Simulation Architecture
 
@@ -263,5 +265,8 @@ our real perception strategy running in closed loop on officially randomized
 layouts, scoring **12/12 complete missions with 12/12 full parallel parks and
 zero contact**. It caught control bugs we would never have staged physically,
 verified our power system against multimeter measurements, and bounded our
-steering gain before a single physical tuning session. Every result in this
+steering gain before a single physical tuning session. With the control
+analysis, every run now also shows *how* the controller reached that result:
+the steering law checked against its design, every pillar pass compared, and
+heading and lane errors measured. Every result in this
 report is reproducible from this repository with one command and one seed.
