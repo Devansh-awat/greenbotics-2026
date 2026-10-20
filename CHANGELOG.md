@@ -1,5 +1,13 @@
 # Changelog
 
+## [v2.2] - 2026-10-20 — MATLAB control analysis
+### Added
+Live servo and heading-error graphs in the MATLAB simulator
+6-panel control analysis saved after every run (`save_control_report.m`)
+`run_video.m` demo mode (CCW, no parking, 3 laps + stop at start)
+### Fixed
+Simulator crash on the second run after a completed mission
+
 ## [v2.1] - 2026-08-08 — Open Challenge complete
 ### Changed
 Tuned open challenge in both directions for many possibilities

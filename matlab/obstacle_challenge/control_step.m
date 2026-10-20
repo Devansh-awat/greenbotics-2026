@@ -223,6 +223,7 @@ S.d_left  = ray_wall_distance(S.x,S.y,S.th-0.61, P.cx,P.cy,P.half_in_w,P.half_ou
 S.d_right = ray_wall_distance(S.x,S.y,S.th+0.61, P.cx,P.cy,P.half_in_w,P.half_out_w) * P.scale;
 
 % ── 4d. Desired direction → steering + speed ──────────────────────────────
+S.head_err = NaN;   % heading-loop error (only defined in normal driving)
 if S.parking_started && ~S.mission_complete
     S = parking_control(S, P);
 elseif strcmp(S.state, 'EMERGENCY_REVERSE')
@@ -231,6 +232,7 @@ elseif strcmp(S.state, 'EMERGENCY_REVERSE')
 else
     des_ang = atan2(fy, fx);
     err_des = atan2(sin(des_ang - S.th), cos(des_ang - S.th));
+    S.head_err = err_des;
     S.omega = max(-P.max_omega, min(P.max_omega, 3.0 * err_des));
     align       = max(0, cos(err_des));
     front_brake = max(0.40, min(1, S.d_front/0.40));
@@ -288,6 +290,15 @@ if new_laps > S.laps_done
     if P.verbose, fprintf('\n[LAP] Completed lap %d at t=%.1f s\n', new_laps, step*P.dt); end
 end
 S.laps_done = new_laps;
+% Video mode (parking disabled): finish = 3 laps + stop at the start line
+if S.laps_done >= 3 && isfield(P,'parking_enabled') && ~P.parking_enabled
+    S.mission_complete = true;
+    S.v = 0;
+    if P.verbose
+        fprintf('\n=== MISSION COMPLETE: 3 laps + stopped at start (t = %.1f s) ===\n', step*P.dt);
+    end
+    return;
+end
 % After 3 laps: find the parking lot and parallel park (rules §5)
 if S.laps_done >= 3 && ~S.parking_started
     S.parking_started = true;

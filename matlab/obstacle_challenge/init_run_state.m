@@ -25,7 +25,7 @@ S.laps_done = 0;
 S.lap_times = [];
 S.mission_complete = false;
 
-S.v = 0;  S.omega = 0;  S.servo_deg = 0;
+S.v = 0;  S.omega = 0;  S.servo_deg = 0;  S.head_err = 0;
 S.current_yaw = 0;  S.radial_err = 0;
 S.d_front = inf;  S.d_left = inf;  S.d_right = inf;
 S.d_in = inf;  S.d_out = inf;  S.d_blk_min = inf;

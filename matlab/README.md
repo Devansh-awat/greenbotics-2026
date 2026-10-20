@@ -12,6 +12,7 @@
 - [Validation Results](#validation-results)
 - [Power Budget: Prediction → Measurement → Verification](#power-budget-prediction--measurement--verification)
 - [Closing the Loop: Simulation-Tuned Parameters](#closing-the-loop-simulation-tuned-parameters)
+- [Control Analysis: Inside the Steering Loops](#control-analysis-inside-the-steering-loops)
 - [How to Run](#how-to-run)
 - [Known Limitations](#known-limitations)
 - [Conclusion](#conclusion)
@@ -53,7 +54,9 @@ headless batch evaluator, so the two can never drift apart.
 
 | Module | Role | Real-robot counterpart |
 |---|---|---|
-| `run.m` | Interactive sim: live map, simulated camera, telemetry, Randomize button | debug UI |
+| `run.m` | Interactive sim: live map, simulated camera, telemetry, live control graphs, Randomize button | debug UI |
+| `run_video.m` | Same sim in demo mode (CCW, no parking, 3 laps + stop at start) | — |
+| `save_control_report.m` | 6-panel control-loop analysis after every run | journal / tuning evidence |
 | `control_step.m` | One 30 Hz perception + decision + physics step | main control loop |
 | `render_frame.m` | Simulated 640×360 camera: walls, pillars, magenta barriers | Picamera2 |
 | `find_biggest_block.m` | ROI crop → HSV masks → largest portrait blob | camera module |
@@ -140,6 +143,7 @@ Every design change was driven by an observed failure:
 | 6 | Run wasted at spawn | Randomizer ignored start-zone seat rules | Official forbidden-seat rule implemented |
 | 7 | Simulation lag | Full-frame temporaries, 30 Hz HSV, console spam | Cached buffers, 10 Hz half-res vision — 23× real time |
 | 8 | 55 barrier touches while parking | Diagonal reverse entry grazed the barriers | Align-then-enter maneuver: zero touches by construction |
+| 9 | Second interactive run crashed (`Index exceeds the number of array elements`) | The run log kept scalar summary fields from run 1, and trimming the log indexed them | Fresh log struct at the start of every run |
 
 ## Validation Results
 
@@ -155,7 +159,8 @@ Worst clearance to any sign: 0.14 m — no sign moved, ever
 ![Batch evaluation](https://github.com/Devansh-awat/greenbotics-2026/blob/main/matlab/evolution.png?raw=true)
 
 Per-run reports (trajectory coloured by state, speed profile, clearance-vs-time,
-summary statistics) are saved automatically after every run.
+summary statistics) and a control-loop analysis are saved automatically after
+every run.
 
 ## Power Budget: Prediction → Measurement → Verification
 
@@ -194,13 +199,43 @@ high-gain region entirely.
 
 ![KP sweep](https://github.com/Devansh-awat/greenbotics-2026/blob/main/matlab/KP_sweep.png?raw=true)
 
+## Control Analysis: Inside the Steering Loops
+
+The KP sweep tells us *which* gain to deploy; the control analysis shows *how*
+the controller behaves with it, run by run. Our robot steers with two loops,
+and the simulator now logs both at 30 Hz:
+
+1. **Camera P-controller** (same law as the robot):
+   `servo = clamp(KP_BLOCK × (cx − target_x), ±45°)`
+2. **Heading loop** (vector-field navigation): `ω = clamp(3 × heading error)`
+
+**Live in the simulator window**: two scrolling 10-second graphs, the
+servo command (with the ±45° saturation limits) and the heading error, so we
+can watch the controller react to each pillar while the robot drives.
+
+**After every run**, `save_control_report.m` opens a 6-panel figure and saves
+it as `results/runN_control_<timestamp>.png`:
+
+| Panel | What it shows | Why it matters |
+|---|---|---|
+| A. Servo command vs time | Steering output over the whole run, pillar-avoidance windows shaded | Where the controller works hard |
+| B. Control-law check | Logged servo command against camera error, red/green pillars, over the design line | Proves the simulated controller is exactly the deployed law, including saturation |
+| C. Pillar avoidance responses | Every pass overlaid from the moment the pillar is detected, like a family of step responses | Consistency of the response across random layouts |
+| D. Heading loop | Heading error and turn rate ω | Tracking quality of the inner loop |
+| E. Lane keeping | Offset from lane centre (cm), with RMS and max | How well the robot holds its lane between pillars |
+| F. Scorecard | Passes, average pass time, peak servo, % time saturated, RMS heading/lane error, steering smoothness, minimum clearances | One-glance numbers for comparing runs and gains |
+
+The time-saturated figure is the one to watch while tuning: if the servo sits
+at ±45° for most of each pass, the gain is no longer what shapes the response.
+
 ## How to Run
 
 MATLAB R2024a+ with Image Processing Toolbox.
 
 ```matlab
 cd matlab/obstacle_challenge
-run              % interactive simulator (Randomize button between runs)
+run              % interactive simulator: full mission + live control graphs
+run_video        % demo mode: CCW, no parking, 3 laps + stop at start
 evaluate(12, 42) % batch: 12 official layouts, reproducible
 sweep_kp         % steering-gain sweep (~2 min)
 power_budget     % electrical checks

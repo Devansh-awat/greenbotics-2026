@@ -5,11 +5,20 @@
 %
 % Press Run. After a run finishes, click "Randomize Blocks" to run again.
 % A report figure (trajectory, speeds, clearances, summary) is saved into
-% wro/results/ after every run.
-clearvars; close all; clc;
+% wro/results/ after every run, plus a 6-panel control analysis
+% (save_control_report.m).
+%
+% VIDEO_MODE (set it before running, e.g. via run_video.m):
+%   false (default) — full mission: random CW/CCW, 3 laps + parallel parking
+%   true            — demo of the July 2026 recording: CCW every run, no
+%                     parking barriers, 180 s limit, 3 laps + stop at start
+clearvars -except VIDEO_MODE; close all; clc;
+if ~exist('VIDEO_MODE','var'), VIDEO_MODE = false; end
+video_on = VIDEO_MODE;  clear VIDEO_MODE   % one-shot: plain run.m stays full mission
 addpath(fileparts(mfilename('fullpath')));
 
-[P, CFG, track_img] = sim_setup();
+[P, CFG, track_img] = sim_setup('ccw');
+if video_on, P = video_mode(P); end
 
 % ── Initial obstacles (official WRO randomization procedure) ──────────────
 obstacles = place_obstacles_random(P.cx, P.cy, 0, 0, P.scale, 0, 0);
@@ -50,10 +59,23 @@ h_txt = text(ax3,0.04,0.97,'','Units','normalized','VerticalAlignment','top', ..
 
 uicontrol(fig, ...
     'Style','pushbutton', 'String','Randomize Blocks', ...
-    'Units','normalized', 'Position',[0.64 0.18 0.32 0.08], ...
+    'Units','normalized', 'Position',[0.64 0.20 0.32 0.07], ...
     'FontSize',13, 'FontWeight','bold', ...
     'BackgroundColor',[0.15 0.55 1.0], 'ForegroundColor',[1 1 1], ...
     'Callback', @(~,~) setappdata(fig, 'do_randomize', true));
+
+% ── Live control graphs ───────────────────────────────────────────────────
+ax4 = axes('Parent',fig,'Position',[0.43 0.07 0.18 0.20]); hold(ax4,'on');
+yline(ax4, 45,'--','Color',[0.9 0.3 0.3]); yline(ax4,-45,'--','Color',[0.9 0.3 0.3]);
+yline(ax4, 0, ':','Color',[0.6 0.6 0.6]);
+h_servo = plot(ax4, NaN, NaN, 'Color',[0.3 0.8 1], 'LineWidth',1.5);
+ylim(ax4,[-50 50]); style_dark(ax4, 'Camera P-loop: servo (deg)');
+
+ax5 = axes('Parent',fig,'Position',[0.67 0.05 0.30 0.11]); hold(ax5,'on');
+yline(ax5, 0, ':','Color',[0.6 0.6 0.6]);
+h_herr = plot(ax5, NaN, NaN, 'Color',[1 0.6 0.2], 'LineWidth',1.2);
+ylim(ax5,[-90 90]); style_dark(ax5, 'Heading loop: error (deg)');
+win_s = 10;   % live graphs show the last 10 s
 
 run_number = 0;
 
@@ -62,7 +84,13 @@ while true
     run_number = run_number + 1;
 
     % Random driving direction each run, like the real rounds
-    if rand < 0.5, P = set_direction(P, 'ccw'); else, P = set_direction(P, 'cw'); end
+    if video_on
+        P = set_direction(P, 'ccw');  P = video_mode(P);
+    elseif rand < 0.5
+        P = set_direction(P, 'ccw');
+    else
+        P = set_direction(P, 'cw');
+    end
     set(h_startmark, 'XData', P.start_x, 'YData', P.start_y);
     set(h_stext, 'Position', [P.start_x+14, P.start_y, 0]);
     delete(h_bar);  h_bar = draw_barriers(ax1, P);
@@ -71,17 +99,24 @@ while true
     S = init_run_state(P);
     path_x = S.x; path_y = S.y;
     N = P.n_steps;
+    log = struct();   % fresh log each run (old scalar fields broke run 2)
     log.t=zeros(1,N); log.x=zeros(1,N); log.y=zeros(1,N); log.th=zeros(1,N);
     log.v=zeros(1,N); log.omega=zeros(1,N);
     log.state=zeros(1,N,'uint8'); log.laps=zeros(1,N,'uint8');
     log.d_blk=zeros(1,N); log.d_wall=zeros(1,N);
-    last_step = N
+    log.servo=zeros(1,N); log.head_err=nan(1,N); log.lane_err=zeros(1,N);
+    log.blk_err=nan(1,N); log.blk_area=zeros(1,N); log.blk_col=zeros(1,N,'uint8');
+    last_step = N;
 
     if ishandle(fig)
         set(h_path,'XData',path_x,'YData',path_y);
         update_robot_icon(h_bot, S.x, S.y, S.th, P.scale, P.robot_L, P.robot_W);
     end
     fprintf('\n=== RUN %d START ===\n', run_number);
+    if ishandle(fig)
+        set(h_servo,'XData',NaN,'YData',NaN);
+        set(h_herr, 'XData',NaN,'YData',NaN);
+    end
 
     % ── Main simulation loop ───────────────────────────────────────────────
     for step = 1:N
@@ -110,6 +145,13 @@ while true
         log.v(step)=S.v;        log.omega(step)=S.omega;
         log.state(step)=state_num(S.state);       log.laps(step)=S.laps_done;
         log.d_blk(step)=S.d_blk_min;              log.d_wall(step)=min(S.d_in,S.d_out);
+        log.servo(step)=S.servo_deg;  log.head_err(step)=S.head_err;
+        log.lane_err(step)=S.radial_err*P.scale;
+        if ~isempty(S.block)
+            if strcmp(S.block.color,'red'), log.blk_col(step)=1; btx=CFG.RED_TARGET_X;
+            else,                           log.blk_col(step)=2; btx=CFG.GREEN_TARGET_X; end
+            log.blk_area(step)=S.block.area;  log.blk_err(step)=S.block.cx - btx;
+        end
 
         if S.mission_complete
             last_step = step;
@@ -148,6 +190,12 @@ while true
             if ~isempty(S.block)
                 bd=S.block.color; ba=sprintf('%d px2',S.block.area); bcx=sprintf('%.0f px',S.block.cx);
             end
+            if video_on
+                park_lines = '';
+            else
+                park_lines = sprintf('  Direction : %s\n  Parking   : %s  (touches %d)\n', ...
+                                     upper(P.direction), S.park_result, S.barrier_touches);
+            end
             set(h_txt,'String',sprintf([ ...
                 '  RUN %d    t = %.1f / %.0f s\n\n' ...
                 '  STATE:\n  %s\n\n'        ...
@@ -163,17 +211,22 @@ while true
                 '  Last avoid: %s\n'        ...
                 '  ToF walls : F %.2f  L %.2f  R %.2f m\n' ...
                 '  Wall gap  : in %.2f  out %.2f m\n\n' ...
-                '  Direction : %s\n'        ...
-                '  Parking   : %s  (touches %d)\n' ...
+                '%s'                        ...
                 '  Obstacles : %d red  %d green'], ...
                 run_number, (step-1)*P.dt, P.total_time, S.state, ...
                 S.current_yaw, S.radial_err, S.omega, S.v, S.laps_done, ...
                 bd, ba, bcx, CFG.MIN_BLOCK_AREA_FOR_ACTION, ...
                 iif(isempty(S.last_avoid_dir),'--',S.last_avoid_dir), ...
-                S.d_front, S.d_left, S.d_right, S.d_in, S.d_out, ...
-                upper(P.direction), S.park_result, S.barrier_touches, ...
+                S.d_front, S.d_left, S.d_right, S.d_in, S.d_out, park_lines, ...
                 sum(strcmp({obstacles.color},'red')), sum(strcmp({obstacles.color},'green'))), ...
                 'Color', sc);
+
+            % live control graphs (last win_s seconds)
+            i0 = max(1, step - round(win_s/P.dt));
+            set(h_servo,'XData',log.t(i0:step),'YData',log.servo(i0:step));
+            set(h_herr, 'XData',log.t(i0:step),'YData',rad2deg(log.head_err(i0:step)));
+            xlim(ax4,[log.t(i0) log.t(i0)+win_s]);
+            xlim(ax5,[log.t(i0) log.t(i0)+win_s]);
             drawnow limitrate;
         end
     end
@@ -204,9 +257,27 @@ while true
     catch err
         fprintf('Report save failed: %s\n', err.message);
     end
+    try
+        ctrl_png = save_control_report(log, P, CFG, sprintf('run%d', run_number));
+        fprintf('Control analysis saved: %s\n', ctrl_png);
+        if ishandle(fig), figure(fig); end   % bring the sim window back to front
+    catch err
+        fprintf('Control analysis failed: %s\n', err.message);
+    end
 
     % ── Run finished → wait for Randomize click to start next run ─────────
-    if S.mission_complete
+    if S.mission_complete && video_on
+        fprintf('Click "Randomize Blocks" for a new run.\n');
+        set(h_txt,'String',sprintf([ ...
+            '  RUN %d\n  MISSION COMPLETE!\n\n'   ...
+            '  3 laps + stopped at start\n'      ...
+            '  total time %.1f s\n\n'             ...
+            '  Report saved to results/\n\n'      ...
+            '  Click  "Randomize Blocks"\n'       ...
+            '  to start a new run.\n\n'           ...
+            '  Close the window to stop.'],       ...
+            run_number, last_step*P.dt), 'Color',[0.2 1 0.4]);
+    elseif S.mission_complete
         fprintf('\n=== RUN %d: MISSION COMPLETE (parked: %s) === Click "Randomize Blocks" for a new run.\n', ...
                 run_number, S.park_result);
         set(h_txt,'String',sprintf([ ...
@@ -279,8 +350,8 @@ function c = state_color(s)
 end
 
 function h = draw_barriers(ax, P)
-    h = gobjects(2,1);
-    for b = 1:2
+    h = gobjects(size(P.bars,1),1);
+    for b = 1:size(P.bars,1)
         h(b) = rectangle('Parent',ax, 'Position', ...
             [P.bars(b,1), P.bars(b,3), ...
              P.bars(b,2)-P.bars(b,1), P.bars(b,4)-P.bars(b,3)], ...
@@ -295,4 +366,20 @@ function handles = draw_obs_markers(ax, obs)
         handles(k) = plot(ax, obs(k).x, obs(k).y, 's', ...
             'MarkerSize',16,'MarkerFaceColor',oc,'MarkerEdgeColor','w','LineWidth',2);
     end
+end
+
+function P = video_mode(P)
+    % video_on settings (reproduce the July 2026 recording)
+    P.parking_enabled = false;
+    P.total_time      = 180.0;
+    P.n_steps         = ceil(P.total_time / P.dt);
+    P.bars            = zeros(0,4);            % no magenta barriers
+    P.barrier_obs     = P.barrier_obs([]);     % nothing extra for the camera
+end
+
+function style_dark(ax, ttl)
+    set(ax,'Color',[0.08 0.08 0.11],'XColor',[0.85 0.85 0.85],'YColor',[0.85 0.85 0.85], ...
+        'GridColor',[0.45 0.45 0.45],'FontSize',8);
+    grid(ax,'on');
+    title(ax, ttl, 'Color','w','FontSize',9);
 end
