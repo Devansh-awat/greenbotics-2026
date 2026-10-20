@@ -90,6 +90,7 @@ class Memory:
     last_block_rpm: float = INITIAL_RPM
     prev_rpm: float = INITIAL_RPM
     extra: dict = field(default_factory=dict)   # free space for new rules' own state
+    last_cmd: 'Command' = field(default_factory=lambda: Command())   # last frame's final Command
 
 
 @dataclass
@@ -564,4 +565,5 @@ def decide(world, mem):
         cmd = Command(rule='none')
     for f in FILTERS:
         f(cmd, world, mem)
+    mem.last_cmd = cmd
     return cmd

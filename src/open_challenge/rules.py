@@ -87,6 +87,7 @@ class Memory:
     target_rpm: float = STRAIGHT_RPM  # the rpm last sent to the motor
     hold_speed: bool = False          # True = leave the motor speed alone (final straight)
     extra: dict = field(default_factory=dict)   # free space for new rules' own state
+    last_cmd: 'Command' = field(default_factory=lambda: Command())   # last frame's final Command
 
 
 @dataclass
@@ -288,4 +289,5 @@ def decide(world, mem):
         cmd = Command(rule='none')
     for f in FILTERS:
         f(cmd, world, mem)
+    mem.last_cmd = cmd
     return cmd
