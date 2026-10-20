@@ -1670,6 +1670,8 @@ The full MATLAB report and code are in the [matlab folder](matlab/README.md). Th
 
 **Control analysis.** The simulator logs both steering loops, the camera P-controller and the heading loop, every step. Live graphs of the servo command and heading error are shown while the robot drives. After every run a 6-panel analysis is saved: servo output over time, a check that the logged commands follow the design law including the ±45° limit, every pillar pass overlaid like a family of step responses, heading tracking, lane keeping, and a scorecard (average pass time, time at the servo limit, RMS heading and lane error, minimum clearances). Details are in [Control Analysis](matlab/README.md#control-analysis-inside-the-steering-loops).
 
+![Control analysis](https://github.com/Devansh-awat/greenbotics-2026/blob/main/matlab/control_analysis.png?raw=true)
+
 **What the simulation changed on the robot.** It caught control bugs before they reached the field (oscillation, pillar orbiting, wall deadlock, parking barrier touches; see [Engineering Iterations](matlab/README.md#engineering-iterations)), ruled out a brownout risk in the power system, and narrowed the steering-gain range before any physical tuning session.
 
 **Running it** (MATLAB R2024a+ with Image Processing Toolbox):

@@ -230,6 +230,24 @@ it as `results/runN_control_<timestamp>.png`:
 The time-saturated figure is the one to watch while tuning: if the servo sits
 at ±45° for most of each pass, the gain is no longer what shapes the response.
 
+**Example run** (run 1: mission complete, 3 laps in 145.1 s, 13 pillar passes,
+average 8.7 s per pass):
+
+![Control analysis](https://github.com/Devansh-awat/greenbotics-2026/blob/main/matlab/control_analysis.png?raw=true)
+
+- **Panel B** confirms the controller is the deployed law: every logged
+  command sits on the design line, including the ±45° limit. The few points
+  at 0° are the first frame of each avoidance, where the state switches before
+  the law is applied.
+- **Panel C** shows something the trajectory plot hides: on a few passes the
+  servo command switches rapidly (around 13–14 s after detection) as the
+  pillar drops in and out of the camera ROI. Holding the last command for a few
+  frames is the next thing to test.
+- **Panel E** shows lane offset peaking near 50 cm at the corners, because the
+  default navigation follows a circular lane (see
+  [Known Limitations](#known-limitations)). Between corners the robot stays
+  much closer to the lane centre.
+
 ## How to Run
 
 MATLAB R2024a+ with Image Processing Toolbox.
