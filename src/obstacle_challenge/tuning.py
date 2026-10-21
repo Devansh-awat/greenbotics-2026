@@ -50,7 +50,7 @@ WALL_KD = 0.0003
 # ---------------------------------------------------------------------------
 # Run plan (the phases in main.py: start -> drive -> finish)
 # ---------------------------------------------------------------------------
-DO_INITIAL_MANEUVER = False   # False = skip the scripted start, drive straight away
+DO_INITIAL_MANEUVER = True   # False = skip the scripted start, drive straight away
 TURNS_TO_FINISH = 13         # orange-line turns before the drive phase ends (3 laps = 12 corners + 1)
 FINISH_MODE = 'park'         # 'park' = parallel park after the laps; 'stop' = just brake
 
