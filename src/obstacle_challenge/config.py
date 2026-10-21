@@ -17,29 +17,29 @@ MOTOR_DIR_INVERT = False
 MOTOR_PWM_FREQ = 1000
 MOTOR_PWM_CHIP = 0
 MOTOR_PWM_CHANNEL = 3
-# Raised from the standard 50Hz to cut command-update quantization (20ms->12.5ms).
-# Pulse widths below are absolute (seconds) and SERVO_PWM_PERIOD_S is derived from
-# this, so center/endpoint calibration is unaffected -- verified identical 1.489ms
-# pulse across frequencies.
-#
-# The ES08A II is an ANALOG servo and EMAX publishes no max refresh rate. 80Hz is
-# the highest rate with reported headroom: analog servos drive the motor with a
-# pulse proportional to position error, and once that drive pulse approaches the
-# update interval the internal loop goes unstable. Reported behaviour on analog
-# servos is 80Hz good / 90Hz marginal / 100Hz oscillating -- and the instability
-# shows up on LARGE steps (our 55deg close-block swing), not at rest, so it will
-# not necessarily reveal itself on a stationary bench test.
-# If steering hunts or buzzes during big swings, drop back to 50.
-SERVO_PWM_FREQ = 80
+# Savox SV-1232MG (digital, coreless, HV 6.0-8.4V). Published specs:
+#   frame rate 50-360Hz, neutral 1500us, dead band 3-5us,
+#   operating travel 1000-2000us = ~100deg, max travel 800-2200us (~165deg).
+# Running at the 360Hz maximum so a new steering command reaches the servo within
+# 2.78ms instead of up to 20ms at 50Hz (the period is still longer than the 2.2ms
+# max pulse). Bench-tested 10-360Hz: the holding whine is identical at every rate,
+# so frame rate is chosen purely for latency. Pulse widths below are absolute
+# (seconds) and SERVO_PWM_PERIOD_S is derived from this, so center/endpoint
+# calibration is unaffected by the frequency.
+SERVO_PWM_FREQ = 360
 SERVO_PWM_CHIP = 0
 SERVO_PWM_CHANNEL = 2
+SERVO_DIR_INVERT = True
+# 1000-2000us spans 100deg of servo travel -> 10us/deg, so input angles map 1:1
+# to physical degrees (+-50deg input == 1000/2000us).
 CALIBRATED_MIN_PW_S = 0.001
 CALIBRATED_MAX_PW_S = 0.002
-CALIBRATED_ANGLE_MIN = 42.5
-CALIBRATED_ANGLE_MAX = 137.5
-INPUT_ANGLE_MIN_SERVO = -47.5
-INPUT_ANGLE_MAX_SERVO = 47.5
-SERVO_CENTER_OFFSET = -1.0
-SAFETY_MIN_PW_S = 0.0007
-SAFETY_MAX_PW_S = 0.0023
+CALIBRATED_ANGLE_MIN = 40.0
+CALIBRATED_ANGLE_MAX = 140.0
+INPUT_ANGLE_MIN_SERVO = -50.0
+INPUT_ANGLE_MAX_SERVO = 50.0
+SERVO_CENTER_OFFSET = -10
+# Hard limits = the servo's rated max-travel pulse range.
+SAFETY_MIN_PW_S = 0.0008
+SAFETY_MAX_PW_S = 0.0022
 SERVO_PWM_PERIOD_S = 1.0 / SERVO_PWM_FREQ

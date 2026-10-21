@@ -41,14 +41,17 @@ def initialize():
 
 def set_angle(input_angle: float):
     """
-    Sets the servo to a specific angle, RESPECTING the software limits
-    in the config file (e.g., -45 to +45 degrees).
+    Sets the servo to a specific angle, RESPECTING the software steering limits
+    (+-45 degrees either side of center; applied before the center offset so
+    left and right travel stay equal).
     """
     if servo_pwm is None:
         return
 
-    adjusted_angle = input_angle + config.SERVO_CENTER_OFFSET
-    clamped_input = max(-45.0, min(40.0, adjusted_angle))
+    if getattr(config, "SERVO_DIR_INVERT", False):
+        input_angle = -input_angle
+
+    clamped_input = max(-45.0, min(45.0, input_angle)) + config.SERVO_CENTER_OFFSET
     input_range = config.INPUT_ANGLE_MAX_SERVO - config.INPUT_ANGLE_MIN_SERVO
     output_range = config.CALIBRATED_ANGLE_MAX - config.CALIBRATED_ANGLE_MIN
     target_output_angle = (
@@ -80,8 +83,12 @@ def set_angle_unlimited(input_angle: float):
     if servo_pwm is None:
         return
 
-    unclamped_input = input_angle + config.SERVO_CENTER_OFFSET
-    clamped_input = float(np.clip(unclamped_input, -50.0, 50.0))
+    if getattr(config, "SERVO_DIR_INVERT", False):
+        input_angle = -input_angle
+
+    # +-50 degrees either side of center, applied before the offset so the
+    # limits stay symmetric about the true center.
+    clamped_input = float(np.clip(input_angle, -50.0, 50.0)) + config.SERVO_CENTER_OFFSET
 
     input_range = config.INPUT_ANGLE_MAX_SERVO - config.INPUT_ANGLE_MIN_SERVO
     output_range = config.CALIBRATED_ANGLE_MAX - config.CALIBRATED_ANGLE_MIN
@@ -117,7 +124,7 @@ def cleanup():
         servo_pwm.stop()
 
 
-if __name__ == "__main__":
+def _center_tool():
     print("--- Servo Center-Finding Tool ---")
     if not initialize():
         print("Servo test failed during initialization.")
@@ -129,8 +136,9 @@ if __name__ == "__main__":
         step = STEP_OPTIONS[step_idx]
         angle = 0.0
 
-        # Use set_angle_unlimited so the printed angle maps directly to the
-        # commanded position (set_angle adds a +5 trim offset, hiding center).
+        # Angles here are relative to SERVO_CENTER_OFFSET (both set_angle and
+        # set_angle_unlimited add it). If center is found at angle X, the new
+        # offset is SERVO_CENTER_OFFSET + X.
         set_angle_unlimited(angle)
 
         print(
@@ -172,3 +180,59 @@ if __name__ == "__main__":
             set_angle_unlimited(0)
             time.sleep(0.5)
             cleanup()
+
+
+def _sweep(limit_deg: float, speed_deg_s: float):
+    """Sweep smoothly between -limit and +limit until Ctrl+C."""
+    print(f"--- Servo Sweep: +-{limit_deg:.1f} deg at {speed_deg_s:.0f} deg/s (Ctrl+C to stop) ---")
+    if not initialize():
+        print("Servo test failed during initialization.")
+        return
+
+    # One command per PWM frame; faster writes would just be dropped.
+    period = 1.0 / config.SERVO_PWM_FREQ
+    step = speed_deg_s * period
+    angle = 0.0
+    direction = 1.0
+    try:
+        set_angle_unlimited(angle)
+        next_t = time.monotonic()
+        while True:
+            angle += direction * step
+            if angle >= limit_deg:
+                angle, direction = limit_deg, -1.0
+                print(f"  reached +{limit_deg:.1f}")
+            elif angle <= -limit_deg:
+                angle, direction = -limit_deg, 1.0
+                print(f"  reached -{limit_deg:.1f}")
+            set_angle_unlimited(angle)
+            next_t += period
+            delay = next_t - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            else:
+                next_t = time.monotonic()
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+    finally:
+        set_angle_unlimited(0)
+        time.sleep(0.5)
+        cleanup()
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Servo center-finding / sweep tool")
+    parser.add_argument("-s", "--sweep", action="store_true",
+                        help="sweep back and forth instead of the interactive center tool")
+    parser.add_argument("--limit", type=float, default=45.0,
+                        help="sweep limit in degrees either side of center (default 45)")
+    parser.add_argument("--speed", type=float, default=90.0,
+                        help="sweep speed in deg/s (default 90)")
+    args = parser.parse_args()
+
+    if args.sweep:
+        _sweep(args.limit, args.speed)
+    else:
+        _center_tool()
