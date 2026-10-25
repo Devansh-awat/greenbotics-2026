@@ -235,8 +235,8 @@ def perform_initial_maneuver():
             log.info("Initial maneuver: green block, short forward.")
             return
         elif detected_block_color == 'red':
-            drive_distance_with_gyro(ninety_degree_heading, 17, rpm=200,kp=3)
-            drive_distance_with_gyro(INITIAL_HEADING, 10, 200,kp=3)
+            drive_distance_with_gyro(ninety_degree_heading, 45, rpm=200,kp=3)
+            drive_distance_with_gyro(INITIAL_HEADING, 20, 200,kp=3)
             return
         else:
             drive_distance_with_gyro((INITIAL_HEADING+90)%360, 20, 300)

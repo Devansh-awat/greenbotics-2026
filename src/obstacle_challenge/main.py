@@ -490,6 +490,8 @@ if __name__ == "__main__":
     # the old synchronous rebuild as a fallback, since nothing else will have done it.
     bg_annotator = None
 
+    watchdog_stop = threading.Event()
+
     def _safety_watchdog():
         """E-stop on sustained tilt or a stop-button press, even mid-maneuver.
 
@@ -497,8 +499,7 @@ if __name__ == "__main__":
         brakes the motor itself, then interrupts the main thread to unwind into
         the cleanup in the finally block below."""
         tilt_samples = 0
-        while True:
-            time.sleep(0.02)
+        while not watchdog_stop.wait(0.02):
             reason = None
             if button.is_pressed:
                 reason = "Stop button pressed"
@@ -521,7 +522,8 @@ if __name__ == "__main__":
 
     while button.is_pressed:  # don't treat the start press as a stop press
         time.sleep(0.02)
-    threading.Thread(target=_safety_watchdog, name="safety", daemon=True).start()
+    watchdog_thread = threading.Thread(target=_safety_watchdog, name="safety", daemon=True)
+    watchdog_thread.start()
 
     try:
         run_start_time = time.monotonic()
@@ -606,6 +608,11 @@ if __name__ == "__main__":
         log.exception("ERROR during execution")
 
     finally:
+        # Stop the watchdog before the button/IMU it polls are cleaned up.
+        watchdog_stop.set()
+        if watchdog_thread is not threading.current_thread():
+            watchdog_thread.join(timeout=1)
+
         log.info("Stopping motor RPM control and cleaning up motor...")
         try:
             motor.stop_rpm_control()
