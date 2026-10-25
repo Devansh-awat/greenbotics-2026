@@ -38,6 +38,7 @@ from src.obstacle_challenge.control import get_angular_difference
 from src.threads.hw_threads import CameraThread, ImuThread, PerfMonitor
 from src.logs.setup import Throttle, ilog, log, setup_logging, shutdown_logging
 from src.obstacle_challenge.video import VideoEncoderProcess
+from src.open_challenge.framelog import FrameLog
 from src.tools.power_mode import ensure_performance
 from src.vision import pipeline as vision
 from src.vision.pipeline import annotate_video_frame, process_video_frame
@@ -59,12 +60,13 @@ def actuate(cmd, prev_angle):
 
 class DriveContext:
     """The live objects every drive phase needs, created once in __main__."""
-    def __init__(self, camera_thread, imu_thread, video_encoder, perf, run_start_time):
+    def __init__(self, camera_thread, imu_thread, video_encoder, perf, run_start_time, frame_log):
         self.camera_thread = camera_thread
         self.imu_thread = imu_thread
         self.video_encoder = video_encoder
         self.perf = perf
         self.run_start_time = run_start_time
+        self.frame_log = frame_log
         self.past_frame_counter = 0
         self.prev_angle = 0
         self.frame_debug_throttle = Throttle(1.0)
@@ -132,6 +134,11 @@ def drive_phase(ctx, mem, stop_when):
                     vib["samples"],
                 )
 
+        # In-memory append only; the file is written by FrameLog.close() after the run.
+        ctx.frame_log.append(frame_counter, world, mem, cmd, current_rpm,
+                             ctx.imu_thread.get_heading(), ctx.latest_vibration_deg_s,
+                             latency_ms, proc_ms, skipped)
+
         if ctx.frame_debug_throttle:
             log.debug("f=%d rule=%s angle=%+6.1f turns=%d rpm=%5.1f lat=%5.2fms vis=%4.2fms walls=%d skip=%d",
                       frame_counter, cmd.rule, float(cmd.angle), mem.turns, current_rpm, latency_ms,
@@ -162,6 +169,7 @@ if __name__ == "__main__":
     os.makedirs(run_folder, exist_ok=True)
     video_path = os.path.join(run_folder, 'open.mp4')
     log_path = os.path.join(run_folder, 'open_output.txt')
+    frame_log = FrameLog(os.path.join(run_folder, 'open_frames.jsonl'))
 
     setup_logging(log_path)
     log.info("=== Open Challenge | run %s ===", run_timestamp)
@@ -240,7 +248,7 @@ if __name__ == "__main__":
         run_start_time = time.monotonic()
         motor.start_rpm_control(STRAIGHT_RPM, direction="forward",
                                 ff_reseed=RPM_FF_RESEED, brake_err=RPM_BRAKE_ERR)
-        ctx = DriveContext(camera_thread, imu_thread, video_encoder, perf, run_start_time)
+        ctx = DriveContext(camera_thread, imu_thread, video_encoder, perf, run_start_time, frame_log)
 
         # ---- The run, as phases: drive -> final -> done ----------------------
         # Each phase runs once and names the next. To change the shape of the run,
@@ -330,6 +338,7 @@ if __name__ == "__main__":
         camera_thread.join(timeout=5)
         imu_thread.join(timeout=5)
         log.info("All threads have completed.")
+        frame_log.close()
 
         # Child processes last: the encoder still has queued frames to flush.
         try:
