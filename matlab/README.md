@@ -1,5 +1,10 @@
 # MATLAB Simulation Report — Obstacle Challenge Digital Twin
 
+[![Simulation demo](simulation_preview.gif)](simulation_demo.mp4)
+
+*The simulator on two officially randomized layouts, with the control analysis
+saved after each run. Click the preview for the full video (29 s).*
+
 ## Table of Contents
 - [Problem Statement](#problem-statement)
 - [Project Objectives](#project-objectives)
