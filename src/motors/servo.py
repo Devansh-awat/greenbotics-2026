@@ -48,10 +48,11 @@ def set_angle(input_angle: float):
     if servo_pwm is None:
         return
 
-    if getattr(config, "SERVO_DIR_INVERT", False):
-        input_angle = -input_angle
-
+    # Clamp, then apply the offset in the steering frame (negative = left),
+    # then invert for the servo's mounting direction.
     clamped_input = max(-45.0, min(45.0, input_angle)) + config.SERVO_CENTER_OFFSET
+    if getattr(config, "SERVO_DIR_INVERT", False):
+        clamped_input = -clamped_input
     input_range = config.INPUT_ANGLE_MAX_SERVO - config.INPUT_ANGLE_MIN_SERVO
     output_range = config.CALIBRATED_ANGLE_MAX - config.CALIBRATED_ANGLE_MIN
     target_output_angle = (
@@ -83,12 +84,12 @@ def set_angle_unlimited(input_angle: float):
     if servo_pwm is None:
         return
 
-    if getattr(config, "SERVO_DIR_INVERT", False):
-        input_angle = -input_angle
-
     # +-50 degrees either side of center, applied before the offset so the
-    # limits stay symmetric about the true center.
+    # limits stay symmetric about the true center. The offset is in the
+    # steering frame (negative = left); inversion comes last.
     clamped_input = float(np.clip(input_angle, -50.0, 50.0)) + config.SERVO_CENTER_OFFSET
+    if getattr(config, "SERVO_DIR_INVERT", False):
+        clamped_input = -clamped_input
 
     input_range = config.INPUT_ANGLE_MAX_SERVO - config.INPUT_ANGLE_MIN_SERVO
     output_range = config.CALIBRATED_ANGLE_MAX - config.CALIBRATED_ANGLE_MIN
@@ -136,9 +137,9 @@ def _center_tool():
         step = STEP_OPTIONS[step_idx]
         angle = 0.0
 
-        # Angles here are relative to SERVO_CENTER_OFFSET (both set_angle and
-        # set_angle_unlimited add it). If center is found at angle X, the new
-        # offset is SERVO_CENTER_OFFSET + X.
+        # Running this file zeroes SERVO_CENTER_OFFSET (see __main__), so angles
+        # here are absolute. If center is found at angle X, set
+        # SERVO_CENTER_OFFSET = X in config.py.
         set_angle_unlimited(angle)
 
         print(
@@ -231,6 +232,9 @@ if __name__ == "__main__":
     parser.add_argument("--speed", type=float, default=90.0,
                         help="sweep speed in deg/s (default 90)")
     args = parser.parse_args()
+
+    # Raw servo angles only: don't apply the configured center offset.
+    config.SERVO_CENTER_OFFSET = 0
 
     if args.sweep:
         _sweep(args.limit, args.speed)
