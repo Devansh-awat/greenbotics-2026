@@ -489,8 +489,8 @@ def _rpm_loop(stop_event, period, kwargs):
             applied = _rpm_state.get("applied") or "none yet"
             log.debug("rpm target=%.1f (%s) measured=%.1f duty=%.1f%% applied=%s broke_free=%s",
                       target, direction, measured, duty, applied, broke_free)
-            
-        time.sleep(period)
+                      
+        stop_event.wait(period)
     if _rpm_brake_on_stop:
         _apply_brake()
     else:

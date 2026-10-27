@@ -23,6 +23,7 @@ The legacy mux channel numbers still work: 0 maps to Front, 3 maps to Back.
 """
 
 import struct
+import subprocess
 import time
 import threading
 import busio
@@ -67,9 +68,9 @@ RIGHT_CHANNEL = 27
 SENSORS = {
     FRONT_CHANNEL: (0x2A, "Front VL53L4CD (GPIO17)", True),
     BACK_CHANNEL:  (0x2B, "Back VL53L4CD (GPIO16)",  True),
-    LEFT_CHANNEL:  (0x2C, "Left VL53L4CD (GPIO22)",  False),
-    RIGHT_CHANNEL: (0x2D, "Right VL53L4CD (GPIO27)", False),
 }
+UNUSED_CHANNELS = [LEFT_CHANNEL, RIGHT_CHANNEL]
+ALL_XSHUT_CHANNELS = [FRONT_CHANNEL, BACK_CHANNEL, LEFT_CHANNEL, RIGHT_CHANNEL]
 
 # Bring-up order matters only in that each sensor must be alone at 0x29 when it
 # is probed; _bring_up() guarantees that by leaving the rest in reset.
@@ -196,7 +197,7 @@ def initialise(i2c_bus_num=I2C_BUS, **_ignored):
     try:
         # Initial value False: hold every sensor low (in reset) from the start so
         # only one at a time answers at the default 0x29.
-        for channel in SENSOR_CHANNELS:
+        for channel in SENSOR_CHANNELS + UNUSED_CHANNELS:
             _xshut_devices[channel] = DigitalOutputDevice(channel, initial_value=False)
         time.sleep(0.05)
     except Exception as e:
@@ -293,6 +294,12 @@ def cleanup(silent=False):
         except Exception:
             pass
     _xshut_devices.clear()
+
+    for channel in ALL_XSHUT_CHANNELS:
+        try:
+            subprocess.run(["pinctrl", "set", str(channel), "op", "dl"], check=False)
+        except Exception:
+            pass
 
     # Close I2C bus
     global _i2c

@@ -215,99 +215,103 @@ def sample_phase(name, settle, sample, interval=0.5):
 # ---------------------------------------------------------------------------
 
 def run_full_processing(stop_event):
-    """Start all the main_v2 threads and run its image-processing loop.
+    """Start the obstacle_challenge runtime and run its per-frame loop.
 
-    Mirrors the hot path of main_v2's main loop (camera capture -> sensor +
-    IMU reads -> process_video_frame -> annotate -> video encode -> 60 fps
-    cap). The drive motor is initialized but NEVER commanded to move.
+    Mirrors main.py: VisionPool + 2 VideoEncoderProcess children (forked before
+    any hardware), CameraThread / SensorThread / ImuThread(bno086), then the
+    blocking get_next_frame -> process_video_frame -> annotate -> encode loop.
+    The drive motor and servo are initialized but NEVER commanded.
     """
-    from src.obstacle_challenge.legacy import main_v2
-    from src.sensors import bno055, camera, distance
+    from src.obstacle_challenge.tuning import USE_VISION_POOL, VIDEO_FOURCC
+    from src.obstacle_challenge.video import VideoEncoderProcess
+    from src.threads.hw_threads import CameraThread, ImuThread, SensorThread
+    from src.sensors import bno086, camera, distance
     from src.motors import motor, servo
+    from src.vision import pipeline as vision
+    from src.vision.pipeline import annotate_video_frame, process_video_frame
+    from src.vision.pool import VisionPool
+    from src.tools.power_mode import ensure_performance
     import cv2
     import os
 
     scratch = os.environ.get("SCRATCH_DIR", "/tmp")
     video_path = os.path.join(scratch, "power_profile_dummy.mp4")
+    parking_path = os.path.join(scratch, "power_profile_dummy_parking.mp4")
 
-    camera_thread = sensor_thread = imu_thread = video_writer_thread = None
+    ensure_performance()
+    pool = encoder = parking_encoder = None
+    camera_thread = sensor_thread = imu_thread = None
     motor_ok = servo_ok = False
     try:
+        # Fork-based children first, as main.py does.
+        if USE_VISION_POOL:
+            pool = VisionPool()
+            pool.start()
+            vision.vision_pool = pool
+            cv2.setNumThreads(2)
+        else:
+            cv2.setNumThreads(4)
+        encoder = VideoEncoderProcess(video_path, VIDEO_FOURCC)
+        encoder.start()
+        parking_encoder = VideoEncoderProcess(parking_path, VIDEO_FOURCC)
+        parking_encoder.start()
+
         print("[full] initializing camera / motor / servo ...", flush=True)
         camera.initialize()
-        motor_ok = motor.initialize()   # ends in standby(), duty 0 -> no motion
-        servo_ok = servo.initialize()
-        if servo_ok:
-            servo.set_angle(0)          # center wheels; does not drive the robot
+        motor_ok = motor.initialize()   # standby, duty 0 -> no motion
+        servo_ok = servo.initialize()   # never commanded
 
-        fourcc = cv2.VideoWriter_fourcc(*"avc1")
-        video_writer_thread = main_v2.VideoWriterThread(video_path, fourcc, 10, (640, 360))
-        video_writer_thread.start()
-
-        camera_thread = main_v2.CameraThread(camera)
+        camera_thread = CameraThread(camera)
         camera_thread.start()
 
         sensors_evt = threading.Event()
-        sensor_thread = main_v2.SensorThread(distance, sensors_evt)
+        sensor_thread = SensorThread(distance, sensors_evt)
         sensor_thread.start()
         print("[full] waiting for ToF sensors ...", flush=True)
         sensors_evt.wait(timeout=15)
 
         imu_evt = threading.Event()
-        imu_thread = main_v2.ImuThread(bno055, imu_evt)
+        imu_thread = ImuThread(bno086, imu_evt)
         imu_thread.start()
         print("[full] waiting for IMU ...", flush=True)
         imu_evt.wait(timeout=15)
 
         print("[full] processing loop running (robot stationary) ...", flush=True)
-        past_counter = 0
-        frame_start = time.perf_counter()
+        counter = 0
         while not stop_event.is_set():
-            got = camera_thread.get_frame()
-            if got is None:
-                time.sleep(0.005)
+            frame, counter, _ = camera_thread.get_next_frame(counter, timeout=1.0)
+            if frame is None:
                 continue
-            frame, counter = got
-            if counter == past_counter:
-                time.sleep(0.001)
-                continue
-            past_counter = counter
-
-            # same reads main_v2 does every frame
             _ = sensor_thread.get_readings()
             _ = imu_thread.get_heading()
-
-            detections = main_v2.process_video_frame(frame)
-            annotated = main_v2.annotate_video_frame(
-                frame, detections, "clockwise", debug_info="power_profile"
-            )
-            try:
-                video_writer_thread.write(annotated)
-            except Exception:
-                pass
-
-            # NOTE: deliberately NO motor.forward()/servo.set_angle() here.
-
-            elapsed = time.perf_counter() - frame_start
-            if elapsed < 1 / 60:
-                time.sleep(1 / 60 - elapsed)
-            frame_start = time.perf_counter()
+            detections = process_video_frame(frame)
+            encoder.write(
+                frame, tag=counter,
+                prepare=lambda f, det=detections: annotate_video_frame(
+                    f, det, "clockwise", debug_info="power_profile"))
+            # NOTE: deliberately NO motor/servo commands here.
 
     except Exception:
         print("[full] ERROR in processing worker:", flush=True)
         traceback.print_exc()
     finally:
-        print("[full] tearing down threads ...", flush=True)
-        for t in (camera_thread, sensor_thread, imu_thread, video_writer_thread):
+        print("[full] tearing down ...", flush=True)
+        for t in (camera_thread, sensor_thread, imu_thread):
             try:
                 if t is not None:
                     t.stop()
             except Exception:
                 pass
-        for t in (camera_thread, sensor_thread, imu_thread, video_writer_thread):
+        for t in (camera_thread, sensor_thread, imu_thread):
             try:
                 if t is not None:
                     t.join(timeout=5)
+            except Exception:
+                pass
+        for obj in (encoder, parking_encoder, pool):
+            try:
+                if obj is not None:
+                    obj.stop()
             except Exception:
                 pass
         try:

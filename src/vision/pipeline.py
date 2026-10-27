@@ -1120,6 +1120,8 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
         all_rois.append(close_block_roi)
     for x, y, w, h in all_rois:
         cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), light_blue, 2)
+    px0, py0, px1, py1 = ARENA_PCB_RECT
+    cv2.rectangle(annotated_frame, (px0, py0), (px1, py1), (255, 255, 255), 3)
     for name, (x0, y0, x1, y1) in _PATCHES.items():
         if OBJECTS[name]['kind'] == 'custom':
             cv2.rectangle(annotated_frame, (x0, GLOBAL_Y_OFFSET + y0), (x1, GLOBAL_Y_OFFSET + y1),
@@ -1148,7 +1150,7 @@ def annotate_video_frame(frame, detections, driving_direction, debug_info="", vi
 
         # skyline: the per-column top boundary. Tune ARENA_TOP_MARGIN against this.
         arena_sky = detections.get('arena_sky')
-        if arena_sky is not None:
+        if arena_sky is not None and ARENA_MASK_MODE != 'contour':
             pts = np.stack([np.arange(FRAME_WIDTH, dtype=np.int32),
                             np.asarray(arena_sky).astype(np.int32) + ARENA_Y_TOP], axis=1)
             cv2.polylines(annotated_frame, [pts], False, (0, 200, 255), 1)

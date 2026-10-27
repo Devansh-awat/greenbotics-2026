@@ -166,7 +166,7 @@ SPEED_ROI_BOTTOM_PAD = 20         # bottom px of full_frame_roi: pillar this low
 #     'contour'  Gate to the floor contour itself rather than a per-column boundary.
 #   Every mode except 'walltop' also switches the floor blob from NOT(black) to
 #   positive floor colour, which is what stops a grey surround joining the blob.
-ARENA_MASK_MODE = 'skyline'
+ARENA_MASK_MODE = 'contour'
 
 # WALL_BAND_PX -- wall following keeps only black within
 #   WALL_BAND_SLOPE * boundary_row + WALL_BAND_PX px above the floor boundary.
@@ -306,7 +306,7 @@ PERF_REPORT_PERIOD = 2.0   # seconds between INFO-level perf summaries
 HSV_RANGES = {
     'LOWER_RED_1': np.array([0, 80, 43]), 'UPPER_RED_1': np.array([5, 230, 180]),
     'LOWER_RED_2': np.array([176, 80, 43]), 'UPPER_RED_2': np.array([180, 230, 180]),
-    'LOWER_GREEN': np.array([50, 90, 38]), 'UPPER_GREEN': np.array([88, 255, 255]),
+    'LOWER_GREEN': np.array([50, 90, 23]), 'UPPER_GREEN': np.array([88, 255, 255]),
     'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 110, 85]),
     # The mat, for the arena mask's floor blob. Measured off the mat around the nose
     # seed on three 2026-08-24 runs: S 4-15, V 167-190. The ceiling that matters is
@@ -315,7 +315,7 @@ HSV_RANGES = {
     'LOWER_WHITE': np.array([0, 0, 110]), 'UPPER_WHITE': np.array([180, 60, 255]),
     'LOWER_ORANGE': np.array([10, 53, 102]), 'UPPER_ORANGE': np.array([23, 212, 229]),
     'LOWER_BLUE': np.array([110, 50, 53]), 'UPPER_BLUE': np.array([126, 255, 255]),
-    'LOWER_MAGENTA': np.array([145, 73, 40]), 'UPPER_MAGENTA': np.array([170, 255, 223]),
+    'LOWER_MAGENTA': np.array([145, 73, 40]), 'UPPER_MAGENTA': np.array([171, 255, 223]),
 }
 
 LAB_RANGES = {
