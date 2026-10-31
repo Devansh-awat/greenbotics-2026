@@ -1,0 +1,33 @@
+# WRO FE 2026 - Pillar Configuration Input File
+# ================================================
+# Add / edit configurations below. Each line follows the format:
+#
+#     <ConfigName> = <number><Color> <number><Color> ...
+#
+#   - ConfigName: any label, e.g. M1, M2, M7, Final_Round, etc.
+#     The generated image will be saved as "<ConfigName>.jpeg"
+#   - Each pillar entry is a number (1-21) immediately followed by
+#     its color letter: G (Green) or R (Red). Spaces between the
+#     number and letter are OK too (e.g. "7 R" or "7R" both work).
+#
+# Lines starting with # are comments and are ignored.
+# Blank lines are ignored.
+#
+# To add a new configuration, just add a new line below following
+# the same format. To edit an existing one, just change its line.
+#
+# NOTE: M1-M7 below are ordered to MINIMIZE total pillar movement
+# from one field setup to the next during the test session (computed
+# via optimize_sequence.py - exact brute-force search over all 5040
+# possible orderings). Total movements across the sequence: 34.
+# The original hand-picked combinations are unchanged - only the
+# run order/labels were re-sequenced. Run optimize_sequence.py again
+# if configurations are added/changed and you want to re-optimize.
+
+M1 = 5G 7R 10R 15G 19R 1G 3R
+M2 = 5G 7R 10G 15R 18R 1G 3R
+M3 = 5R 7R 10G 15G 18R 2G 3G
+M4 = 4G 2R 18R 16R 12G 10G 6R
+M5 = 5G 6G 10G 12G 16R 18G 2R 3R
+M6 = 5R 6G 11R 12G 17R 18G 2R 3G
+M7 = 4R 2R 19G 17R 12G 11R 6G

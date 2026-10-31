@@ -2,7 +2,7 @@
 
 This is a code walkthrough for the Python code that runs on the Raspberry Pi 5. It covers hardware interfaces, program flow, and core algorithm logic.
 
-See the main [Main Readme - 5.3](../README.md#53-software-setup--running-the-robot) for install steps and detailed design aspects in main [ - 3](Main Readme../README.md#3-software-architecture--obstacle-strategy)
+See the main [Main README - 6.3](../README.md#63-software-setup-and-running-the-robot) for install steps and detailed design aspects in main [README - 4](../README.md#4-software-architecture-and-obstacle-strategy)
 
 ## 1. Hardware Interfaces
 
@@ -40,18 +40,18 @@ for channel in SENSOR_CHANNELS:
 # then _bring_up() releases one XSHUT at a time and re-addresses that sensor
 ```
 
-**Encoder PIO program** (`sensors/encoder.py`) loads a small assembly program onto RP1 that counts quadrature pulses in hardware. This keeps every pulse count accurate no matter how busy the CPU gets — see [Main Readme 3.7.1](../README.md#371-why-pio-for-the-encoder) for the full explanation.
+**Encoder PIO program** (`sensors/encoder.py`) loads a small assembly program onto RP1 that counts quadrature pulses in hardware. This keeps every pulse count accurate no matter how busy the CPU gets — see [Main README 4.8.1](../README.md#481-why-pio-for-the-encoder) for the full explanation.
 
 ## 2. Program Flow
 
 Both challenges run a sense → decide → act loop. The main README has the flowcharts for this:
-- Open Challenge flow: [Main Readme 3.3, Open Challenge section](../README.md#33-open-challenge--srcopen_challengemainpy)
-- Obstacle Challenge state machine: [Main Readme 3.4 , Obstacle Challenge section](../README.md#34-obstacle-challenge--state-machine--algorithms)
-- Threading model: [Main Readme 3.2.1 , System Architecture](../README.md#321-threading-model)
+- Open Challenge flow: [Main README 4.3, Open Challenge section](../README.md#43-open-challenge-flow-chart-and-algorithm)
+- Obstacle Challenge state machine: [Main README 4.4, Obstacle Challenge section](../README.md#44-obstacle-challenge-state-machine-and-algorithms)
+- Threading model: [Main README 4.2.1, System Architecture](../README.md#421-threading-model)
 
 Here are some important code snippets explaining the core algorithms we have used: 
 
-**Priority state machine** runs fresh every frame inside the main loop, and the highest priority match wins. The main README has the full state table in [Main Readme 3.4.1](../README.md#341-states--priority-order):
+**Priority state machine** runs fresh every frame inside the main loop, and the highest priority match wins. The main README has the full state table in [Main README 4.4.1](../README.md#441-states-and-priority-order):
 
 ```python
 if close_black_area > 3000:
@@ -89,7 +89,7 @@ if not orange_detection_history[-4] and all(list(orange_detection_history)[1:]):
     cooldown_frames = ORANGE_COOLDOWN_FRAMES   # 50-frame cooldown
 ```
 
-[Main Readme 3.4.8](../README.md#348-parking-algorithm) covers the parking sequence, edge cases, and parameter tuning in full detail.
+[Main README 4.4.8](../README.md#448-parking-algorithm) covers the parking sequence, edge cases, and parameter tuning in full detail.
 
 
 
