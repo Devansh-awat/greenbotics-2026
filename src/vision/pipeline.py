@@ -474,6 +474,8 @@ def build_arena_mask_from_prepared(cs_slice):
         sky = _sliding_median(sky, ARENA_SKY_SMOOTH)
         sky = np.clip(sky, 0, ARENA_BAND_H)
 
+    elif ARENA_MASK_MODE == 'contour':
+        sky = np.zeros(FRAME_WIDTH, dtype=np.int32)
     else:
         floor_b = floor > 0
         if ARENA_MASK_MODE == 'filldown':
