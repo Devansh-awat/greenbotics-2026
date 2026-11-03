@@ -1,14 +1,16 @@
 # Documentation (`docs/`)
 
-This folder holds the supporting diagrams referenced throughout the main [README](../README.md). It contains a single `diagrams/` subfolder, organized by subsystem, holding PNG/JPG/GIF images and their `.drawio` source files.
+This folder holds the supporting material for the main [README](../README.md): diagrams and photos, experiment data, and the Engineering Journal PDF.
 
 ## Folder Purpose Map
 
 | Path | Contents | Referenced from (main README section) |
 |---|---|---|
-| `diagrams/mobility/` | PNG/JPEG diagrams and photos for drivetrain, steering, differential, and speed/torque calculations. | Section 1 — Mobility & Mechanical Design |
-| `diagrams/powerNsense/` | PNG/JPEG diagrams and photos for power architecture, wiring, circuit, and sensor placement/calibration. Includes `.drawio` source files alongside their exported `.png`. | Section 2 — Power & Sensor Architecture |
-| `diagrams/software/` | PNG diagrams for software architecture, state machine, and control loops, with `.drawio` sources. Its `pipeline/` sub-subfolder holds vision-pipeline stage screenshots (raw frame → HSV → masks → annotated output). | Section 3 — Software Architecture & Obstacle Strategy |
-| `diagrams/systemsThinking/` | PNG/JPEG/GIF diagrams and photographic evidence for system integration and failure-analysis case studies. | Section 4 — Systems Thinking & Engineering Decisions |
-
-Each subfolder is a flat collection of images (and, where applicable, their `.drawio` source) for that subsystem. 
+| `diagrams/` (top level) | Team logo, QR codes, video thumbnail, 2025 scoreboard and the 2025 vs 2026 comparison image. | Section 1 — Introduction |
+| `diagrams/mobility/` | Diagrams, photos and GIFs for drivetrain, steering, differential, and speed/torque calculations. | Section 2 — Mobility and Mechanical Design |
+| `diagrams/powerNsense/` | Diagrams and photos for power architecture, wiring, circuit, and sensor placement and calibration. `.drawio` source files sit next to their exported `.png`. | Section 3 — Power and Sensor Architecture |
+| `diagrams/software/` | Diagrams, GIFs and test logs for software architecture, state machine, control loops and troubleshooting, with `.drawio` sources. The `pipeline/` subfolder holds the vision-pipeline stage images (raw frame → HSV → masks → annotated output). | Section 4 — Software Architecture and Obstacle Strategy |
+| `diagrams/systemsThinking/` | Diagrams, photos and GIFs for system integration and failure-analysis case studies, with `.drawio` sources. | Section 5 — Systems Thinking and Engineering Decisions |
+| `diagrams/gitNReproducibility/` | Photos and images for the build instructions. | Section 6 — Reproducibility and GitHub Organization |
+| `experiments/` | Raw data from the encoder precision experiment (Excel file). | Section 2.10.2 |
+| `Engineering_Journal/` | Printable PDF export of the main README. See its own [README](Engineering_Journal/README.md). | Section 6.6 |
