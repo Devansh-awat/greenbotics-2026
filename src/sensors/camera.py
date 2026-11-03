@@ -43,6 +43,21 @@ def capture_frame():
         return frame
     return None
 
+def capture_frame_with_metadata():
+    """Like capture_frame(), plus the libcamera metadata of THAT frame.
+
+    capture_metadata() called next to capture_frame() returns the metadata of
+    whichever frame comes next, not the one you got -- a request keeps the pair
+    together. Returns (frame, metadata dict), or (None, None) without a camera.
+    """
+    if not picam2:
+        return None, None
+    request = picam2.capture_request()
+    try:
+        return request.make_array("main"), request.get_metadata()
+    finally:
+        request.release()
+
 def cleanup():
     """Stops the camera."""
     print("--- Cleaning up Camera ---")

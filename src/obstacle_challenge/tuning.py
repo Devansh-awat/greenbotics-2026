@@ -30,7 +30,7 @@ POST_RED_MAX_ANGLE = 25
 # At the far left edge (x=0), handoff can happen higher in frame (y >= 207).
 # As the block approaches the center (x=150), it must be lower in frame (y >= 240).
 RED_HANDOFF_X_EDGE = 0
-RED_HANDOFF_Y_EDGE = 200
+RED_HANDOFF_Y_EDGE = 180
 RED_HANDOFF_X_CENTER = 150
 RED_HANDOFF_Y_CENTER = 240
 
@@ -306,7 +306,7 @@ PERF_REPORT_PERIOD = 2.0   # seconds between INFO-level perf summaries
 HSV_RANGES = {
     'LOWER_RED_1': np.array([0, 80, 43]), 'UPPER_RED_1': np.array([5, 230, 180]),
     'LOWER_RED_2': np.array([176, 80, 43]), 'UPPER_RED_2': np.array([180, 230, 180]),
-    'LOWER_GREEN': np.array([50, 90, 23]), 'UPPER_GREEN': np.array([88, 255, 255]),
+    'LOWER_GREEN': np.array([50, 54, 35]), 'UPPER_GREEN': np.array([88, 255, 255]),
     'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 110, 85]),
     # The mat, for the arena mask's floor blob. Measured off the mat around the nose
     # seed on three 2026-08-24 runs: S 4-15, V 167-190. The ceiling that matters is

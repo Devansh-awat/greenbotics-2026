@@ -266,7 +266,7 @@ def parking():
         target_turn_heading = (INITIAL_HEADING + 90) % 360
         has_turned = get_angular_difference(target_turn_heading, heading) < 15
         if sensor_readings['distance_back'] is not None:
-            if has_turned and sensor_readings['distance_back'] < 160:
+            if has_turned and sensor_readings['distance_back'] < 110:
                 break
         if time.monotonic() - parking_start > 6.0:
             plog.warning("Parking reverse timeout reached!")
@@ -363,7 +363,7 @@ def parking():
     if bg_annotator is not None:
         bg_annotator.resume()
     servo.set_angle(0)
-    time.sleep(0.21)  # INCREASING MAKES ROBOT STOP MORE FORWARD
+    time.sleep(0.18)  # INCREASING MAKES ROBOT STOP MORE FORWARD
     motor.stop_rpm_control()
     time.sleep(0.3)
     motor.start_rpm_control(70, "reverse")
@@ -679,7 +679,7 @@ def parking2():
         if throttle:
             plog.debug("reverse 2 for parking: back=%s heading=%s", _fmt(dist), _fmt(imu_thread.get_heading()))
         if dist is not None:
-            if dist <= 120:
+            if dist <= 100:
                 break
         if get_angular_difference((INITIAL_HEADING-180)%360, imu_thread.get_heading()) < 2:
             break
