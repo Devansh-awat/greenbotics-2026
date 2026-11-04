@@ -447,7 +447,7 @@ if __name__ == "__main__":
         button.wait_for_press()
         log.info("Button pressed! Starting run.")
         led.off()
-        time.sleep(1)
+        time.sleep(0.3)
     led.off()
     subprocess.run(["pinctrl", "FAN_PWM", "op", "dl"], check=False)
     driving_direction = detect_driving_direction(camera_thread, video_encoder, overlay_log, record_raw)

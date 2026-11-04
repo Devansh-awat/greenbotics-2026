@@ -7,6 +7,10 @@ from src.obstacle_challenge import config
 servo_pwm = None
 _MAX_PWM_RETRIES = 5
 _PWM_RETRY_DELAY = 0.1
+# Servo voltage starts dropping beyond this on the negative (left) side, so the
+# final commanded angle (offset included, before inversion) is floored here.
+# The positive end is fine and is left alone.
+_MIN_SERVO_ANGLE = -41.0
 
 def initialize():
     """Initializes the servo motor PWM with retries in case the kernel is busy."""
@@ -51,6 +55,7 @@ def set_angle(input_angle: float):
     # Clamp, then apply the offset in the steering frame (negative = left),
     # then invert for the servo's mounting direction.
     clamped_input = max(-45.0, min(45.0, input_angle)) + config.SERVO_CENTER_OFFSET
+    clamped_input = max(_MIN_SERVO_ANGLE, clamped_input)
     if getattr(config, "SERVO_DIR_INVERT", False):
         clamped_input = -clamped_input
     input_range = config.INPUT_ANGLE_MAX_SERVO - config.INPUT_ANGLE_MIN_SERVO
@@ -88,6 +93,7 @@ def set_angle_unlimited(input_angle: float):
     # limits stay symmetric about the true center. The offset is in the
     # steering frame (negative = left); inversion comes last.
     clamped_input = float(np.clip(input_angle, -50.0, 50.0)) + config.SERVO_CENTER_OFFSET
+    clamped_input = max(_MIN_SERVO_ANGLE, clamped_input)
     if getattr(config, "SERVO_DIR_INVERT", False):
         clamped_input = -clamped_input
 

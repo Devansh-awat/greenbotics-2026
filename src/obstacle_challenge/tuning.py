@@ -304,18 +304,14 @@ VIDEO_FPS = 10.0
 PERF_REPORT_PERIOD = 2.0   # seconds between INFO-level perf summaries
 
 HSV_RANGES = {
-    'LOWER_RED_1': np.array([0, 80, 43]), 'UPPER_RED_1': np.array([5, 230, 180]),
-    'LOWER_RED_2': np.array([176, 80, 43]), 'UPPER_RED_2': np.array([180, 230, 180]),
-    'LOWER_GREEN': np.array([50, 54, 35]), 'UPPER_GREEN': np.array([88, 255, 255]),
+    'LOWER_RED_1': np.array([0, 80, 29]), 'UPPER_RED_1': np.array([5, 230, 180]),
+    'LOWER_RED_2': np.array([176, 80, 29]), 'UPPER_RED_2': np.array([180, 230, 180]),
+    'LOWER_GREEN': np.array([50, 54, 26]), 'UPPER_GREEN': np.array([88, 255, 255]),
     'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 110, 85]),
-    # The mat, for the arena mask's floor blob. Measured off the mat around the nose
-    # seed on three 2026-08-24 runs: S 4-15, V 167-190. The ceiling that matters is
-    # UPPER_BLACK's V of 85 -- keep V_MIN clear of it. Re-measure in a new venue with
-    # src/tools/video_color_tuning.py; too low a V_MIN lets a grey hall floor in.
-    'LOWER_WHITE': np.array([0, 0, 110]), 'UPPER_WHITE': np.array([180, 60, 255]),
     'LOWER_ORANGE': np.array([10, 53, 102]), 'UPPER_ORANGE': np.array([23, 212, 229]),
-    'LOWER_BLUE': np.array([110, 50, 53]), 'UPPER_BLUE': np.array([126, 255, 255]),
+    'LOWER_BLUE': np.array([110, 50, 47]), 'UPPER_BLUE': np.array([126, 255, 255]),
     'LOWER_MAGENTA': np.array([145, 73, 40]), 'UPPER_MAGENTA': np.array([171, 255, 223]),
+    'LOWER_WHITE': np.array([0, 0, 110]), 'UPPER_WHITE': np.array([180, 60, 255]),
 }
 
 LAB_RANGES = {

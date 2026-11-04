@@ -28,7 +28,7 @@ USE_ARENA_MASK = True
 # The robot's own PCB is always in view at the bottom centre. Its dark/red parts read as
 # a wall and drag the arena skyline down to the nose, so inside this fixed frame-coordinate
 # rectangle (x0, y0, x1, y1) the arena mask treats every pixel as plain white floor.
-ARENA_PCB_RECT = (245, 262, 415, 360)
+ARENA_PCB_RECT = (245, 248, 415, 360)
 
 # How the arena's top boundary is found. 'walltop' is the ORIGINAL and the default:
 # every other mode is opt-in, and with the defaults in this block the pipeline behaves

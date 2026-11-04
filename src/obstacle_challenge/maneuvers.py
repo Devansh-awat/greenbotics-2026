@@ -363,7 +363,7 @@ def parking():
     if bg_annotator is not None:
         bg_annotator.resume()
     servo.set_angle(0)
-    time.sleep(0.18)  # INCREASING MAKES ROBOT STOP MORE FORWARD
+    time.sleep(0.15)  # INCREASING MAKES ROBOT STOP MORE FORWARD
     motor.stop_rpm_control()
     time.sleep(0.3)
     motor.start_rpm_control(70, "reverse")
@@ -605,7 +605,7 @@ def parking2():
     if bg_annotator is not None:
         bg_annotator.resume()
     servo.set_angle(1)
-    time.sleep(0.17)
+    time.sleep(0.15)
     motor.stop_rpm_control()
     plog.info("[Parking2 4/10] Completed in %.2fs", time.monotonic() - t_step)
     time.sleep(0.3)
