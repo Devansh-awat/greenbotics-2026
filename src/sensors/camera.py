@@ -43,6 +43,29 @@ def capture_frame():
         return frame
     return None
 
+# libcamera metadata keys worth logging per frame (AWB/AE state and the colour
+# pipeline). The full dict also has per-frame timing/focus noise that would triple
+# the log for nothing.
+META_KEYS = (
+    "ColourGains", "AnalogueGain", "DigitalGain", "ExposureTime", "ColourTemperature",
+    "Lux", "ColourCorrectionMatrix", "SensorBlackLevels", "AeLocked", "FrameDuration",
+    "SensorTimestamp",
+)
+
+
+def _jsonable(v):
+    if isinstance(v, (list, tuple)):
+        return [_jsonable(x) for x in v]
+    if isinstance(v, float):
+        return round(v, 5)
+    return v
+
+
+def metadata_row(meta):
+    """The META_KEYS subset of a metadata dict, JSON-ready (floats rounded)."""
+    return {k: _jsonable(meta[k]) for k in META_KEYS if k in meta}
+
+
 def capture_frame_with_metadata():
     """Like capture_frame(), plus the libcamera metadata of THAT frame.
 

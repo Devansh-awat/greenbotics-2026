@@ -108,7 +108,7 @@ def configure(cfg):
     global LOWER_BLACK, UPPER_BLACK, LOWER_WHITE, UPPER_WHITE, _FLOOR_RANGES
     global LOWER_ORANGE, UPPER_ORANGE, LOWER_BLUE, UPPER_BLUE
     global LOWER_RED_1, UPPER_RED_1, LOWER_RED_2, UPPER_RED_2, LOWER_GREEN, UPPER_GREEN, LOWER_MAGENTA, UPPER_MAGENTA
-    global SWAP_RED_GREEN, OBJECTS, COLOUR_MASK_NAMES, MASK_NAMES, DETECTION_LISTS
+    global SWAP_RED_GREEN, OBJECTS, COLOUR_MASK_NAMES, MASK_NAMES, DETECTION_LISTS, COLOUR_SPLIT
     global WALL_MIN_AREA, BLOCK_MIN_AREA, MAGENTA_MIN_AREA, CLOSE_BLOCK_MIN_AREA
     global RED_HANDOFF_X_EDGE, RED_HANDOFF_Y_EDGE, RED_HANDOFF_X_CENTER, RED_HANDOFF_Y_CENTER, GREEN_HANDOFF_MIN_Y, GREEN_HANDOFF_MIN_X
     global left_roi_x, left_roi_y, left_roi_w, left_roi_h
@@ -176,6 +176,16 @@ def configure(cfg):
     # here or every pillar is a hole in the blob and stops the upward walk on its own
     # base.
     _FLOOR_RANGES = [(LOWER_WHITE, UPPER_WHITE)] + [r for o in OBJECTS.values() for r in o['ranges']]
+
+    COLOUR_SPLIT = getattr(cfg, 'COLOUR_SPLIT', None)
+    if COLOUR_SPLIT is not None:
+        if USE_LAB or not {COLOUR_SPLIT['low'], COLOUR_SPLIT['high']} <= set(OBJECTS):
+            logging.getLogger(__name__).warning(
+                "COLOUR_SPLIT ignored (needs HSV and both %r/%r in OBJECTS)",
+                COLOUR_SPLIT['low'], COLOUR_SPLIT['high'])
+            COLOUR_SPLIT = None
+        else:
+            _FLOOR_RANGES = _FLOOR_RANGES + list(COLOUR_SPLIT['band'])
 
     WALL_MIN_AREA = getattr(cfg, 'WALL_MIN_AREA')
     BLOCK_MIN_AREA = getattr(cfg, 'BLOCK_MIN_AREA')
@@ -624,6 +634,130 @@ def _threshold(cs, ranges):
     return mask
 
 
+# Last good mat colour (B, G) -- used when a frame shows too little mat (nose into a
+# wall). Per process: only the colour worker (or the inline path) calls this.
+_MAT_BG = None
+_MAT_DEFAULT = (170.0, 170.0)
+_MAT_MIN_SAMPLES = 40
+
+
+def _mat_reference(cs_slice):
+    """(B, G) of the white mat in this slice, from a 1-in-64 pixel sample."""
+    global _MAT_BG
+    lo, hi = COLOUR_SPLIT['mat']
+    sample = cs_slice[::8, ::8]
+    m = cv2.inRange(sample, lo, hi) > 0
+    # The robot's own PCB is white-ish in places; keep it out of the reference.
+    x0, y0, x1, _ = ARENA_PCB_RECT
+    ys = max(0, y0 - GLOBAL_Y_OFFSET) // 8
+    m[ys:, x0 // 8:x1 // 8] = False
+    if np.count_nonzero(m) >= _MAT_MIN_SAMPLES:
+        bgr = cv2.cvtColor(sample[m].reshape(-1, 1, 3), cv2.COLOR_HSV2BGR).reshape(-1, 3)
+        b, g = np.median(bgr[:, 0]), np.median(bgr[:, 1])
+        _MAT_BG = (max(float(b), 1.0), max(float(g), 1.0))
+    return _MAT_BG or _MAT_DEFAULT
+
+
+def _balanced_low(px, kb, kg, thr):
+    """For HSV pixels (N x 3, float32) in the band: is the mat-balanced score
+    100*(B/B_mat - G/G_mat) below `thr`? Also returns V.
+
+    B and G come straight from HSV, no BGR conversion: every band pixel has R as
+    its max channel (V). chroma = S*V/255. Hue 145..180: G is the min and
+    B = G + chroma*(180-H)/30. Hue 0..10: B is the min and G = B + chroma*H/30.
+    """
+    hh, v = px[:, 0], px[:, 2]
+    chroma = px[:, 1] * v * (1.0 / 255.0)
+    mn = v - chroma
+    mag_side = hh >= 90
+    b = np.where(mag_side, mn + chroma * (180.0 - hh) * (1.0 / 30.0), mn)
+    g = np.where(mag_side, mn, mn + chroma * hh * (1.0 / 30.0))
+    return (b * kb - g * kg) < thr, v
+
+
+def split_low_high(cs_slice):
+    """COLOUR_SPLIT's two masks ({low: mask, high: mask}) for an HSV slice.
+
+    One band mask covers both colours; each 8-connected blob is labelled by a
+    majority vote of its pixels' mat-balanced score 100*(B/B_mat - G/G_mat), and a
+    blob that is a pillar merged with a wall is split instead. The reasoning and
+    the measurements behind every number are at COLOUR_SPLIT in tuning.py.
+
+    Speed: the per-blob statistics (vote, mean V of the low/high parts) come from
+    every 2nd row only -- they are blob-level numbers, and halving the pixels is
+    what keeps this near the arena worker's time. The low colour is painted blob
+    by blob inside each bounding box, and only blobs that look like a pillar
+    merged with a wall are scored at full resolution, inside their own box.
+    """
+    sp = COLOUR_SPLIT
+    thr = sp['threshold']
+    fmin, fmax = sp['mixed_frac']
+    mat_b, mat_g = _mat_reference(cs_slice)
+    kb, kg = 100.0 / mat_b, 100.0 / mat_g
+
+    band = _threshold(cs_slice, sp['band'])
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(band, connectivity=8)
+    if n <= 1:
+        return {sp['low']: np.zeros_like(band), sp['high']: np.zeros_like(band)}
+
+    # Blob statistics from every 2nd row.
+    half_lab = labels[::2]
+    sel = np.flatnonzero(half_lab)
+    px = np.take(cs_slice[::2].reshape(-1, 3), sel, axis=0).astype(np.float32)
+    lab = half_lab.reshape(-1)[sel]
+    lo, v = _balanced_low(px, kb, kg, thr)
+
+    cnt = np.bincount(lab, minlength=n)
+    n_lo = np.bincount(lab, weights=lo, minlength=n)
+    frac = n_lo / np.maximum(cnt, 1)
+    v_sum = np.bincount(lab, weights=v, minlength=n)
+    v_sum_lo = np.bincount(lab, weights=v * lo, minlength=n)
+    v_lo = v_sum_lo / np.maximum(n_lo, 1)
+    v_hi = (v_sum - v_sum_lo) / np.maximum(cnt - n_lo, 1)
+
+    area = stats[:, cv2.CC_STAT_AREA]
+    big = (area >= SPLIT_MIN_BLOB_PX) & (cnt > 0)
+    big[0] = False
+
+    # Paint the low colour blob by blob inside each bounding box (there are only
+    # ~10-25 blobs); the high colour is then just "band and not low". Specks below
+    # SPLIT_MIN_BLOB_PX end up in the high mask, far below its 300 px min_area.
+    low = np.zeros_like(band)
+    mixed = big & (frac > fmin) & (frac < fmax) & (v_lo < sp['mixed_v_ratio'] * v_hi)
+    for i in np.nonzero(big & ((frac > 0.5) | mixed))[0]:
+        x, y, w, h, a = stats[i]
+        member = labels[y:y + h, x:x + w] == i
+        if mixed[i]:
+            # A pillar merged with a wall: its pixels are low AND darker. Its
+            # connected regions that are upright and big enough become the low
+            # colour; if none qualify, the blob keeps its majority vote. Scored on
+            # every 2nd row (heights halve, so the upright test uses h*2) and
+            # stretched back -- these blobs are the biggest in the frame.
+            mem_h = member[::2]
+            lo_i, v_i = _balanced_low(cs_slice[y:y + h:2, x:x + w][mem_h].astype(np.float32),
+                                      kb, kg, thr)
+            cand = np.zeros(mem_h.shape, np.uint8)
+            cand[mem_h] = lo_i & (v_i < 0.5 * (v_lo[i] + v_hi[i]))
+            cand = cv2.morphologyEx(cand, cv2.MORPH_OPEN, _SPLIT_OPEN_KERNEL)
+            k, sub, sstats, _ = cv2.connectedComponentsWithStats(cand, connectivity=8)
+            keep_lut = np.zeros(k, bool)
+            for j in range(1, k):
+                sw, sh, sa = sstats[j, cv2.CC_STAT_WIDTH], sstats[j, cv2.CC_STAT_HEIGHT], sstats[j, cv2.CC_STAT_AREA]
+                keep_lut[j] = (2 * sa >= max(sp['mixed_min_px'], 0.05 * a)
+                               and 2 * sh >= sp['mixed_min_hw'] * sw)
+            if keep_lut.any():
+                member = np.repeat(keep_lut[sub], 2, axis=0)[:h] & member
+            elif not frac[i] > 0.5:
+                continue
+        low[y:y + h, x:x + w][member] = 255
+    high = cv2.bitwise_and(band, cv2.bitwise_not(low))
+    return {sp['low']: low, sp['high']: high}
+
+
+SPLIT_MIN_BLOB_PX = 10
+_SPLIT_OPEN_KERNEL = np.ones((3, 3), np.uint8)
+
+
 def compute_colour_masks_only(cs_slice, out=None):
     """Threshold the prepared slice into one mask per OBJECTS entry. Black is owned
     by build_arena_mask_from_prepared() (it needs it for the wall scan anyway) -- see
@@ -637,10 +771,11 @@ def compute_colour_masks_only(cs_slice, out=None):
     shared memory to write into directly, in OBJECTS order.
     """
     masks = {}
+    split = split_low_high(cs_slice) if COLOUR_SPLIT is not None else {}
     for name, obj in OBJECTS.items():
         if name in _PATCHES:
             continue
-        mask = _threshold(cs_slice, obj['ranges'])
+        mask = split[name] if name in split else _threshold(cs_slice, obj['ranges'])
         if obj.get('morph_close') and USE_BLOCK_MORPH_CLOSE:
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, BLOCK_CLOSE_KERNEL)
         masks[name] = mask

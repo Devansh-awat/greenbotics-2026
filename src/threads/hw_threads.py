@@ -4,6 +4,7 @@ Each of these owns one piece of hardware and publishes its latest reading behind
 lock, so the control loop never blocks on I2C, SPI or the camera.
 """
 
+import json
 import threading
 import time
 from collections import deque
@@ -21,9 +22,10 @@ from src.obstacle_challenge.tuning import PERF_REPORT_PERIOD
 # ---------------------------------------------------------------------------
 
 class CameraThread(threading.Thread):
-    def __init__(self, camera_instance):
+    def __init__(self, camera_instance, meta_path=None):
         super().__init__(name="camera")
         self.camera = camera_instance
+        self.meta_path = meta_path
         self.latest_frame = None
         self.cond = threading.Condition()
         self.stop_event = threading.Event()
@@ -33,20 +35,49 @@ class CameraThread(threading.Thread):
 
     def run(self):
         clog.info("Camera thread running.")
-        while not self.stop_event.is_set():
-            try:
-                frame = self.camera.capture_frame()
-            except Exception:
-                clog.exception("capture_frame failed")
-                time.sleep(0.05)
-                continue
-            now = time.monotonic()
-            with self.cond:
-                self.frame_counter += 1
-                self.latest_frame = frame
-                self.capture_time = now
-                self.cond.notify_all()
+        # Rows are only collected here; the file is written once after the loop.
+        # Disk I/O in this thread can stall ~1 s at random, which would stall the
+        # control loop waiting for the next frame.
+        rows = [] if self.meta_path else None
+        try:
+            while not self.stop_event.is_set():
+                meta = None
+                try:
+                    if rows is not None:
+                        frame, meta = self.camera.capture_frame_with_metadata()
+                    else:
+                        frame = self.camera.capture_frame()
+                except Exception:
+                    clog.exception("capture_frame failed")
+                    time.sleep(0.05)
+                    continue
+                now = time.monotonic()
+                with self.cond:
+                    self.frame_counter += 1
+                    counter = self.frame_counter
+                    self.latest_frame = frame
+                    self.capture_time = now
+                    self.cond.notify_all()
+                if meta is not None:
+                    # Plain dict subset only; rounding + json.dumps happen at the end.
+                    row = {k: meta[k] for k in self.camera.META_KEYS if k in meta}
+                    row["frame"] = counter
+                    rows.append(row)
+        finally:
+            if rows:
+                self._write_meta(rows)
         clog.info("Camera thread stopped.")
+
+    def _write_meta(self, rows):
+        try:
+            with open(self.meta_path, "w") as fh:
+                for row in rows:
+                    out = {"frame": row.pop("frame")}
+                    out.update(self.camera.metadata_row(row))
+                    fh.write(json.dumps(out) + "\n")
+            clog.info("Camera metadata: %d rows -> %s", len(rows), self.meta_path)
+        except Exception:
+            clog.exception("Could not write camera metadata to %s", self.meta_path)
 
     def get_frame(self):
         # Zero-copy handoff -- see get_next_frame() for the immutability contract.

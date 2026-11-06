@@ -32,23 +32,6 @@ from src.obstacle_challenge.tuning import VIDEO_FOURCC
 from src.obstacle_challenge.video import VideoEncoderProcess
 from src.sensors import camera
 
-# Metadata keys worth keeping. The full dict also has per-frame timing/focus
-# noise that would triple the file for nothing.
-META_KEYS = (
-    "ColourGains", "AnalogueGain", "DigitalGain", "ExposureTime", "ColourTemperature",
-    "Lux", "ColourCorrectionMatrix", "SensorBlackLevels", "AeLocked", "FrameDuration",
-    "SensorTimestamp",
-)
-
-
-def _jsonable(v):
-    if isinstance(v, (list, tuple)):
-        return [_jsonable(x) for x in v]
-    if isinstance(v, float):
-        return round(v, 5)
-    return v
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -128,7 +111,7 @@ def main():
                 video_frame = len(video_encoder.tags) - 1
 
             row = {"frame": frame_counter, "video_frame": video_frame, "rec": rec}
-            row.update({k: _jsonable(meta[k]) for k in META_KEYS if k in meta})
+            row.update(camera.metadata_row(meta))
             meta_file.write(json.dumps(row) + "\n")
     except KeyboardInterrupt:
         log.info("Stopped by Ctrl-C.")

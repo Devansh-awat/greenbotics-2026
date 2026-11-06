@@ -423,7 +423,7 @@ if __name__ == "__main__":
     led = LED(config.LED_PIN)
 
 
-    camera_thread = CameraThread(camera)
+    camera_thread = CameraThread(camera, meta_path=video_encoder.path + ".camera.jsonl")
     camera_thread.start()
 
     sensors_initialized_event = threading.Event()

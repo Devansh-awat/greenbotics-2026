@@ -304,11 +304,11 @@ VIDEO_FPS = 10.0
 PERF_REPORT_PERIOD = 2.0   # seconds between INFO-level perf summaries
 
 HSV_RANGES = {
-    'LOWER_RED_1': np.array([0, 80, 29]), 'UPPER_RED_1': np.array([5, 230, 180]),
-    'LOWER_RED_2': np.array([176, 80, 29]), 'UPPER_RED_2': np.array([180, 230, 180]),
-    'LOWER_GREEN': np.array([50, 54, 26]), 'UPPER_GREEN': np.array([88, 255, 255]),
+    'LOWER_RED_1': np.array([0, 80, 35]), 'UPPER_RED_1': np.array([5, 230, 180]),
+    'LOWER_RED_2': np.array([176, 80, 35]), 'UPPER_RED_2': np.array([180, 230, 180]),
+    'LOWER_GREEN': np.array([54, 49, 35]), 'UPPER_GREEN': np.array([82, 255, 255]),
     'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 110, 85]),
-    'LOWER_ORANGE': np.array([10, 53, 102]), 'UPPER_ORANGE': np.array([23, 212, 229]),
+    'LOWER_ORANGE': np.array([3, 45, 119]), 'UPPER_ORANGE': np.array([16, 201, 216]),
     'LOWER_BLUE': np.array([110, 50, 47]), 'UPPER_BLUE': np.array([126, 255, 255]),
     'LOWER_MAGENTA': np.array([145, 73, 40]), 'UPPER_MAGENTA': np.array([171, 255, 223]),
     'LOWER_WHITE': np.array([0, 0, 110]), 'UPPER_WHITE': np.array([180, 60, 255]),
@@ -418,6 +418,49 @@ OBJECTS = {
         min_area=LINE_MIN_AREA, not_wall=True,
         draw=(255, 0, 0)),
 }
+
+# ---------------------------------------------------------------------------
+# RED / MAGENTA SPLIT -- per blob, white-balanced against the mat.
+# ---------------------------------------------------------------------------
+# Red pillars and magenta walls overlap in hue AND saturation AND brightness, and
+# where they overlap moves with the room's light (2026-11-02 warm, 11-03 ~5000 K,
+# 11-04 warm again), so no fixed per-pixel range holds across videos. What does:
+#
+#   1. ONE band mask that covers both colours; its 8-connected blobs are objects.
+#   2. Per frame, the white MAT's colour (unsaturated, bright pixels) is the white
+#      reference. Each pixel's score = 100 * (B/B_mat - G/G_mat): how much bluer
+#      than green it is, relative to white. Magenta has blue, crimson red does not.
+#      Dividing by the mat cancels the light's colour cast and brightness -- raw
+#      B-G gave a red pillar 13 under 11-02's bluish light and a magenta face 9
+#      under 11-04's warm light; balanced, red is 3.5..6.8 and magenta 9.4..29
+#      across all five test videos.
+#   3. Each blob is labelled by majority vote: more than half its pixels below
+#      `threshold` -> red, else magenta. A wall's shaded face scores low on its own
+#      (~6) but is one blob with its lit edge, which carries the vote.
+#   4. A red pillar standing in front of a wall merges with it into one blob. Such
+#      a blob is "mixed" (mixed_frac of its pixels low) and its low part is darker
+#      (V < mixed_v_ratio * the high part's V: 0.43-0.75 measured for pillars,
+#      1.03 for a shaded wall face). Then the low+dark pixels' own connected
+#      regions become red if they are upright (h >= mixed_min_hw * w) and at least
+#      mixed_min_px -- so a flat-lying wall's dark side edge (110x19) stays magenta.
+#
+# When on, the red and magenta OBJECTS ranges are not used to find them (only for
+# the arena floor blob). USE_COLOUR_SPLIT = False below turns it off. HSV only.
+# On/off switch. False = the old per-pixel LOWER/UPPER_RED_* and *_MAGENTA ranges,
+# exactly as before this was added.
+USE_COLOUR_SPLIT = False
+
+COLOUR_SPLIT = None if (USE_LAB or not USE_COLOUR_SPLIT) else dict(
+    low='red', high='magenta',
+    band=[(np.array([145, 65, 35]), np.array([180, 255, 255])),
+          (np.array([0, 65, 35]), np.array([6, 160, 114]))],
+    mat=(np.array([0, 0, 100]), np.array([180, 50, 255])),   # the white mat, in HSV
+    threshold=5.3,            # balanced score for neutral/white light
+    mixed_frac=(0.15, 0.65),
+    mixed_v_ratio=0.9,
+    mixed_min_hw=0.5,
+    mixed_min_px=30,
+)
 
 left_roi_x, left_roi_y, left_roi_w, left_roi_h = 0, 130, 135, 150
 right_roi_x, right_roi_y, right_roi_w, right_roi_h = 505, 130, 135, 150
