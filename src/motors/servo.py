@@ -121,7 +121,8 @@ def set_angle_unlimited(input_angle: float):
 
 
 def cleanup():
-    """Centers the servo and stops PWM."""
+    """Centers the servo and stops PWM. Safe to call more than once."""
+    global servo_pwm
     print("--- Cleaning up Servo ---")
     if servo_pwm:
         set_angle(0.0)
@@ -129,6 +130,7 @@ def cleanup():
         servo_pwm.change_duty_cycle(0)
         time.sleep(4.0 / config.SERVO_PWM_FREQ)
         servo_pwm.stop()
+        servo_pwm = None
 
 
 def _center_tool():

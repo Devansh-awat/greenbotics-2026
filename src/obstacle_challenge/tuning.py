@@ -67,7 +67,7 @@ STEER_LIMIT = 40
 # A green pillar far left (x < 200) or red pillar far right (x > 440) that touches
 # the top of full_frame_roi is a pillar on the NEXT straight seen over a corner.
 EDGE_IGNORE_GREEN_MAX_X = 200
-EDGE_IGNORE_RED_MIN_X = 440
+EDGE_IGNORE_RED_MIN_X = 639
 EDGE_IGNORE_TOP_PX = 2
 
 # --- Close-block reflex (rule_close_block): reverse, then swerve ---

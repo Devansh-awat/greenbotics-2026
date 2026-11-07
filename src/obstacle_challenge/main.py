@@ -51,6 +51,7 @@ Run it from the repo root:  python3 -m src.obstacle_challenge.main
 """
 
 import argparse
+import atexit
 import os
 import sys
 import time
@@ -419,6 +420,18 @@ if __name__ == "__main__":
         sys.exit(1)
     motor.initialize()
     servo.initialize()
+
+    def _release_outputs():
+        try:
+            motor.cleanup()
+        except Exception:
+            log.exception("Error cleaning up motor at exit")
+        try:
+            servo.cleanup()
+        except Exception:
+            log.exception("Error cleaning up servo at exit")
+
+    atexit.register(_release_outputs)
     button = Button(config.BUTTON_PIN)
     led = LED(config.LED_PIN)
 
