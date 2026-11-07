@@ -448,7 +448,7 @@ OBJECTS = {
 # the arena floor blob). USE_COLOUR_SPLIT = False below turns it off. HSV only.
 # On/off switch. False = the old per-pixel LOWER/UPPER_RED_* and *_MAGENTA ranges,
 # exactly as before this was added.
-USE_COLOUR_SPLIT = False
+USE_COLOUR_SPLIT = True
 
 COLOUR_SPLIT = None if (USE_LAB or not USE_COLOUR_SPLIT) else dict(
     low='red', high='magenta',
