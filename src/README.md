@@ -123,6 +123,7 @@ src/
 ├── obstacle_challenge/   # Obstacle Challenge entry point, tuning, rules, maneuvers and video recording
 ├── open_challenge/       # Open Challenge entry point, config, rules, speed schedule and frame log
 ├── sensors/              # Hardware-abstraction drivers for camera, IMU, distance sensors, and encoder
+├── tests/                # Regression tests for code refactoring 
 ├── threads/              # Background hardware-sensor thread management
 ├── tools/                # Calibration and diagnostic utilities (HSV tuning, capture pipelines, sensor tests)
 ├── vision/               # Shared frame-processing pipeline and worker pool
