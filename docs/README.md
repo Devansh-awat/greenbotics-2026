@@ -1,6 +1,6 @@
 # Documentation (`docs/`)
 
-This folder holds the supporting material for the main [README](../README.md): diagrams and photos, experiment data, and the Engineering Journal PDF.
+This folder holds the [Engineering Journal PDF](Engineering_Journal/Engineering_Journal.pdf), the [Documentation Summary PDF](Engineering_Journal/Greenbotics_Presentation.pdf) and the supporting material for the main [README](../README.md): diagrams, photos and experiment data.
 
 ## Folder Purpose Map
 
@@ -13,4 +13,4 @@ This folder holds the supporting material for the main [README](../README.md): d
 | `diagrams/systemsThinking/` | Diagrams, photos and GIFs for system integration and failure-analysis case studies, with `.drawio` sources. | Section 5 — Systems Thinking and Engineering Decisions |
 | `diagrams/gitNReproducibility/` | Photos and images for the build instructions. | Section 6 — Reproducibility and GitHub Organization |
 | `experiments/` | Raw data from the encoder precision experiment (Excel file). | Section 2.10.2 |
-| `Engineering_Journal/` | Printable PDF export of the main README. See its own [README](Engineering_Journal/README.md). | Section 6.6 |
+| `Engineering_Journal/` | Printable PDF export of the main README and the documentation summary | Section 6.6 |

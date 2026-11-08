@@ -165,7 +165,6 @@ Marked directly on the sheet as ✓ (pass) / ✗ (fail) per direction, plus two 
 | C8 | ✓ | ✓ | C16 | ✓ | ✓ | C24 | ✓ | ✓ |
 | C8a | ✓ | ✓ |||||||
 
-C9 and C10 have no tick/cross recorded on the sheet for this pass but have time mentioned and these cases are passed. C18, C19, C20, C22 and C23 failed CW on this retest — these are the four combinations later paired into M1, M3, M5 and M6 for the merge (C20→M1, C23→M3, C17→M5, C21→M6), plus C18/C19/C22 which were folded into the seat-pattern groups rather than carried forward individually and re-tested there.
 
 ---
 

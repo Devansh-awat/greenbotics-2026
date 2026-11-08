@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" agent="Kiro">
   <diagram name="Master System Diagram (Simplified)" id="master-sys-v3-simple">
-    <mxGraphModel dx="3712" dy="1709" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="1600" math="0" shadow="0">
+    <mxGraphModel dx="3063" dy="1410" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="1600" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="layer_mob" parent="0" value="1 - Mobility" />
@@ -10,8 +10,8 @@
         <mxCell id="motor" parent="layer_mob" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=3;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;" value="Drive Motor" vertex="1">
           <mxGeometry height="110" width="250" x="904" y="1064" as="geometry" />
         </mxCell>
-        <mxCell id="diff" parent="layer_mob" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=3;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;" value="Differential&#xa;+ Rear Wheels" vertex="1">
-          <mxGeometry height="100" width="295" x="1409" y="1069" as="geometry" />
+        <mxCell id="diff" parent="layer_mob" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=3;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;" value="Differential Gear&#xa;+ Rear Wheels" vertex="1">
+          <mxGeometry height="100" width="295" x="1476" y="1030" as="geometry" />
         </mxCell>
         <mxCell id="servo" parent="layer_mob" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=3;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;points=[[0,0,1,0,0],[0,0.25,1,0,0],[0,0.5,1,0,0],[0,0.75,1,0,0],[0,1,1,0,0],[0.125,0,0,0,0],[0.25,0,1,0,0],[0.25,1,1,0,0],[0.375,0,0,0,0],[0.5,0,1,0,0],[0.5,1,1,0,0],[0.625,0,0,0,0],[0.75,0,1,0,0],[0.75,1,1,0,0],[0.875,0,0,0,0],[1,0,1,0,0],[1,0.25,1,0,0],[1,0.5,1,0,0],[1,0.75,1,0,0],[1,1,1,0,0]];" value="Steering Servo" vertex="1">
           <mxGeometry height="110" width="250" x="60" y="842" as="geometry" />
@@ -22,11 +22,19 @@
         <mxCell id="se7" edge="1" parent="layer_mob" source="driver" style="strokeWidth=2;strokeColor=#13840b;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="motor">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="se8" edge="1" parent="layer_mob" source="motor" style="strokeWidth=2;strokeColor=#13840b;entryX=0;entryY=0.5;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="diff">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="se8" edge="1" parent="layer_mob" source="motor" style="strokeWidth=2;strokeColor=#13840b;entryX=0.5;entryY=1;entryDx=0;entryDy=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="diff">
+          <mxGeometry relative="1" x="-0.0063" as="geometry">
+            <Array as="points">
+              <mxPoint x="1029" y="1210" />
+              <mxPoint x="1623.5" y="1210" />
+            </Array>
+          </mxGeometry>
         </mxCell>
         <mxCell id="se9" edge="1" parent="layer_mob" source="servo" style="strokeWidth=2;strokeColor=#13840b;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="steer">
           <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="jYLsV6wZlbc36XRmIh7W-5" parent="layer_mob" style="text;fontSize=18;fontStyle=2;fontColor=#2e7d32;align=center;verticalAlign=middle;" value="3.3V " vertex="1">
+          <mxGeometry height="30" width="120" x="1360" y="980" as="geometry" />
         </mxCell>
         <mxCell id="1" parent="0" style="locked=0;" value="2 - Power &amp; Sensors" />
         <mxCell id="battery" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=3;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;points=[[0,0,1,0,0],[0,0.25,1,0,0],[0,0.5,1,0,0],[0,0.75,1,0,0],[0,1,1,0,0],[0.125,1,0,0,0],[0.25,0,1,0,0],[0.25,1,1,0,0],[0.375,1,0,0,0],[0.5,0,1,0,0],[0.5,1,1,0,0],[0.625,1,0,0,0],[0.75,0,1,0,0],[0.75,1,1,0,0],[0.875,1,0,0,0],[1,0,1,0,0],[1,0.25,1,0,0],[1,0.5,1,0,0],[1,0.75,1,0,0],[1,1,1,0,0]];" value="LiPo Battery" vertex="1">
@@ -40,9 +48,6 @@
         </mxCell>
         <mxCell id="ext_tof" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=3;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;" value="4× ToF Sensors" vertex="1">
           <mxGeometry height="80" width="280" x="1491" y="470" as="geometry" />
-        </mxCell>
-        <mxCell id="ext_encoder" parent="1" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=3;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;" value="Motor Encoder" vertex="1">
-          <mxGeometry height="80" width="280" x="1491" y="857" as="geometry" />
         </mxCell>
         <mxCell id="pe1" edge="1" parent="1" source="battery" style="strokeWidth=2;strokeColor=#3900D6;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=0.375;exitY=1;exitDx=0;exitDy=0;exitPerimeter=0;" target="s91zsKkLK3NvetZhV8Y_-1">
           <mxGeometry relative="1" x="-0.0001" as="geometry">
@@ -73,9 +78,6 @@
           <mxGeometry relative="1" x="0.0181" y="-1" as="geometry">
             <mxPoint x="1" as="offset" />
           </mxGeometry>
-        </mxCell>
-        <mxCell id="mech_enc" edge="1" parent="1" source="diff" style="strokeWidth=2;strokeColor=#1976d2;dashed=1;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0.75;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="ext_encoder" value="axle mount">
-          <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="pe4" edge="1" parent="1" source="s91zsKkLK3NvetZhV8Y_-1" style="strokeWidth=2;strokeColor=#3900D6;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.375;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" target="servo" value="8V">
           <mxGeometry relative="1" x="-0.0001" as="geometry">
@@ -181,9 +183,6 @@
         <mxCell id="sensorthread" parent="layer_sw" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;" value="Sensor Thread" vertex="1">
           <mxGeometry height="60" width="260" x="1044" y="480" as="geometry" />
         </mxCell>
-        <mxCell id="encoderthread" parent="layer_sw" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;" value="Encoder Thread" vertex="1">
-          <mxGeometry height="60" width="260" x="1044" y="680" as="geometry" />
-        </mxCell>
         <mxCell id="rp1box" parent="layer_sw" style="rounded=1;whiteSpace=wrap;fillColor=#e8f5e9;strokeColor=#2e7d32;strokeWidth=3;dashed=1;verticalAlign=top;align=center;fontSize=24;fontStyle=1;spacingTop=8;" value="RP1 I/O Controller" vertex="1">
           <mxGeometry height="200" width="500" x="480" y="780" as="geometry" />
         </mxCell>
@@ -205,8 +204,13 @@
         <mxCell id="ie4" edge="1" parent="layer_sw" source="sensorthread" style="strokeWidth=2;strokeColor=#13840b;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.361111;entryDx=0;entryDy=0;entryPerimeter=0;exitPerimeter=0;" target="mainthread" value="distances">
           <mxGeometry relative="1" x="0.0025" as="geometry" />
         </mxCell>
-        <mxCell id="ie5" edge="1" parent="layer_sw" source="encoderthread" style="strokeWidth=2;strokeColor=#13840b;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.916667;entryDx=0;entryDy=0;entryPerimeter=0;exitPerimeter=0;" target="mainthread" value="pulse count">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="ie5" edge="1" parent="layer_sw" source="rp1_pio" style="strokeWidth=2;strokeColor=#13840b;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.916667;entryDx=0;entryDy=0;entryPerimeter=0;" target="mainthread" value="pulse count">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="850" y="710" />
+            </Array>
+            <mxPoint x="1044" y="710" as="sourcePoint" />
+          </mxGeometry>
         </mxCell>
         <mxCell id="ie6" edge="1" parent="layer_sw" source="mainthread" style="strokeWidth=2;strokeColor=#666666;dashed=1;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.638889;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;exitPerimeter=0;entryPerimeter=0;" target="videothread" value="video">
           <mxGeometry relative="1" as="geometry" />
@@ -214,29 +218,25 @@
         <mxCell id="se1" edge="1" parent="layer_sw" source="ext_camera" style="strokeWidth=2;strokeColor=#13840b;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="camthread" value="CSI">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="se2" edge="1" parent="layer_sw" source="ext_imu" style="strokeWidth=2;strokeColor=#13840b;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="imuthread" value="SPI">
+        <mxCell id="se2" edge="1" parent="layer_sw" source="ext_imu" style="strokeWidth=2;strokeColor=#13840b;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="imuthread" value="I2C">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="se3" edge="1" parent="layer_sw" source="ext_tof" style="strokeWidth=2;strokeColor=#13840b;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="sensorthread" value="I2C">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="se4" edge="1" parent="layer_sw" source="ext_encoder" style="strokeWidth=2;strokeColor=#13840b;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="rp1_pio" value="pulses">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rp1_e1" edge="1" parent="layer_sw" source="rp1_pio" style="strokeWidth=2;strokeColor=#13840b;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;edgeStyle=orthogonalEdgeStyle;" target="encoderthread" value="count">
-          <mxGeometry relative="1" as="geometry">
+        <mxCell id="se4" edge="1" parent="layer_sw" source="jYLsV6wZlbc36XRmIh7W-2" style="strokeWidth=2;strokeColor=#13840b;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;endArrow=classic;endFill=1;" target="rp1_pio" value="pulses">
+          <mxGeometry relative="1" x="-0.0046" as="geometry">
+            <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="1174" y="867.5" />
+              <mxPoint x="1227" y="895" />
             </Array>
+            <mxPoint x="1160" y="1104" as="sourcePoint" />
           </mxGeometry>
         </mxCell>
         <mxCell id="se5" edge="1" parent="layer_sw" source="mainthread" style="strokeWidth=2;strokeColor=#13840b;fontSize=18;labelBackgroundColor=#FFFFFF;exitX=0.333;exitY=0.997;exitDx=0;exitDy=0;entryX=0.3;entryY=0;entryDx=0;entryDy=0;exitPerimeter=0;" target="rp1_pwm" value="speed + steer">
           <mxGeometry relative="1" x="-0.4823" y="14" as="geometry">
             <mxPoint as="offset" />
           </mxGeometry>
-        </mxCell>
-        <mxCell id="pe_s2" edge="1" parent="layer_sw" source="rpi5box" style="strokeWidth=2;strokeColor=#2e7d32;dashed=1;fontSize=18;exitX=0.999;exitY=0.708;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitPerimeter=0;edgeStyle=orthogonalEdgeStyle;" target="ext_encoder">
-          <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="pe_lbl" parent="layer_sw" style="text;fontSize=18;fontStyle=2;fontColor=#2e7d32;align=center;verticalAlign=middle;" value="3.3V sensors" vertex="1">
           <mxGeometry height="30" width="240" x="1393" y="132" as="geometry" />
@@ -255,6 +255,19 @@
               <mxPoint x="1656.08" y="170" />
             </Array>
           </mxGeometry>
+        </mxCell>
+        <mxCell id="jYLsV6wZlbc36XRmIh7W-3" edge="1" parent="layer_sw" source="rpi5box" style="strokeWidth=2;strokeColor=#2e7d32;dashed=1;fontSize=18;exitX=0.999;exitY=0.897;exitDx=0;exitDy=0;exitPerimeter=0;edgeStyle=orthogonalEdgeStyle;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="jYLsV6wZlbc36XRmIh7W-2" value="">
+          <mxGeometry relative="1" x="-0.5019" as="geometry">
+            <Array as="points">
+              <mxPoint x="1390" y="920.4" />
+              <mxPoint x="1390" y="1119" />
+            </Array>
+            <mxPoint x="1379" y="756" as="sourcePoint" />
+            <mxPoint x="1230" y="1064" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="jYLsV6wZlbc36XRmIh7W-2" parent="layer_sw" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;strokeWidth=3;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;" value="Motor Encoder" vertex="1">
+          <mxGeometry height="110" width="140" x="1157" y="1064" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>

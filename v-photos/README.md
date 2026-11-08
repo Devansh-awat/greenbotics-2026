@@ -42,5 +42,5 @@ Base Plate
 | `Back.png` | Vehicle back view. |
 | `Left.png` | Vehicle left view. |
 | `Right.png` | Vehicle right view. |
-| `BasePlate.png` | Base plate component layout photo (referenced in main README Section 1.9, Assembly photos). |
+| `BasePlate.png` | Base plate component layout photo. |
 

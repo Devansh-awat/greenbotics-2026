@@ -4,7 +4,9 @@ This folder holds the CAD/PCB source files for the robot's 3D-printed chassis pa
 
 ## Nested folders (contents summarized here per project convention — no separate README inside)
 
-**`chassis/`** — 3D-printable STL files for the chassis:
+**`chassis/`** — 3D-printable STL files for the chassis, print settings and Bricklink file for Ackermann Assembly:
+- `AckermanLego.io`
+- `All_3D_Parts.3mf`
 - `BearingToWheelShaft.stl`
 - `BottomChasis.stl`
 - `CameraMount.stl`
