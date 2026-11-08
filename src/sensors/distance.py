@@ -99,6 +99,8 @@ _xshut_devices = {}
 _lock = threading.Lock()
 _diag = {}
 _err_throttle = {}
+_last_reinit = {}
+_REINIT_COOLDOWN_S = 1.0  # Min seconds between reinitialization attempts on a channel
 
 
 class _ExtendedI2C(busio.I2C):
@@ -236,6 +238,29 @@ def _bump(channel, key):
                           'absent': 0, 'err': 0})
     c[key] += 1
 
+def reinit_sensor(channel, retries=2):
+    """Attempt to recover a single sensor by toggling its XSHUT and moving it back to its address."""
+    actual_channel = _resolve_channel(channel)
+    if actual_channel not in SENSORS:
+        return False
+
+    label = SENSORS[actual_channel][1]
+    with _lock:
+        old_s = _sensors.pop(actual_channel, None)
+        if old_s is not None:
+            try:
+                old_s.stop_ranging()
+            except Exception:
+                pass
+
+    try:
+        s = _bring_up(actual_channel, retries=retries)
+        if s is not None:
+            slog.info("%s reinitialized and ranging successfully!", label)
+            return True
+    except Exception as e:
+        slog.critical("Failed to reinitialize %s: %s", label, e)
+    return False
 
 def get_distance(channel):
     """
@@ -267,8 +292,13 @@ def get_distance(channel):
         return float(distance_cm * 10.0)
     except (OSError, IOError) as e:
         _bump(channel, 'err')
+        now_mono = time.monotonic()
         if _err_throttle.setdefault(actual_channel, Throttle(1.0)):
-            slog.warning("I/O Error on channel %s: %s", channel, e)
+            slog.critical("I/O Error on channel %s: %s", channel, e)
+        if now_mono - _last_reinit.get(actual_channel, 0.0) >= _REINIT_COOLDOWN_S:
+            _last_reinit[actual_channel] = now_mono
+            slog.error("Triggering automatic reinitialization for sensor on channel %s...", channel)
+            reinit_sensor(actual_channel)
         return None
 
 
