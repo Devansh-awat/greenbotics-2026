@@ -244,7 +244,7 @@ We used Parallel steering in our last year's robot. We realised certain manoeuvr
 
 | Ackermann Steering Concept |Our Robot Design |
 | :---: | :---: |
-| <img src="docs/diagrams/mobility/ackermann_steering.png" alt="Ackermann steering concept: the inner wheel turns more than the outer wheel so all wheels trace arcs around a common center on the rear axle line" height="200" width="200"> | <img src="docs/diagrams/mobility/robo_ackermann.png" alt="The Ackermann steering linkage on the Greenbotics robot" height="500" width="400"> |
+| <img src="docs/diagrams/mobility/ackermann_steering.png" alt="Ackermann steering concept: the inner wheel turns more than the outer wheel so all wheels trace arcs around a common center on the rear axle line" width="300"> | <img src="docs/diagrams/mobility/robo_ackermann.png" alt="The Ackermann steering linkage on the Greenbotics robot" height="500" width="400"> |
 
 ### 2.3.1 Ackermann Geometric Calculations
 
@@ -695,7 +695,7 @@ Here's  simplified pin layout diagram for the wiring.
 
 The complete Circuit diagram below shows all power and signal connections between the battery, voltage converters, Raspberry Pi 5, motor driver, servo, camera, IMU, and ToF sensors.
 
-<img src="docs/diagrams/powerNsense/CircuitDiagram_cropped.png" alt="Complete circuit diagram of the battery, voltage converters, Raspberry Pi 5, motor driver, servo, camera, IMU and ToF sensors" width="400">
+<img src="docs/diagrams/powerNsense/CircuitDiagram_cropped.png" alt="Complete circuit diagram of the battery, voltage converters, Raspberry Pi 5, motor driver, servo, camera, IMU and ToF sensors" width="700">
 
 [Link For Complete Circuit Diagram](schemes/CircuitDiagram.png)
 
@@ -860,7 +860,7 @@ We use [color_tuning.py](src/tools/color_tuning.py) for live trackbar-based HSV 
 4. Adjust bounds until the mask for each target is contiguous and black everywhere else
 5. Copy final values into the `HSV_RANGES` dict in [tuning.py](src/obstacle_challenge/tuning.py) used by the main code.
 
-<img src="docs/diagrams/powerNsense/HSV_tuning.png" alt="HSV tuning tool showing trackbars and the resulting color mask" width="500">
+<img src="docs/diagrams/powerNsense/HSV_tuning.png" alt="HSV tuning tool showing trackbars and the resulting color mask" width="700">
 
 **Key rule for BLACK tuning:** Keep S (saturation) low, not V. If you let S go wide, the dark blue mat and dark sides of red pillars get classified as wall, causing non existent walls in mid-corridor.
 
@@ -1110,7 +1110,7 @@ If the total area in the close-black ROI exceeds 3000px, a wall is exactly in fr
 
 We define a virtual target line from a corner of the frame to the top center. The robot steers to bring the actual line towards the target line so the pillar stays on the correct side.
 
-<img src="docs/diagrams/software/target_line_geometery.png" alt="Target-line geometry: a virtual line from a corner of the frame to the top center that the robot steers the pillar towards" width="50%">
+<img src="docs/diagrams/software/target_line_geometery.png" alt="Target-line geometry: a virtual line from a corner of the frame to the top center that the robot steers the pillar towards" width="700">
 
 **Per-frame Steering angle calculation**
 
@@ -1510,7 +1510,7 @@ Every run writes a self-contained folder with:
 
 | Regular Obstacle Run Annotated Video | Failure Scenario in Annotated Video |
 | :---: | :---: |
-| <img src="docs/diagrams/software/regular_run.gif" width="300" alt="Regular Obstacle Run Annotated Video"> | <img src="docs/diagrams/software/obstacle_last5s_crash.gif" width="300" alt="Failure Scenario in Annotated Video"> |
+| <img src="docs/diagrams/software/regular_run.gif" width="400" alt="Regular Obstacle Run Annotated Video"> | <img src="docs/diagrams/software/obstacle_last5s_crash.gif" width="400" alt="Failure Scenario in Annotated Video"> |
 
 These detailed logs and annotated videos help us to do the post-run analysis to fix the issue observed in the prior run.
 
@@ -1746,9 +1746,9 @@ Here is how all the 3 inaccuracies are handled with a closed loop system.
 
 We have worked on this robot since Jan 2026 and gone over multiple iterations with respect to various components. These changes required changes to the 3D parts as well and we designed multiple variations of each of our chassis parts to accommodate these changes.
 
-<img src="docs/diagrams/systemsThinking/3D_Graveyard_1.png" alt="Earlier discarded iterations of the 3D-printed chassis parts, part 1" width="700" >
+<img src="docs/diagrams/systemsThinking/3D_Graveyard_1.png" alt="Earlier discarded iterations of the 3D-printed chassis parts, part 1" width="800" >
 
-<img src="docs/diagrams/systemsThinking/3D_graveyard_2.png" alt="Earlier discarded iterations of the 3D-printed chassis parts, part 2" width="700">
+<img src="docs/diagrams/systemsThinking/3D_graveyard_2.png" alt="Earlier discarded iterations of the 3D-printed chassis parts, part 2" width="800">
 
 From WRO 2025 we have 2 complete robot iterations, where first we moved from Lego Chassis to 3 D printed chassis, but kept the bigger back Wheels then we moved to the current design with all 4 thinner wheels, and battery at the back for better stability. Here's how our 3 robots look:
 
@@ -1883,7 +1883,7 @@ Ackermann steering was built using LEGO components and a custom 3D part for Vari
 - Assemble the 3D printed parts as per Step 3C and 3D.
 - Attach front and rear wheels.
 
-<img src="docs/diagrams/gitNReproducibility/3D_assembly.png" alt="Assembly of the 3D-printed robot parts" width="800">
+<img src="docs/diagrams/gitNReproducibility/3D_assembly.png" alt="Assembly of the 3D-printed robot parts" width="900">
 
 **Step 4: Fabricate the PCB**
 
