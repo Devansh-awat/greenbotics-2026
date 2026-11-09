@@ -238,13 +238,46 @@ def _bump(channel, key):
                           'absent': 0, 'err': 0})
     c[key] += 1
 
+
+def _probe_i2c_address(addr):
+    """Check if a device ACKs at the given 7-bit I2C address without sending data."""
+    global _i2c
+    if _i2c is None:
+        return False
+    try:
+        with _lock:
+            bus = getattr(getattr(_i2c, "_i2c", None), "_i2c_bus", None)
+            if bus is not None and hasattr(bus, "write_quick"):
+                bus.write_quick(addr)
+                return True
+            _i2c.writeto(addr, b"")
+            return True
+    except Exception:
+        return False
+
+
 def reinit_sensor(channel, retries=2):
     """Attempt to recover a single sensor by toggling its XSHUT and moving it back to its address."""
     actual_channel = _resolve_channel(channel)
     if actual_channel not in SENSORS:
         return False
 
-    label = SENSORS[actual_channel][1]
+    assigned_address, label, required = SENSORS[actual_channel]
+
+    at_assigned = _probe_i2c_address(assigned_address)
+    at_default = _probe_i2c_address(0x29)
+
+    if at_default and not at_assigned:
+        addr_state = f"RESET back to default 0x29 (lost assigned 0x{assigned_address:02X} - power brownout/glitch)"
+    elif at_assigned and not at_default:
+        addr_state = f"STILL at assigned address 0x{assigned_address:02X} (firmware/ranging wedged, did not reset)"
+    elif at_assigned and at_default:
+        addr_state = f"responding at BOTH assigned 0x{assigned_address:02X} and default 0x29"
+    else:
+        addr_state = f"UNRESPONSIVE at both assigned 0x{assigned_address:02X} and default 0x29 (bus hung, pin low, or unpowered)"
+
+    slog.error("%s before reset: %s", label, addr_state)
+
     with _lock:
         old_s = _sensors.pop(actual_channel, None)
         if old_s is not None:
