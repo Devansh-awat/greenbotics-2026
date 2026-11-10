@@ -13,8 +13,10 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 MAX_WHEEL_RPM = 1800.0 * 13.0 / 38.0  # Pololu 4861 @ 12V with 13/38 external gear (~615.8)
-MIN_RPM = 0.5 * MAX_WHEEL_RPM
-MAX_RPM = 0.5 * MAX_WHEEL_RPM
+# tested for 0.3 and 0.5
+SPED=0.5
+MIN_RPM = SPED * MAX_WHEEL_RPM
+MAX_RPM = SPED * MAX_WHEEL_RPM
 MAX_ACCEL_PER_FRAME = 10.0
 MAX_DECEL_PER_FRAME = 200.0
 INITIAL_RPM = 50.0
@@ -39,7 +41,7 @@ GREEN_HANDOFF_MIN_Y = 216
 # (x > 500, y >= GREEN_HANDOFF_MIN_Y): stops a hard right swing just before a corner.
 GREEN_UNDER_LINE_MAX_ANGLE = 20
 
-ORANGE_COOLDOWN_FRAMES = 60
+ORANGE_COOLDOWN_FRAMES = 30/SPED
 
 ORANGE_DETECTION_HISTORY_LENGTH = 3
 
@@ -308,7 +310,7 @@ HSV_RANGES = {
     'LOWER_RED_2': np.array([176, 80, 35]), 'UPPER_RED_2': np.array([180, 230, 180]),
     'LOWER_GREEN': np.array([54, 49, 35]), 'UPPER_GREEN': np.array([82, 255, 255]),
     'LOWER_BLACK': np.array([0, 0, 0]), 'UPPER_BLACK': np.array([180, 110, 85]),
-    'LOWER_ORANGE': np.array([3, 45, 119]), 'UPPER_ORANGE': np.array([16, 201, 216]),
+    'LOWER_ORANGE': np.array([3, 65, 86]), 'UPPER_ORANGE': np.array([17, 221, 216]),
     'LOWER_BLUE': np.array([110, 50, 47]), 'UPPER_BLUE': np.array([126, 255, 255]),
     'LOWER_MAGENTA': np.array([145, 73, 40]), 'UPPER_MAGENTA': np.array([171, 255, 223]),
     'LOWER_WHITE': np.array([0, 0, 110]), 'UPPER_WHITE': np.array([180, 60, 255]),

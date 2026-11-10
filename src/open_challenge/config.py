@@ -3,7 +3,9 @@ import cv2
 import numpy as np
 
 # --- Robot Parameters ---
-STRAIGHT_RPM = 615.0  # Full speed (motor.MAX_WHEEL_RPM ~615.8) on straights
+# tested for 500 and 307!!!!!!
+# do NOT use another without testing
+STRAIGHT_RPM = 500.0  # max speed is 615 but do not use
 CORNER_RPM = min(STRAIGHT_RPM, 450.0)    # Closed-loop wheel RPM through corners
 
 # Speed-step response (motor.set_speed_rpm opt-ins, see its docstring): on a target
@@ -42,7 +44,10 @@ USE_LAB = False
 # --- Turn Counting & Stop Parameters ---
 ORANGE_COOLDOWN_FRAMES = 50
 ORANGE_DETECTION_HISTORY_LENGTH = 3
-FINAL_STOP_DISTANCE_CM = 25  # Needed distance in cm after turn 12 before braking
+if STRAIGHT_RPM < 400:
+    FINAL_STOP_DISTANCE_CM = 45  # Needed distance in cm after turn 12 before braking
+else:
+    FINAL_STOP_DISTANCE_CM=37
 FINAL_STOP_DELAY = 1.0  # Max coast time in seconds before evaluating friction stop
 
 # --- Gyro & Vibration Monitoring ---
@@ -129,7 +134,10 @@ LINE_ROI_WALL_PCT_THRESHOLD = 50
 CORNER_TURN_ANGLE = 35
 
 # --- Rule constants (src/open_challenge/rules.py) -------------------------
-STEER_LIMIT = 40                  # hard steering limit on every command (degrees)
+if STRAIGHT_RPM < 400:
+    STEER_LIMIT=25  
+else:
+    STEER_LIMIT=40
 # Only one INNER wall seen: inflate it to (2 * area + INNER_ONE_SIDE_BOOST).
 INNER_ONE_SIDE_BOOST = 1000
 # One side almost empty (< ONE_SIDE_MIN) while the other has some wall (> ONE_SIDE_SEEN):

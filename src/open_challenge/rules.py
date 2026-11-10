@@ -227,6 +227,8 @@ def rule_wall_follow(world, mem):
     # Both walls out of frame with a floor line under us: mid-corner, keep turning.
     if total_left == 0 and total_right == 0 and (world.orange or world.blue):
         angle += corner_turn
+    elif total_left == 0 and total_right == 0:
+        angle += -30 if world.direction == 'counter-clockwise' else 30
 
     cmd = Command(angle=angle, rule='wall')
     cmd.debug.extend([f"L:{int(world.wall_left)}", f"R:{int(world.wall_right)}"])
