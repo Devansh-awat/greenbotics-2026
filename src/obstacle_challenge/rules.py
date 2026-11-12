@@ -192,6 +192,15 @@ def pick_target_block(world):
     if b0['color'] == 'green' and x > GREEN_HANDOFF_MIN_X and y >= GREEN_HANDOFF_MIN_Y:
         if b1 is not None and b1['color'] == 'green':
             return b1, False
+        # The next green can be in view but dropped by the next-straight edge filter
+        # (x < EDGE_IGNORE_GREEN_MAX_X, top cut by the ROI). Staying on the passed one
+        # steers right (GLineCap +20) and pushes the next green further into the
+        # ignored zone -- the lap-1 close:green crash. Hand off to it instead.
+        hidden = [b for b in world.detections['detected_blocks']
+                  if b['type'] == 'block' and b['color'] == 'green'
+                  and _is_next_straight_pillar(b)]
+        if hidden:
+            return max(hidden, key=lambda b: b['area']), False
         return b0, True
 
     return b0, False
