@@ -937,9 +937,7 @@ The WRO Future Engineers competition has two challenge rounds. Our software arch
 | **Open Challenge** | `src/open_challenge/main.py` | Three full laps on an empty track with random inner walls|
 | **Obstacle Challenge** | `src/obstacle_challenge/main.py` | Three laps obeying red/green traffic signs + parallel parking |
 
-Both modes share the same hardware-abstraction modules (`src/sensors/*`, `src/motors/*`) and follow the same architectural template that runs a multi-threaded sense/think/act loop at ~50 fps on the Raspberry Pi 5. The obstacle code adds pillar-aware steering and parking on top of the same wall-following base.
-
-**The arena:** A 3 x 3 m mat with movable inner walls, orange and blue floor lines marking each section boundary, and (in obstacle mode) red and green traffic sign pillars that must be passed on a fixed side, passing right from red,  and left from green. A magenta parking block marks the parking corridor where the robot must parallel-park after 3 laps.
+Both modes share the same hardware-abstraction modules (`src/sensors/*`, `src/motors/*`) and follow the same sense/think/act loop at ~50 fps on the Raspberry Pi 5. The obstacle code adds pillar-aware steering and parking on top of the same wall-following base.
 
 ---
 
@@ -947,10 +945,10 @@ Both modes share the same hardware-abstraction modules (`src/sensors/*`, `src/mo
 
 We chose a **camera-first approach** for obstacle detection, a **multi-threaded architecture** for responsiveness, and **proportional control** for smooth driving.
 
-- **Why camera-first:** The WRO track has colored pillars (red and green) that the robot must pass on specific sides. Only a camera can detect color at a distance. ToF sensors tell us how far walls are, but cannot tell us pillar color.
+- **Why camera-first:** By combining colour identification with image processing for contours, distance and wall detection, a camera provides all the necessary information to steer the robot autonomously.
 - **Why multi-threaded:** Reading the camera, IMU, and ToF sensors sequentially would slow the loop to ~15 fps. By reading them in parallel threads, the main loop gets fresh data every frame without waiting.
 - **Why single RPi 5:** Instead of using a separate microcontroller for motor control, we use the RPi 5's RP1 hardware PWM and PIO blocks. This eliminates communication lag between two boards (see [Power and Sensor Architecture Section 3.8 for details](#38-microcontroller-raspberry-pi-5-as-single-controller)).
-- **Why proportional control (not lane-switching):** Our earlier code in WRO 2025 used discrete lane-switching such as "if red pillar, move to right lane." This was brittle because gyro drift accumulates over 3 laps, and what the robot thought was "right lane" gradually drifted sideways. Our current code drives everything off camera-derived geometric error with proportional gains. Steering changes smoothly with the visual error, adapts continuously instead of waiting for a state change, and works regardless of where exactly a pillar is positioned.
+- **Why proportional control (not lane-switching):** Our earlier code in WRO 2025 used discrete lane-switching such as "if red pillar, move to right lane." This resulted in abrupt lane switches resulting in unnatural driving. Our current code drives everything off camera-derived geometric error with proportional gains. The robot steers smoothly adapting continuously whenever a pillar is encountered.
 
 ### 4.1.1 Why We Rejected YOLO and Neural Networks
 
@@ -992,7 +990,7 @@ src/
 
 ## 4.3 Open Challenge Flow Chart and Algorithm
 
-The open challenge uses only the WALL FOLLOW and CORNER TURN behaviours from our architecture. With no traffic signs on the track, the robot drives three laps using the wall-following controller to stay centered, detects corners via the close-black ROI, and counts orange lines to know when 3 laps are complete.
+The open challenge uses only the WALL FOLLOW and CORNER TURN behaviours. With no traffic signs on the track, the robot drives three laps using the wall-following controller to stay centered, detects corners via the close-black ROI, and counts orange lines to know when 3 laps are complete.
 
 The flow is detailed in the flow chart below:
 
@@ -1008,7 +1006,7 @@ The following sections describe the obstacle challenge, which builds on the open
 
 **State Machine**
 
-We implement a **flat priority state machine** that is evaluated fresh every frame. We chose this design because it makes the robot's behavior fully predictable from a single frame's sensor data — if you know what the camera and sensors see right now, you know exactly what the robot will do next.
+We implement a **flat priority state machine** that is evaluated fresh every frame. We chose this design because it makes the robot's behavior fully predictable from a single frame's sensor data. If you know what the camera and sensors see right now, you know exactly what the robot will do next.
 
 <img src="docs/diagrams/software/navigation_state_machine.drawio.png" alt="Navigation state machine showing the priority order of the robot states" width="900">
 
@@ -1036,7 +1034,7 @@ At startup, the robot determines whether the track is clockwise or counter-clock
 - Right wall area > Left wall area → outer wall is on right → **counter-clockwise**
 
 **2. Leave the Parking Zone:**
-The robot starts inside the parking corridor against the outer wall. It must exit this corridor before the main navigation loop can begin. The robot undergoes a sequence of tuned steps to exit the parking in controlled manner.
+The robot undergoes a sequence of tuned steps to exit the parking in a controlled manner.
 
 **3. Navigate Past the First Traffic Sign:**
 The first pillar can be directly in the robot path, after exiting the parking. To manage these situations, the robot has pre-tuned instructions to pass the traffic sign as per its color and driving direction. Then the main loop takes over to generically handle traffic signs for the next 3 laps.
@@ -1049,8 +1047,8 @@ The images below show what the robot's vision system does to each camera frame �
 <table>
   <colgroup>
     <col style="width: 15%;"> <!-- Step -->
-    <col style="width: 35%;"> <!-- What Happens -->
-    <col style="width: 50%;"> <!-- Visual (much larger share for bigger images) -->
+    <col style="width: 25%;"> <!-- What Happens -->
+    <col style="width: 60%;"> <!-- Visual (much larger share for bigger images) -->
   </colgroup>
   <thead>
     <tr>
@@ -1069,18 +1067,17 @@ The images below show what the robot's vision system does to each camera frame �
     </tr>
     <tr>
       <td><strong>2. Convert to HSV</strong></td>
-      <td>Colour space that separates hue from brightness — makes colour detection lighting-robust</td>
+      <td>Colour space that separates colour information from brightness, making colour detection robust</td>
       <td>
         <img src="docs/diagrams/software/pipeline/02_hsv.png" alt="Step 2: the camera frame converted to HSV color space"  >
       </td>
     </tr>
     <tr>
       <td><strong>3. Colour Masks</strong></td>
-      <td>Each colour gets its own binary mask (white = detected). Walls, pillars, and lines are isolated</td>
+      <td>Each colour gets its own binary mask (white = detected). Walls, pillars, and lines are isolated as per their colours. For example in this image we can see the green mask</td>
       <td>
         <div style="display: flex; gap: 4px;">
-          <img src="docs/diagrams/software/pipeline/03_mask_black.png" alt="Step 3: binary mask of the black walls" style="width: 50%; height: auto;">
-          <img src="docs/diagrams/software/pipeline/03_mask_green.png" alt="Step 3: binary mask of the green pillars" style="width: 50%; height: auto;">
+          <img src="docs/diagrams/software/pipeline/03_mask_green.png" alt="Step 3: binary mask of the green pillars">
         </div>
       </td>
     </tr>
@@ -1094,7 +1091,7 @@ The images below show what the robot's vision system does to each camera frame �
   </tbody>
 </table>
 
-**ROI Zones**
+**ROI Zones** Regions of Interest are created to process objects in specific areas where they are expected. This reduces the processing required. ROIs and their purpose are explained in below diagram.
 
 <img src="docs/diagrams/software/roi_overlay_annotated.png" alt="Camera frame with the region of interest (ROI) zones overlaid" >
 
@@ -1108,7 +1105,7 @@ If the total area in the close-black ROI exceeds 3000px, a wall is exactly in fr
 
 **How it works:**
 
-We define a virtual target line from a corner of the frame to the top center. The robot steers to bring the actual line towards the target line so the pillar stays on the correct side.
+We define a virtual fixed target line from a corner of the frame to the top center along with a moving line that points straight at the detected obstacle. The robot steers to bring the actual line towards the target line so the pillar stays on the correct side.
 
 <img src="docs/diagrams/software/target_line_geometery.png" alt="Target-line geometry: a virtual line from a corner of the frame to the top center that the robot steers the pillar towards" width="700">
 
@@ -1125,11 +1122,11 @@ Kp = 1.5  // proportional constant
 ```
 
 **Evaluation of multiple algorithms**
-Our previous year's robot used a **fixed vertical line** as the target line and actual line. If you notice the camera image, the straight walls are seen in camera as inclined lines which means the straight path of robot visually appears as inclined lines due to the depth of vision. Fixed line caused the block to come very close to the robot and to avoid this, we used to change the target line when block used to come very close which was a hacky approach.
+Our previous year's robot used a **fixed vertical line** as the target line and actual line. If you notice the camera image, the straight walls show as inclined lines which means the straight path of robot visually appears as inclined lines due to the depth of vision. Fixed line caused the block to come very close to the robot as it approached and to avoid this, we used to change the target line when block used to come very close which was a hacky approach.
 
 Inclined line using angle calculation for **Target line geometry** causes the delta between target and actual to remain almost constant even when the robot approaches the pillar. The robot now steers smoothly like a real world driver would avoid an obstacle. The code is cleaner as there aren't any hacky approaches now making it reliable.
 
-We built a **calibration tool** (`drive_straight_tune_target.py`) that drives the robot straight past a pillar while tracking its centroid frame-by-frame. The path the centroid traces is **not vertical** — because of the camera's forward tilt, a fixed pillar drifts horizontally across the frame as it gets closer. The angle-based law accounts for this drift naturally, making the robot pass cleanly at every range.
+We built a **calibration tool** (`drive_straight_tune_target.py`) that drives the robot straight past a pillar while tracking its centroid frame-by-frame. The path the centroid traces is **not vertical** because of the camera's forward tilt, a fixed pillar drifts horizontally across the frame as it gets closer. This tool lets us find the exact target line angle we need to pass the block accurately.
 
 **Edge Cases**
 
@@ -1179,7 +1176,7 @@ Count orange floor lines to know when 3 laps (12 turns) are complete.
 **How it works:**
 - Each frame, check if orange is detected in the line ROI
 - Store last 4 detections in a queue: `[oldest, ..., newest]`
-- Count a turn ONLY when pattern is `[False, True, True, True]` which is a fresh rising edge that persisted for 3 frames
+- Count a turn ONLY when pattern is `[False, True, True, True]` which avoids false detections.
 - After counting, apply 50-frame cooldown (prevent double-counting the same line)
 
 **Why did we do this?** At high speed, a single orange line stays in the ROI for ~10 frames. Without the 4-frame rising-edge check and cooldown, one line could be counted multiple times.
@@ -1652,6 +1649,17 @@ Using the RPi 5's RP1 controller answers all three at once: it counts every enco
 
 This section outlines the engineering process we followed when the robot broke mid-project. These failures needed debugging across multiple aspects of the system, sometimes software, sometimes hardware and sometimes both!
 
+Here's our risk register:
+
+| ID | Risk | What happened | Mitigation | Status and proof | Reference |
+|---|---|---|---|---|---|
+| R1 | Drive motor stalls | TT-GM25 stalled once in a few days, then 4 times in one run | Replace with Pololu 4861 | Closed: 3+ months, 0 stalls | [5.4.1](#541-drive-motor-burnout-tt-gm25-to-pololu-4861) |
+| R2 | ToF sensor failed during parking | Robot hits wall during parking | Pi GPIO set to pull-up in the Pi config | Closed: 0 failures in 200+ runs | [5.4.2](#542-tof-sensor-fails-during-parking) |
+| R3 | Camera jitter | Camera feed wavy, occasional frame misses | 3D Printed wheel support bracket to reduce wheel wobble | OPEN: reduced, never hit a block so far, Video Proof in section 5.4.3 | [5.4.3](#543-wheel-wobble-showing-up-as-camera-jitter) |
+| R4 | Drive backlash degrades parking precision | Causes Parking hit occasionally | Measured Backlash as 6 mm and kept 15 mm buffer to walls in parking | Mitigated | [2.9.1](#291-backlash), [5.4.4](#544-hardware-inaccuracies-and-software-mitigations) |
+| R5 | Battery voltage sag changes distance and speed | Timed PWM drifts distance and speed as the battery drains | Encoder based distance and RPM closed loop makes logic independent of voltage | Mitigated | [2.9.2](#292-battery-voltage-variation), [5.4.4](#544-hardware-inaccuracies-and-software-mitigations) |
+| R6 | Sensors failure and Lighting Issues | If any sensor fails, robot might not drive correctly |Software logic and hardware solution done for each case as detailed in the section. | Mitigated |[3.10](#310-failure-point-analysis) |
+
 ### 5.4.1 Drive Motor Burnout: TT-GM25 to Pololu 4861
 
 **Trigger:** The TT-GM25 drive motor began stalling intermittently, initially once in a few days, then finally four times during a single run.
@@ -1670,7 +1678,7 @@ This section outlines the engineering process we followed when the robot broke m
 
 **Verification:** The Pololu 4861 has run for over three months of testing with zero stalls, against a TT-GM25 that was already failing within weeks.
 
-### 5.4.2 ToF Sensor Dropout During Parking
+### 5.4.2 ToF Sensor Fails During Parking
 
 **Trigger:** Roughly once in every 20 parking runs, the robot failed to stop during a parking maneuver and hit the wall instead of braking.
 
@@ -1750,26 +1758,33 @@ We have worked on this robot since Jan 2026 and gone over multiple iterations wi
 
 <img src="docs/diagrams/systemsThinking/3D_graveyard_2.png" alt="Earlier discarded iterations of the 3D-printed chassis parts, part 2" width="800">
 
-From WRO 2025 we have 2 complete robot iterations, where first we moved from Lego Chassis to 3 D printed chassis, but kept the bigger back Wheels then we moved to the current design with all 4 thinner wheels, and battery at the back for better stability. Here's how our 3 robots look:
+From WRO 2025 to WRO 2026 Internationals we have below robot iterations. Here's how our 3 robots look:
 
 <img src="docs/diagrams/systemsThinking/3_robos.png" alt="Robot Iterations Full chassis" width="700">
+
+| Version | Picture position | Chassis and wheels | Drive motor / differential | Steering and servo | Positives of this version | Negatives of this version |
+|---|---|---|---|---|---|---|
+| V1 (WRO 2025) | right | LEGO chassis, wide rear wheels | LEGO EV3 medium, 250 rpm, 28:20 plastic differential (179 rpm at the wheel) | Parallel steering, SG90 | WRO 2025 International 11th rank | Motor already at 100% with no speed headroom, plastic gears chip and have backlash, SG90 broke once |
+| V2 (early 2026) | middle | 3D-printed low height chassis, battery moved to top level, wide rear wheels | TT-GM25, 1300 rpm, 38:13 metal differential | Ackermann steering, EMAX ES08A II | Faster speed, better manoeuvrability | Turning radius increased as wheels slipped due to center of mass moving upwards |
+| V2.5 (Mid 2026) | left | 3D-printed higher height chassis, battery moved to lower level, narrow rear wheels with wheel support bracket | --same as above-- | --same as above-- | Reduced turning radius and negligible wheel slip due to center of mass moving lower, camera feed less wobbly | Drive motor failure |
+| V3 (current) | left | --same as above-- | Pololu 4861, 1800 rpm, 38:13 metal differential (596 rpm at the wheel) | Ackermann steering, Savox SV-1232MG | Stable drive motor with no failures and faster steering motor reaction time 0.10 -> 0.04 sec/60° | |
 
 
 ### 5.5.2 Other Design Iterations
 
 Pulled from all three subsystem sections plus the case studies and failures above, this table is a compact record of what changed, why, and what evidence backs the change.
 
-| Decision | Changed From → To | Why | Evidence / Status |
-| :---- | :---- | :---- | :---- |
-| Steering | Parallel → Ackermann | Tyre slip during tight maneuvers between inner blocks and walls | [Refer Sec 2.3 for Details](#23-steering-selection) |
-| Drive motor | LEGO EV3 → TT-GM25 | LEGO motor was run at 100% speed and had no headroom to increase robot speed. | [Refer Sec 2.6 for Details](#26-speed-torque-calculation-drive-motor-selection) |
-| Drive motor | TT-GM25 → Pololu 4861 | TT-GM25 failed in a month. Chose Pololu motor for reliability | [Refer Sec 5.4 for Details](#541-drive-motor-burnout-tt-gm25-to-pololu-4861)|
-| Steering motor | SG90 → EMAX ES08A II  | Need more precision and robustness | [Refer Sec 2.7 for Details](#27-steering-motor-selection)|
-| Steering motor | EMAX ES08A II → SAVOX SV 1232MG  | Low reaction time to execute turns | [Refer Sec 2.7 for Details](#27-steering-motor-selection)|
-| Pillar-avoidance steering law | Fixed vertical target line → angle-based target-line geometry|The delta between the robot and obstacle reduced as the robot approached the pillar with Fixed-line delta, forcing hacky edge-case handling| [Centroid-tracking calibration tool](src/tools/drive_straight_tune_target.py)  [Section 4.4.5](#445-pass-traffic-sign-target-line-geometry)|
-| Drive speed | Fixed speed (40 or 70%) → Medium Speed with lower lap time | Fixed high speed caused repeated back-off recoveries, worsening lap time |[Details for Speeds](#532-speed-vs-accuracy-why-a-lower-speed-improved-lap-time) |
-| ToF sensor init | Boot-time check only → runtime re-init → GPIO Pull-Up fix | Wall collisions in ~1-in-20 parking runs | [Details for ToF sensor Dropout](#542-tof-sensor-dropout-during-parking) |
-| Wheel-gearbox alignment | Bare 3D-printed gearbox → added axle-support bracket | Wobble at the wheel showed up as jitter in the camera feed | [Details of Wheel Gearbox alignment issue](#543-wheel-wobble-showing-up-as-camera-jitter)|
+| Decision | Changed From → To | Why | Evidence | Reference Section |
+| :---- | :---- | :---- | :---- |:---- |
+| Steering | Parallel → Ackermann | Tyre slip during tight maneuvers between inner blocks and walls | Observed slip visually |[Sec 2.3](#23-steering-selection) |
+| Drive motor | LEGO EV3 → TT-GM25 | LEGO motor was run at 100% speed and had no headroom to increase robot speed. | Wheel 179 rpm -> target 358 rpm (2x) | [Sec 2.6](#26-speed-torque-calculation-drive-motor-selection) |
+| Drive motor | TT-GM25 → Pololu 4861 | TT-GM25 failed in a month. Chose Pololu motor for reliability | 4 stalls in one run -> 0 stalls in 3+ months|[Sec 5.4](#541-drive-motor-burnout-tt-gm25-to-pololu-4861)|
+| Steering motor | SG90 → EMAX ES08A II  | Need more precision and robustness | SG90 broke once -> no failures | [Sec 2.7](#27-steering-motor-selection)|
+| Steering motor | EMAX ES08A II → SAVOX SV 1232MG  | Low reaction time to execute turns |Reaction time 0.10 -> 0.04 sec/60° | [Sec 2.7](#27-steering-motor-selection)|
+| Pillar-avoidance steering law | Fixed vertical target line → angle-based target-line geometry|The delta between the robot and obstacle reduced as the robot approached the pillar with Fixed-line delta, forcing hacky edge-case handling| Robot moves smoothly even at double speed than last year | [Centroid-tracking calibration tool](src/tools/drive_straight_tune_target.py),  [Section 4.4.5](#445-pass-traffic-sign-target-line-geometry)|
+| Drive speed | Fixed speed (40% / 70%) → 50% Speed with lower lap time | Fixed high speed caused repeated back-off recoveries, worsening lap time | Lap 51 s / 59 s -> 45 s; back-offs 0 / 3-4 -> 0 | [Details for Speeds](#532-speed-vs-accuracy-why-a-lower-speed-improved-lap-time) |
+| ToF sensor init | Boot-time check only → runtime re-init → GPIO Pull-Up fix | Wall collisions in ~1-in-20 parking runs | 1-in-20 -> 0 in 200+ runs | [Details for ToF sensor Failure](#542-tof-sensor-fails-during-parking) |
+| Wheel-gearbox alignment | Bare 3D-printed gearbox → added axle-support bracket | Wobble at the wheel showed up as jitter in the camera feed | Video attached in section 5.4.3 | [Sec 5.4.3](#543-wheel-wobble-showing-up-as-camera-jitter)|
 
 ---
 
@@ -2036,4 +2051,9 @@ Summary of our documentation is available in [Presentation PDF](docs/Engineering
 
 ## 6.7 Matlab Journal
 
-The Matlab code and journal is in the [matlab folder](matlab/) of this repository.
+The Matlab code and journal is in the [matlab folder](matlab/) of this repository. Below is a sneak peek of our Matlab simulation that runs our robot's **real vision strategy** (HSV block detection + proportional centroid steering from `src/obstacle_challenge/`) against a simulated camera.
+
+[![Simulation demo](/matlab/simulation_preview.gif)](/matlab/simulation_demo.mp4)
+
+*The simulator on two officially randomized layouts, with the control analysis
+saved after each run. Click the preview for the full video (29 s).*
