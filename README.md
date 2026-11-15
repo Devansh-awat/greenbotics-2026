@@ -2062,4 +2062,5 @@ saved after each run. Click the preview for the full video (29 s).*
 
 - Full report: [matlab/README.md](matlab/README.md), with a [rubric guide](matlab/README.md#rubric-guide) and an [evidence table](matlab/README.md#evidence-at-a-glance) at the top
 - All MATLAB code: [matlab/obstacle_challenge/](matlab/obstacle_challenge/); start with [`run.m`](matlab/obstacle_challenge/run.m) (interactive simulator) and [`evaluate.m`](matlab/obstacle_challenge/evaluate.m) (batch test on official randomized layouts)
-- Products used: MATLAB and Image Processing Toolbox ([why](matlab/README.md#why-matlab-and-which-products))
+- Stateflow model of the navigation state machine: [matlab/stateflow/](matlab/stateflow/) (14/14 transition checks pass; [details](matlab/README.md#stateflow-model-of-the-state-machine))
+- Products used: MATLAB, Image Processing Toolbox, Simulink and Stateflow ([why](matlab/README.md#why-matlab-and-which-products))

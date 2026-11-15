@@ -1,0 +1,21 @@
+
+Stateflow chart check: scripted scenario, 14 checks
+frame  state_id   park       result check
+15     1 (1)      0 (0)      PASS   starts driving straight
+60     2 (2)      0 (0)      PASS   big pillar seen -> avoiding
+100    3 (3)      0 (0)      PASS   pillar lost -> clearing
+120    2 (2)      0 (0)      PASS   pillar back while clearing -> avoiding again
+150    3 (3)      0 (0)      PASS   pillar lost again -> clearing
+190    1 (1)      0 (0)      PASS   clear for 45 frames -> driving straight
+205    4 (4)      0 (0)      PASS   pillar closer than 0.19 m -> emergency reverse
+240    1 (1)      0 (0)      PASS   reversed 24 frames -> back to driving
+280    5 (5)      1 (1)      PASS   3 laps done -> park: approach
+310    5 (5)      2 (2)      PASS   staging reached -> align
+330    5 (5)      3 (3)      PASS   centred on lot -> turn in
+350    5 (5)      4 (4)      PASS   facing lot -> enter
+370    5 (5)      5 (5)      PASS   inside lot -> straighten
+400    6 (6)      5 (5)      PASS   parked -> mission complete
+RESULT: 14 / 14 checks passed
+
+Chart picture saved: matlab/stateflow/state_machine_chart.png
+Model saved: matlab/stateflow/greenbotics_state_machine.slx

@@ -13,7 +13,7 @@ report:
 | Rubric section (points) | Where to find it |
 |---|---|
 | Problem context and strategy (5) | [Problem Statement](#problem-statement), [Project Objectives](#project-objectives), [Why MATLAB, and Which Products](#why-matlab-and-which-products) |
-| Innovation and modeling (5) | [Simulation Architecture](#simulation-architecture), [Perception](#perception-vision-pipeline-kept-in-sync), [Navigation and State Machine](#navigation-and-state-machine), [Official WRO Randomization](#official-wro-randomization), [Full Mission](#full-mission-parking-and-both-directions), [Power Budget](#power-budget-prediction--measurement--verification) |
+| Innovation and modeling (5) | [Simulation Architecture](#simulation-architecture), [Perception](#perception-vision-pipeline-kept-in-sync), [Navigation and State Machine](#navigation-and-state-machine), [Stateflow Model](#stateflow-model-of-the-state-machine), [Official WRO Randomization](#official-wro-randomization), [Full Mission](#full-mission-parking-and-both-directions), [Power Budget](#power-budget-prediction--measurement--verification) |
 | Test and verification (5) | [Validation Results](#validation-results), [Engineering Iterations](#engineering-iterations), [Closing the Loop](#closing-the-loop-simulation-tuned-parameters), [Control Analysis](#control-analysis-inside-the-steering-loops), [Sim-to-Real](#sim-to-real-what-the-timing-does-and-doesnt-validate), [Deployment](#deployment-what-actually-reached-the-robot) |
 | Code quality and readability (3) | [Simulation Architecture](#simulation-architecture) (module table), [How to Run](#how-to-run), code in [`obstacle_challenge/`](obstacle_challenge/) |
 | Report quality and product feedback (2) | [Lessons Learned and Product Feedback](#lessons-learned-and-product-feedback), [Known Limitations](#known-limitations), [Conclusion](#conclusion) |
@@ -22,7 +22,7 @@ report:
 |---|---|
 | 1. Brief introduction to the problem | [Problem Statement](#problem-statement) |
 | 2. The solution and how MATLAB was used | [Simulation Architecture](#simulation-architecture), [Why MATLAB, and Which Products](#why-matlab-and-which-products) |
-| 3. Link to the model and relevant files | All MATLAB code: [`obstacle_challenge/`](obstacle_challenge/); entry point [`run.m`](obstacle_challenge/run.m); batch test [`evaluate.m`](obstacle_challenge/evaluate.m). No Simulink model yet ([Known Limitations](#known-limitations)) |
+| 3. Link to the model and relevant files | All MATLAB code: [`obstacle_challenge/`](obstacle_challenge/); entry point [`run.m`](obstacle_challenge/run.m); batch test [`evaluate.m`](obstacle_challenge/evaluate.m). Simulink/Stateflow model: [`stateflow/greenbotics_state_machine.slx`](stateflow/greenbotics_state_machine.slx), built and tested by [`build_state_machine.m`](stateflow/build_state_machine.m) |
 | 4. Testing, deployment and how results were evaluated | [Validation Results](#validation-results), [Sim-to-Real](#sim-to-real-what-the-timing-does-and-doesnt-validate), [Deployment](#deployment-what-actually-reached-the-robot) |
 | 5. Achievements, lessons learned, reflections on MathWorks tools | [Conclusion](#conclusion), [Lessons Learned and Product Feedback](#lessons-learned-and-product-feedback) |
 
@@ -33,6 +33,7 @@ Every number in this report, and what kind of evidence it is:
 | Result | Value | Evidence type | Details |
 |---|---|---|---|
 | Missions on 12 randomized layouts (`'field'` mode, seed 42) | 12/12 complete, 12/12 full parks, 0 barrier touches, min sign clearance 0.14 m | Simulated | [Validation Results](#validation-results) |
+| Stateflow chart vs scripted scenario | 14/14 expected transitions pass | Simulated (Stateflow) | [Stateflow Model](#stateflow-model-of-the-state-machine) |
 | Average simulated mission time | 148.2 s | Simulated (not real-world time) | [Sim-to-Real](#sim-to-real-what-the-timing-does-and-doesnt-validate) |
 | Steering-gain sweep (`KP_BLOCK`, `'field'` mode) | Flat optimum 0.05–0.09; ≥ 0.12 costs up to +20% time | Simulated, not deployed | [Closing the Loop](#closing-the-loop-simulation-tuned-parameters) |
 | Pi power under full vision load | 5.7 W | Measured (PMIC) | [Power Budget](#power-budget-prediction--measurement--verification) |
@@ -56,6 +57,7 @@ Every number in this report, and what kind of evidence it is:
 - [Simulation Architecture](#simulation-architecture)
 - [Perception: Vision Pipeline, Kept in Sync](#perception-vision-pipeline-kept-in-sync)
 - [Navigation and State Machine](#navigation-and-state-machine)
+- [Stateflow Model of the State Machine](#stateflow-model-of-the-state-machine)
 - [Official WRO Randomization](#official-wro-randomization)
 - [Full Mission: Parking and Both Directions](#full-mission-parking-and-both-directions)
 - [Engineering Iterations](#engineering-iterations)
@@ -203,6 +205,35 @@ mode's architecture; `'gyro'` mode's corner trigger is a geometric proxy
 robot's orange-line crossing trigger (`rules.py`'s `count_turns`) — floor
 lines are not rendered in this simplified camera model, so line detection
 itself is not simulated.
+
+## Stateflow Model of the State Machine
+
+The navigation decisions in `control_step.m` (`'field'` mode) and
+`parking_control.m` are also built as an executable **Stateflow chart in
+Simulink**: [`stateflow/greenbotics_state_machine.slx`](stateflow/greenbotics_state_machine.slx).
+
+![Stateflow chart of the navigation state machine](stateflow/state_machine_chart.png)
+
+- **What it models:** the decision logic. DRIVE (DRIVING_STRAIGHT,
+  AVOIDING_BLOCK, CLEARING), EMERGENCY_REVERSE, PARK (APPROACH, ALIGN,
+  TURN_IN, ENTER, STRAIGHTEN) and MISSION_COMPLETE, with the same thresholds
+  as the MATLAB simulator: 1500 px² pillar area to start avoiding, 45 frames
+  without a pillar to stop clearing, 0.19 m emergency distance, 24 reverse
+  frames, 45-frame cooldown, 150-frame parking timeout.
+- **What it does not model:** physics, the camera or steering. Its 11 inputs
+  are the values `control_step.m` computes each step (pillar seen, pillar
+  area, distances, lap count, parking checkpoints).
+- **How it was checked:** [`build_state_machine.m`](stateflow/build_state_machine.m)
+  builds the model from code, runs a 14-second scripted scenario at 30 Hz
+  and checks 14 expected transitions.
+  Result: **14 / 14 pass** ([full output](stateflow/check_results.txt)).
+  Transition timing matches the MATLAB simulator to within one 30 Hz frame.
+- **What the chart makes explicit:** transition priorities that are only
+  implied by the order of `if` statements in `control_step.m`. Finishing
+  lap 3 is checked before an emergency reverse, and a pillar reappearing is
+  checked before the clearing timeout.
+- **Next step:** drive the chart with inputs logged from a full simulator run
+  and compare the two state sequences step by step.
 
 ## Official WRO Randomization
 
@@ -355,9 +386,10 @@ average 8.7 s per pass):
   report.
 - **Image Processing Toolbox** supplies `rgb2hsv` and `regionprops`
   (`find_biggest_block.m`), the HSV-threshold-plus-blob-analysis pair that
-  stands in for the camera pipeline. That's the full toolbox list — no
-  Simulink, Stateflow, or Simscape yet (see
-  [Known Limitations](#known-limitations)).
+  stands in for the camera pipeline.
+- **Simulink and Stateflow** hold an executable chart of the navigation
+  state machine ([Stateflow Model](#stateflow-model-of-the-state-machine)),
+  built from a script and checked against a scripted scenario. No Simscape.
 - **Why a separate MATLAB model rather than re-running the Python control
   code in a Python simulator:** writing the control logic a second time, in
   a different language, forces an independent re-derivation of the steering
@@ -477,7 +509,7 @@ with a non-MATLAB system of record.
 
 ## How to Run
 
-MATLAB R2024a+ with Image Processing Toolbox.
+MATLAB R2024a+ with Image Processing Toolbox. The Stateflow model needs Simulink and Stateflow; the saved `.slx` is from R2026b, and `build_state_machine.m` rebuilds it in any release that has both.
 
 ```matlab
 cd matlab/obstacle_challenge
@@ -487,6 +519,9 @@ evaluate(12, 42) % batch: 12 official layouts, reproducible
 sweep_kp         % steering-gain sweep (~2 min)
 power_budget     % electrical checks
 test_headless    % 5-second smoke test
+
+cd ../stateflow
+build_state_machine  % builds the Stateflow model and runs its 14 checks (needs Simulink + Stateflow)
 ```
 
 ## Known Limitations
