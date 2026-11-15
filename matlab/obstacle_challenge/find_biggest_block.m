@@ -1,5 +1,9 @@
 function block = find_biggest_block(frame, CFG)
-% mirrors find_biggest_block() in camera.py
+% find_biggest_block  Simplified model of the block detection generalised
+%   into src/vision/pipeline.py (OBJECTS table, src/obstacle_challenge/
+%   tuning.py). Same method as the real pipeline — HSV threshold with a
+%   two-range red hue wrap, portrait/upright shape check, pick the biggest —
+%   but NOT the same numeric thresholds: see config.m's sync note for why.
 % Optimized: analyses the ROI at half resolution (2x downsample) — 4x less
 % work in rgb2hsv/regionprops. Areas and coordinates are scaled back so
 % thresholds and outputs stay in full-resolution units.
@@ -40,7 +44,7 @@ for pair = {red_mask, 'red'; green_mask, 'green'}'
         if s.Area < min_area_ds, continue; end
         bw = s.BoundingBox(3);
         bh = s.BoundingBox(4);
-        if bh <= bw, continue; end          % portrait check (camera.py line)
+        if bh <= bw, continue; end          % portrait/upright check (simplified)
         area_full = s.Area * 4;             % scale back to full resolution
         if area_full > best_area
             best_area      = area_full;

@@ -1,7 +1,8 @@
 function out_png = save_control_report(log, P, CFG, label)
 % save_control_report  Control-system analysis of one run (6 panels).
 %   Greenbotics steers with two loops, both shown here:
-%     1. Camera P-controller  (same law as main_v3.py on the robot)
+%     1. Camera P-controller  ('field' mode's simulation-baseline law;
+%        see config.m's sync note)
 %          servo = KP_BLOCK * (cx - target_x), clamped to +/-45 deg
 %          red pillar -> target_x = 20, green pillar -> target_x = 620
 %     2. Heading loop          omega = 3 * heading error, clamped

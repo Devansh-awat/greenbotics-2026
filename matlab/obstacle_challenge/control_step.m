@@ -4,8 +4,9 @@ function S = control_step(S, obstacles, step, P, CFG)
 %   so the two can never drift apart.
 %
 %   Two navigation modes (P.nav_mode):
-%     'gyro'  — the REAL robot logic: gyro heading lock + ToF corner turns
-%               + main_v3.py block steering  (see control_step_gyro.m)
+%     'gyro'  — real robot ARCHITECTURE: gyro-PD heading lock + discrete
+%               corner turns + simplified pillar passing (see
+%               control_step_gyro.m header for what is/isn't a literal port)
 %     'field' — vector-field navigation (simulation baseline, this file)
 
 if strcmp(P.nav_mode, 'gyro')
@@ -15,12 +16,13 @@ end
 
 % ── 1. Camera + block detection at 10 Hz ──────────────────────────────────
 if mod(step,3)==1 || isempty(S.cam_frame)
-    S.cam_frame = render_frame(S.x, S.y, S.th, [obstacles, P.barrier_obs], ...
+    S.cam_frame  = render_frame(S.x, S.y, S.th, [obstacles, P.barrier_obs], ...
                                P.cx, P.cy, P.ri_px, P.ro_px, P.scale, CFG);
-    S.block     = find_biggest_block(S.cam_frame, CFG);
+    S.block      = find_biggest_block(S.cam_frame, CFG);
+    S.wall_black = find_wall_black(S.cam_frame, CFG);   % detection only, unused below
 end
 
-% ── 2. Simulated gyro (mirrors main_v3.py) ────────────────────────────────
+% ── 2. Simulated gyro (same yaw convention as the real robot's IMU reading) ─
 S.current_yaw = mod(90 - rad2deg(S.th), 360);
 
 % ── 3. Vector field — one desired direction from all influences ───────────
@@ -150,7 +152,8 @@ if ~strcmp(S.state, 'EMERGENCY_REVERSE') && S.emerg_cooldown <= 0 && ~S.parking_
     end
 end
 
-% ── 4b. State machine — camera steering matches main_v3.py ────────────────
+% ── 4b. State machine — simulation baseline (see control_step_gyro.m for the
+%        mode that models the robot's current navigation architecture) ──────
 S.servo_deg = 0;
 switch S.state
 

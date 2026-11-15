@@ -2,7 +2,8 @@ function best = sweep_kp()
 % sweep_kp  Closes the simulation → hardware loop for KP_BLOCK.
 %
 %   KP_BLOCK is the camera steering gain on the REAL robot
-%   (main_v3.py: servo = KP_BLOCK * (cx - target_x), currently 0.09).
+%   ('field' mode's simulation-baseline law: servo = KP_BLOCK * (cx -
+%   target_x), currently 0.09 — see config.m's sync note).
 %   This sweep runs each candidate gain on the SAME six officially
 %   randomized layouts (paired comparison) and measures pass rate,
 %   completion time and worst block clearance.

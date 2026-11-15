@@ -6,7 +6,8 @@ if nargin < 1, direction = 'ccw'; end
 
 here = fileparts(mfilename('fullpath'));
 
-% ── Vision config (mirrors config.py / camera.py) ─────────────────────────
+% ── Vision config (see config.m's sync note: method matches the real
+%     vision pipeline, numeric thresholds are the sim's own) ───────────────
 config;
 CFG = struct();
 CFG.FRAME_WIDTH               = FRAME_WIDTH;
@@ -20,11 +21,14 @@ CFG.RED_TARGET_X              = RED_TARGET_X;
 CFG.GREEN_TARGET_X            = GREEN_TARGET_X;
 CFG.CLEARANCE_FRAMES          = CLEARANCE_FRAMES;
 CFG.GYRO_KP                   = GYRO_KP;
+CFG.GYRO_KD                   = GYRO_KD;
+CFG.CORNER_SNAP_KP            = CORNER_SNAP_KP;
 CFG.HEADING_LOCK_TOLERANCE    = HEADING_LOCK_TOLERANCE;
 CFG.CAMERA_H_FOV              = 120.0;
 CFG.LOWER_RED_1=LOWER_RED_1; CFG.UPPER_RED_1=UPPER_RED_1;
 CFG.LOWER_RED_2=LOWER_RED_2; CFG.UPPER_RED_2=UPPER_RED_2;
 CFG.LOWER_GREEN=LOWER_GREEN; CFG.UPPER_GREEN=UPPER_GREEN;
+CFG.LOWER_BLACK=LOWER_BLACK; CFG.UPPER_BLACK=UPPER_BLACK;
 
 % ── Simulation parameters ─────────────────────────────────────────────────
 P = struct();
@@ -38,12 +42,19 @@ P.inner_r    = 0.50;
 P.outer_r    = 1.35;
 P.verbose    = true;
 % Navigation mode:
-%   'field' — vector-field navigation (validated: 10/10 random layouts)
-%   'gyro'  — experimental port of the real robot's gyro/corner logic
-%             (structure complete; completes laps on ~half the layouts,
-%             tuning tracked in the engineering journal)
+%   'field' — vector-field navigation (simulation baseline; validated:
+%             12/12 random layouts). Not a claimed port of robot code.
+%   'gyro'  — real robot ARCHITECTURE (gyro-PD heading lock between corners,
+%             discrete corner turns, pillars passed red-right/green-left),
+%             with the gyro PD gains matching tuning.py exactly. The pillar
+%             pass manoeuvre and the corner trigger are simplified models,
+%             not literal ports — see control_step_gyro.m header for why.
 P.nav_mode    = 'field';
-P.corner_dist = 0.72;     % front ToF distance (m) that triggers a corner turn
+% Corner trigger: front-wall proximity + inside the corner square, used as a
+% geometric PROXY for the real robot's orange-line crossing (rules.py
+% count_turns). This simplified top-down camera model does not render floor
+% lines, so line detection itself is not simulated.
+P.corner_dist = 0.72;     % front wall distance (m) that triggers a corner turn
 
 % ── Track image + geometry ────────────────────────────────────────────────
 matfile = fullfile(here, 'mat.png');

@@ -9,7 +9,7 @@ saved after each run. Click the preview for the full video (29 s).*
 - [Problem Statement](#problem-statement)
 - [Project Objectives](#project-objectives)
 - [Simulation Architecture](#simulation-architecture)
-- [Perception: Running Our Real Vision Code](#perception-running-our-real-vision-code)
+- [Perception: Vision Pipeline, Kept in Sync](#perception-vision-pipeline-kept-in-sync)
 - [Navigation and State Machine](#navigation-and-state-machine)
 - [Official WRO Randomization](#official-wro-randomization)
 - [Full Mission: Parking and Both Directions](#full-mission-parking-and-both-directions)
@@ -18,6 +18,10 @@ saved after each run. Click the preview for the full video (29 s).*
 - [Power Budget: Prediction → Measurement → Verification](#power-budget-prediction--measurement--verification)
 - [Closing the Loop: Simulation-Tuned Parameters](#closing-the-loop-simulation-tuned-parameters)
 - [Control Analysis: Inside the Steering Loops](#control-analysis-inside-the-steering-loops)
+- [Why MATLAB, and Which Products](#why-matlab-and-which-products)
+- [Sim-to-Real: What the Timing Does and Doesn't Validate](#sim-to-real-what-the-timing-does-and-doesnt-validate)
+- [Deployment: What Actually Reached the Robot](#deployment-what-actually-reached-the-robot)
+- [Lessons Learned and Product Feedback](#lessons-learned-and-product-feedback)
 - [How to Run](#how-to-run)
 - [Known Limitations](#known-limitations)
 - [Conclusion](#conclusion)
@@ -45,8 +49,12 @@ point of simulating.
 
 1. Reproduce the field to official dimensions: 3×3 m mat, 1×1 m centre box,
    sign seats at the exact card positions (rows 400/600 mm from the outer wall).
-2. Run our robot's **real vision strategy** (HSV block detection + proportional
-   centroid steering from `src/obstacle_challenge/`) against a simulated camera.
+2. Run our robot's **vision *method*** (two-range HSV hue-wrap detection,
+   portrait-shape filtering) against a simulated camera, and separately model
+   its **current navigation architecture** (gyro-PD heading lock, discrete
+   corner turns, red-right/green-left pillar passing) — see
+   [Perception](#perception-vision-pipeline-kept-in-sync) for exactly what is
+   and isn't a literal port of `src/obstacle_challenge/`.
 3. Generate every test layout with the **official randomization procedure**.
 4. Complete the full mission — **3 laps + parallel parking** — in both driving
    directions, without touching walls, signs, or parking barriers.
@@ -74,21 +82,55 @@ headless batch evaluator, so the two can never drift apart.
 | `sweep_kp.m` | Steering-gain sweep on paired layouts | tunes `config.py` |
 | `power_budget.m` | Electrical model: rails, battery, runtime | battery/regulator selection |
 
-## Perception: Running Our Real Vision Code
+## Perception: Vision Pipeline, Kept in Sync
 
-The simulated pipeline ports the robot's code line by line: the same 640×360
-frame size, the same ROI crop, the same HSV thresholds (red split across the
-hue wrap, 0–10 and 170–180), the same portrait filter (`height > width`) that
-rejects reflections, and the same steering law:
+**Sync note (2026-11):** earlier revisions of this page claimed the simulated
+pipeline was a line-by-line port of a file called `main_v3.py`. That file has
+since been retired (it now lives under `src/obstacle_challenge/legacy/`); the
+robot shipped `main_v4.py` and now `main.py`, and vision detection moved into
+a shared `src/vision/pipeline.py` driven by `src/obstacle_challenge/tuning.py`.
+We checked the claim against the current source and it no longer held, so this
+section is rewritten to say exactly what is and isn't shared today.
 
-```
-servo = clamp( KP_BLOCK × (cx − target_x), ±45° )
-red   → target_x = 20   (pass on its right)
-green → target_x = 620  (pass on its left)
-```
+**Shared with the current robot code:** the 640×360 frame size, the ROI-crop
+approach, the two-range red hue-wrap split (0–10 and 170–180) for the HSV
+path, and the portrait/upright shape filter that rejects reflections and lying
+objects.
 
-Because the detection path is shared with the robot's logic, an HSV threshold
-that fails in simulation fails on the robot for the same reason.
+**Not shared (and why):** the exact numeric HSV bounds and minimum contour
+area. `render_frame.m` paints pillars as flat, idealized colour
+(`[215,30,30]` red, `[25,185,40]` green in RGB — saturated and bright), while
+the robot's thresholds in `tuning.py` are calibrated per-venue against real
+room lighting (and literally a different value range, e.g. red's V-upper is
+180 there vs. the headroom this sim needs for its much brighter synthetic
+pillars). Copying the real numbers in verbatim would make the simulated
+camera blind to its own simulated pillars, so `config.m` keeps its own wider
+thresholds — see the sync note at the top of that file for the exact real
+values, kept there for traceability. The robot's current vision pipeline also
+runs a white-balance colour-split step (`tuning.py`'s `COLOUR_SPLIT`) to tell
+red pillars from magenta parking barriers under variable lighting, which has
+no equivalent need in a simulated camera with fixed, distinguishable colours.
+
+**Steering law — two modes, used honestly:**
+
+- `'field'` mode (the simulation baseline used for the headline validation
+  results below) steers with a simple proportional law, kept because it is a
+  clean, well-behaved baseline for randomization/statistics work, not because
+  it matches the robot:
+  ```
+  servo = clamp( KP_BLOCK × (cx − target_x), ±45° )
+  red   → target_x = 20   (pass on its right)
+  green → target_x = 620  (pass on its left)
+  ```
+- `'gyro'` mode models the robot's actual current navigation *architecture* —
+  gyro-PD heading lock between corners (same gains as `control.py`'s
+  `steer_with_gyro()`), discrete corner turns, and pillars passed red-right /
+  green-left — without claiming to reproduce the robot's full rule engine
+  (`rules.py`'s `rule_red`/`rule_green`/`pick_target_block`), which steers off
+  live camera-handoff geometry tuned to one physical camera mount and has no
+  meaningful equivalent in a top-down point-mass model. See
+  `control_step_gyro.m`'s header for the complete, itemised list of what is
+  and isn't a literal port.
 
 ## Navigation and State Machine
 
@@ -110,7 +152,12 @@ geometrically impossible.
 
 States: `DRIVING_STRAIGHT → AVOIDING_BLOCK → CLEARING → (back)`, with
 `EMERGENCY_REVERSE` as a guarded last resort and a stuck watchdog (< 6 cm of
-motion in 3 s forces a back-off) as the final safety net.
+motion in 3 s forces a back-off) as the final safety net. This is the `'field'`
+mode's architecture; `'gyro'` mode's corner trigger is a geometric proxy
+(front-wall proximity while positioned in a corner square) for the real
+robot's orange-line crossing trigger (`rules.py`'s `count_turns`) — floor
+lines are not rendered in this simplified camera model, so line detection
+itself is not simulated.
 
 ## Official WRO Randomization
 
@@ -253,6 +300,135 @@ average 8.7 s per pass):
   [Known Limitations](#known-limitations)). Between corners the robot stays
   much closer to the lane centre.
 
+## Why MATLAB, and Which Products
+
+- **Base MATLAB** carries the actual simulation: struct-based robot state
+  (`S`) driven through a `switch`/`case` state machine every 30 Hz step,
+  vector/trig math for the unified vector field and the gyro-PD controller,
+  and `subplot`/`saveas` for every evaluation figure and the 6-panel control
+  report.
+- **Image Processing Toolbox** supplies `rgb2hsv` and `regionprops`
+  (`find_biggest_block.m`), the HSV-threshold-plus-blob-analysis pair that
+  stands in for the camera pipeline. That's the full toolbox list — no
+  Simulink, Stateflow, or Simscape yet (see
+  [Known Limitations](#known-limitations)).
+- **Why a separate MATLAB model rather than re-running the Python control
+  code in a Python simulator:** writing the control logic a second time, in
+  a different language, forces an independent re-derivation of the steering
+  law and state machine instead of re-executing the same source that might
+  already contain the bug we're trying to catch. Several of the bugs in
+  [Engineering Iterations](#engineering-iterations) (the heading-relative
+  orbiting bug, the zero-sum wall/avoidance deadlock) were caught by this
+  independent build, not by the robot's own test suite.
+- MATLAB's native matrix/vector operations also made the physics and
+  vector-field math (`control_step.m`) noticeably terser to write and step
+  through interactively than the equivalent would have been to prototype
+  from scratch.
+
+## Sim-to-Real: What the Timing Does and Doesn't Validate
+
+The simulator reports a **148.2 s average mission time** (3 laps + parking,
+12 randomized layouts). The root [README §5.3.2](../README.md#532-speed-vs-accuracy-why-a-lower-speed-improved-lap-time)
+documents our real robot's own measured obstacle-run timing: **45 s** at our
+deployed cruise speed (0 back-offs), 51 s at a slower speed, 59 s at a faster
+one that triggered more emergency evasions. These numbers are **not a
+like-for-like comparison**, and we want to say plainly why, rather than let
+the gap sit unexplained:
+
+1. **Different scope.** The simulated 148.2 s figure includes the full
+   parallel-parking maneuver; the real 45 s figure in §5.3.2 is drive-only
+   timing from a speed-tuning study and wasn't necessarily measured including
+   a full parking sequence.
+2. **Different, deliberately decoupled speed axis.** `P.nominal_v` (0.18,
+   further scaled down during avoidance/braking/parking) was chosen for
+   controller stability during development, not to match the real robot's
+   throughput — the real robot's drive RPM (`STRAIGHT_RPM`/`CORNER_RPM` in
+   `src/obstacle_challenge/config.py`) is a separately-tuned, physical
+   quantity with no simulated counterpart in this model.
+3. **What the sim time axis is actually good for:** relative comparisons at
+   fixed geometry — e.g. the `sweep_kp.m` gain sweep below, where every gain
+   is tested on the *same* paired layouts, so differences in time are
+   meaningful even though the absolute numbers aren't real-world seconds.
+
+**What this means for the validation claims in this report:** the 12/12
+mission-completion rate, the zero barrier touches, and the gain-sweep ranking
+are spatial/decision-making results (did it crash, did it avoid correctly,
+did it park correctly) and stand on their own. The elapsed-time number is not
+being offered as evidence of real-world cycle time, and shouldn't be read as
+such.
+
+## Deployment: What Actually Reached the Robot
+
+Said plainly, including the part that *didn't* go the direction we'd like to
+claim:
+
+- **Power budget → real decision (this direction is real and verified).**
+  `power_budget.m`'s brownout-risk prediction informed our regulator and
+  battery-capacity choice before the full build, and the model was then
+  checked against multimeter/PMIC measurements on the finished robot (within
+  10% at cruise — see
+  [Power Budget](#power-budget-prediction--measurement--verification)). This
+  is the one result in this report that went simulation → real hardware
+  decision → real measurement, in that order.
+- **Gyro gains → simulator (the opposite direction, stated honestly).** The
+  gyro-mode PD gains in `config.m` (`GYRO_KP=0.85`, `GYRO_KD=0.1`) were
+  pulled *from* `src/obstacle_challenge/tuning.py` *into* the simulator
+  during the 2026-11 source re-sync — not the other way around. We're
+  stating this directly because it would be easy to describe it backwards.
+- **`sweep_kp.m`'s gain sweep → not currently connected to the deployed
+  robot.** The swept gain, `KP_BLOCK`, parameterizes `'field'` mode's
+  simplified proportional steering law. That law is not what the current
+  robot runs — obstacle avoidance on the robot is a rule engine
+  (`rules.py`'s `rule_red`/`rule_green`/`pick_target_block`), which has no
+  single scalar gain of this kind to receive a swept value. We're not
+  claiming `0.09` is "deployed"; what *is* demonstrated is the
+  methodology — sweeping a gain across paired randomized layouts to find a
+  flat optimum before physical tuning — which is a reusable technique.
+  Concretely reusable next: re-point `sweep_kp.m`-style paired-layout
+  sweeps at gains the robot actually has, e.g. `rules.py`'s
+  `WALL_FOLLOW_KP` or the gyro `GYRO_KP`/`GYRO_KD` pair, instead of the
+  legacy `KP_BLOCK` law.
+
+## Lessons Learned and Product Feedback
+
+**Lessons learned.** The specific, mechanical bug fixes are already in
+[Engineering Iterations](#engineering-iterations); the broader lesson from
+this report cycle is about keeping the claim "this models the robot" true
+over time, not just at the moment it was written:
+
+- A simulation that documents itself as mirroring a specific source file
+  will silently stop being true the moment that file is refactored, and
+  nothing forces a re-check. Ours said "mirrors `main_v3.py`" through that
+  file's retirement, a `main_v4.py` generation, and into the current
+  `main.py` — three real changes of the robot's steering law and vision
+  pipeline — before anyone re-verified the claim line-by-line against
+  source. The fix cost a few hours; catching it sooner would have cost
+  nothing, if there had been a way to be notified automatically.
+- The honest way to report a simulation's fidelity is to say explicitly
+  which parts are a literal port and which are a simplified model and why
+  (see [Perception](#perception-vision-pipeline-kept-in-sync) and
+  `control_step_gyro.m`'s header) — a blanket "runs our real code" claim is
+  both easier to write and more likely to go stale unnoticed.
+
+**Reflections on using MATLAB.** The struct-plus-`switch` pattern maps
+directly onto a state-machine diagram, which made the state machine easy to
+keep correct while iterating on it live in `run.m`. `rgb2hsv`/`regionprops`
+got a believable synthetic camera working in an afternoon. The gap we felt
+most was the one above: nothing in base MATLAB or Image Processing Toolbox
+helps a script assert "this value matches an external, non-MATLAB file" and
+get told when that stops being true.
+
+**Product feedback and enhancement suggestion.** A lightweight
+cross-language reference-sync check would have caught our drift
+automatically: let a comment declare something like
+`%#references ../../src/obstacle_challenge/tuning.py:GYRO_KP` next to a
+constant, and have a MATLAB Add-On (or a `codeIssues`-style static-analysis
+rule) flag the comment when the referenced file has changed since the
+comment was last touched, or when a simple value extraction disagrees. That
+is exactly the manual, side-by-side audit this re-sync required, and it is a
+generally useful check for any project that keeps a MATLAB model in sync
+with a non-MATLAB system of record.
+
 ## How to Run
 
 MATLAB R2024a+ with Image Processing Toolbox.
@@ -284,9 +460,9 @@ Stated openly, because knowing a model's limits is part of using it:
 ## Conclusion
 
 This module turns testing from "it seems to work" into engineering evidence:
-our real perception strategy running in closed loop on officially randomized
-layouts, scoring **12/12 complete missions with 12/12 full parallel parks and
-zero contact**. It caught control bugs we would never have staged physically,
+our vision method and navigation architecture running in closed loop on
+officially randomized layouts, scoring **12/12 complete missions with 12/12
+full parallel parks and zero contact**. It caught control bugs we would never have staged physically,
 verified our power system against multimeter measurements, and bounded our
 steering gain before a single physical tuning session. With the control
 analysis, every run now also shows *how* the controller reached that result:

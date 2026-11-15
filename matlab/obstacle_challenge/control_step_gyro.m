@@ -1,19 +1,36 @@
 function S = control_step_gyro(S, obstacles, step, P, CFG)
-% control_step_gyro  One 30 Hz step using the REAL robot's navigation logic
-%   (mirrors src/obstacle_challenge/nationals/main.py):
-%     - straight segments held with gyro heading lock (gyro_steer, KP=3)
-%     - corner turn triggered by front ToF distance threshold
+% control_step_gyro  One 30 Hz step modelling the REAL robot's navigation
+%   ARCHITECTURE (src/obstacle_challenge/{control,rules,tuning,main}.py as of
+%   this sync). What is and isn't a literal port, stated plainly:
+%
+%   LITERAL PORT:
+%     - straight segments held with the same gyro PD law and gains as
+%       control.py's steer_with_gyro()/_heading_hold_step(): GYRO_KP=0.85,
+%       GYRO_KD=0.1 (CFG.GYRO_KP/KD, threaded via gyro_steer.m)
 %     - target heading changes by -90 deg (yaw) per corner, CCW driving
-%     - ToF wall centering on straights
-%     - block avoidance = main_v3.py centroid servo law
-%     - laps counted by corner turns (4 turns = 1 lap), like the real robot
+%     - laps counted every 4 corner turns, matching TURNS_TO_FINISH=13 in
+%       tuning.py (12 turns = 3 laps, +1 to square up before parking)
+%
+%   SIMPLIFIED, NOT A LITERAL PORT (see matlab/README.md for why each one
+%   isn't meaningfully reproducible in this top-down physics model):
+%     - corner trigger: front-wall proximity + corner-square position, a
+%       geometric PROXY for the real orange-line crossing trigger
+%       (rules.count_turns) — floor lines are not rendered here
+%     - block avoidance: a world-frame pass-point steer, standing in for the
+%       real rule engine (rules.rule_red/rule_green + pick_target_block),
+%       which depends on live camera-handoff geometry and a white-balance
+%       colour split (tuning.py COLOUR_SPLIT) with no top-down equivalent
+%     - corner-turn snap uses its own CFG.CORNER_SNAP_KP (the real robot
+%       executes the turn as a separate blocking routine in maneuvers.py,
+%       not this PD loop, so there is no real constant to mirror there)
 %   Sim safety nets kept: solid walls/blocks, emergency reverse, watchdog.
 
 % ── 1. Camera + block detection at 10 Hz ──────────────────────────────────
 if mod(step,3)==1 || isempty(S.cam_frame)
-    S.cam_frame = render_frame(S.x, S.y, S.th, [obstacles, P.barrier_obs], ...
+    S.cam_frame  = render_frame(S.x, S.y, S.th, [obstacles, P.barrier_obs], ...
                                P.cx, P.cy, P.ri_px, P.ro_px, P.scale, CFG);
-    S.block     = find_biggest_block(S.cam_frame, CFG);
+    S.block      = find_biggest_block(S.cam_frame, CFG);
+    S.wall_black = find_wall_black(S.cam_frame, CFG);   % detection only, unused below
 end
 
 % ── 2. Simulated gyro (BNO055): yaw = mod(90 - theta_deg, 360) ────────────
@@ -70,7 +87,8 @@ if mod(step,90)==0
     S.stuck_x = S.x;  S.stuck_y = S.y;
 end
 
-% ── 4a. Close-block emergency (mirrors main_v3.py close-block maneuver) ───
+% ── 4a. Close-block emergency (simulation safety net, see rules.rule_close_block
+%        for the real robot's equivalent reverse-then-swerve rule) ─────────
 S.emerg_cooldown = max(0, S.emerg_cooldown - 1);
 if ~strcmp(S.state,'EMERGENCY_REVERSE') && S.emerg_cooldown <= 0 && ...
    k_near > 0 && d_min_front < 0.17/P.scale
@@ -91,7 +109,8 @@ end
 % ── 4b. State machine (real robot structure) ───────────────────────────────
 S.servo_deg = 0;
 
-% Wall-centering correction from perpendicular ToF (nationals wall logic).
+% Wall-centering correction from perpendicular ToF (simplified stand-in for
+% the real robot's wall-following PD in rules.py / control.py).
 % Servo convention in this sim: positive = counter-clockwise on screen
 % (matches gyro_steer with yaw = 90 - theta). Right wall closer → steer
 % away from it → positive here.
@@ -128,11 +147,11 @@ switch S.state
                         S.block.color, S.block.area, S.block.cx);
             end
         else
-            % Gentle heading hold + wall centering. The real robot drives
-            % with gyro KP near zero (main_v3.py switches 0.0 driving /
-            % 3.0 parking) and lets wall distances do the centering — a
-            % hard gyro pull here would fight obstacle avoidance.
-            S.servo_deg = gyro_steer(S.goal_yaw, S.current_yaw, 1.5);
+            % Gyro PD heading hold, same gains and formula as the real
+            % robot's steer_with_gyro() (control.py), plus wall centering —
+            % the real robot leans on wall distance between corners too.
+            [S.servo_deg, S.gyro_prev_err] = gyro_steer(S.goal_yaw, S.current_yaw, ...
+                CFG.GYRO_KP, CFG.GYRO_KD, S.gyro_prev_err);
             S.servo_deg = max(-45, min(45, S.servo_deg + centering));
         end
 
@@ -151,7 +170,8 @@ switch S.state
             % planner validated in field mode (10/10 layouts) and stands
             % in for the real robot's close-ROI maneuvers, which are not
             % fully modelled here. The camera still decides WHEN to avoid
-            % and WHICH colour rule applies (main_v3.py thresholds).
+            % and WHICH colour rule applies (tuning.py HSV thresholds;
+            % see config.m's sync note for how the sim's own thresholds differ).
             if strcmp(S.block.color,'red')
                 S.last_avoid_dir = 'RIGHT past red';
             else
@@ -211,15 +231,19 @@ switch S.state
             S.state = 'AVOIDING_BLOCK';
             if P.verbose, fprintf('\n[STATE] ==> AVOIDING_BLOCK (block back)\n'); end
         elseif S.frames_since_block_lost > 45     % ~1.5 s glide past
-            S.state = 'DRIVING_STRAIGHT';
+            S.state         = 'DRIVING_STRAIGHT';
+            S.gyro_prev_err = 0;   % fresh PD start, no stale derivative kick
             if P.verbose, fprintf('\n[STATE] ==> DRIVING_STRAIGHT (cleared)\n'); end
         end
 
     case 'CORNER_TURN'
+        % Discrete turn snap — own gain (CORNER_SNAP_KP), not the straight-
+        % line gyro PD: see header note on why there's no real constant here.
         err = mod(S.goal_yaw - S.current_yaw + 180, 360) - 180;
-        S.servo_deg = max(-45, min(45, CFG.GYRO_KP * err));
+        S.servo_deg = max(-45, min(45, CFG.CORNER_SNAP_KP * err));
         if abs(err) < 7
-            S.state = 'DRIVING_STRAIGHT';
+            S.state         = 'DRIVING_STRAIGHT';
+            S.gyro_prev_err = 0;
             % 4 corners = 1 lap (exactly how the real robot counts laps)
             if mod(S.turns_done,4)==0
                 S.laps_done          = S.turns_done/4;
@@ -235,6 +259,7 @@ switch S.state
                  P.cx,P.cy,P.half_in_w,P.half_out_w) * P.scale;
         if S.emergency_frames > 30 || d_back < 0.22
             S.state          = 'DRIVING_STRAIGHT';
+            S.gyro_prev_err  = 0;
             S.emerg_cooldown = 30;
             if P.verbose, fprintf('\n[STATE] ==> DRIVING_STRAIGHT (backed off)\n'); end
         end

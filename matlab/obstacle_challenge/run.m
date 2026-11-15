@@ -1,5 +1,7 @@
 % run.m — WRO Future Engineers Robot Simulation (interactive)
-% Camera block-steering matches main_v3.py (Greenbotics GitHub).
+% Camera block-steering: simulation baseline ('field' mode) — see
+% config.m's sync note and control_step_gyro.m's header for what the
+% 'gyro' mode models of the current real robot code instead.
 % The control logic lives in control_step.m — shared with evaluate.m so the
 % interactive sim and batch evaluation always behave identically.
 %

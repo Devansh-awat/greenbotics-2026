@@ -5,9 +5,10 @@ S.x  = P.start_x;
 S.y  = P.start_y;
 S.th = P.start_th;
 
-S.state     = 'DRIVING_STRAIGHT';
-S.block     = [];
-S.cam_frame = [];
+S.state      = 'DRIVING_STRAIGHT';
+S.block      = [];
+S.cam_frame  = [];
+S.wall_black = [];   % find_wall_black() output — detection only, see its header
 
 S.frames_since_block_lost = 0;
 S.last_avoid_dir          = '';
@@ -35,6 +36,7 @@ S.n_reverses = 0;
 S.goal_yaw        = mod(90 - rad2deg(P.start_th), 360);
 S.turns_done      = 0;
 S.corner_cooldown = 0;    % frames until the next corner may trigger
+S.gyro_prev_err   = 0;    % threaded into gyro_steer()'s derivative term
 
 % parking fields
 S.parking_started = false;
