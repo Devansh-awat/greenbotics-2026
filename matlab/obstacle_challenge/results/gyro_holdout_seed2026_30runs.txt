@@ -1,0 +1,71 @@
+Navigation mode: gyro
+Evaluating 30 randomized layouts (official WRO procedure, random direction)...
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 1
+  Run  1/30: PASS CCW   laps 3/3  park=full    touch=0  t=185.0s  revs=0
+Official randomization: 6 signs (2 red, 4 green), X2 single in section 1
+  Run  2/30: PASS CCW   laps 3/3  park=full    touch=0  t=172.9s  revs=0
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 4
+  Run  3/30: PASS CW    laps 3/3  park=full    touch=0  t=169.5s  revs=0
+Official randomization: 6 signs (4 red, 2 green), X2 single in section 1
+  Run  4/30: PASS CCW   laps 3/3  park=full    touch=0  t=177.0s  revs=0
+Official randomization: 5 signs (2 red, 3 green), X2 single in section 2
+  Run  5/30: PASS CCW   laps 3/3  park=full    touch=0  t=175.4s  revs=0
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 2
+  Run  6/30: PASS CCW   laps 3/3  park=full    touch=0  t=176.9s  revs=0
+Official randomization: 6 signs (1 red, 5 green), X2 single in section 4
+  Run  7/30: PASS CCW   laps 3/3  park=full    touch=0  t=187.3s  revs=0
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 1
+  Run  8/30: PASS CCW   laps 3/3  park=full    touch=0  t=174.6s  revs=0
+Official randomization: 6 signs (5 red, 1 green), X2 single in section 1
+  Run  9/30: PASS CCW   laps 3/3  park=full    touch=0  t=150.3s  revs=0
+Official randomization: 7 signs (2 red, 5 green), X2 single in section 1
+  Run 10/30: PASS CW    laps 3/3  park=full    touch=0  t=178.9s  revs=0
+Official randomization: 5 signs (2 red, 3 green), X2 single in section 4
+  Run 11/30: PASS CW    laps 3/3  park=full    touch=0  t=166.4s  revs=3
+Official randomization: 6 signs (4 red, 2 green), X2 single in section 2
+  Run 12/30: PASS CW    laps 3/3  park=full    touch=0  t=189.6s  revs=0
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 4
+  Run 13/30: PASS CW    laps 3/3  park=full    touch=0  t=165.4s  revs=0
+Official randomization: 5 signs (2 red, 3 green), X2 single in section 2
+  Run 14/30: PASS CCW   laps 3/3  park=full    touch=0  t=180.4s  revs=0
+Official randomization: 5 signs (3 red, 2 green), X2 single in section 1
+  Run 15/30: PASS CCW   laps 3/3  park=full    touch=0  t=153.0s  revs=0
+Official randomization: 5 signs (2 red, 3 green), X2 single in section 1
+  Run 16/30: PASS CCW   laps 3/3  park=full    touch=0  t=167.3s  revs=0
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 4
+  Run 17/30: PASS CCW   laps 3/3  park=full    touch=0  t=167.4s  revs=0
+Official randomization: 6 signs (2 red, 4 green), X2 single in section 2
+  Run 18/30: PASS CCW   laps 3/3  park=full    touch=0  t=192.4s  revs=0
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 1
+  Run 19/30: PASS CW    laps 3/3  park=full    touch=0  t=194.9s  revs=0
+Official randomization: 5 signs (2 red, 3 green), X2 single in section 2
+  Run 20/30: PASS CW    laps 3/3  park=full    touch=0  t=171.8s  revs=0
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 1
+  Run 21/30: PASS CW    laps 3/3  park=full    touch=0  t=179.3s  revs=0
+Official randomization: 6 signs (1 red, 5 green), X2 single in section 2
+  Run 22/30: PASS CW    laps 3/3  park=full    touch=0  t=151.2s  revs=0
+Official randomization: 5 signs (2 red, 3 green), X2 single in section 1
+  Run 23/30: PASS CW    laps 3/3  park=full    touch=0  t=170.0s  revs=0
+Official randomization: 6 signs (2 red, 4 green), X2 single in section 4
+  Run 24/30: FAIL CW    laps 3/3  park=none    touch=0  t=260.0s  revs=28
+Official randomization: 6 signs (5 red, 1 green), X2 single in section 2
+  Run 25/30: PASS CW    laps 3/3  park=full    touch=0  t=199.9s  revs=0
+Official randomization: 5 signs (2 red, 3 green), X2 single in section 1
+  Run 26/30: PASS CW    laps 3/3  park=full    touch=0  t=163.2s  revs=0
+Official randomization: 7 signs (3 red, 4 green), X2 single in section 1
+  Run 27/30: PASS CCW   laps 3/3  park=full    touch=0  t=225.8s  revs=0
+Official randomization: 6 signs (4 red, 2 green), X2 single in section 4
+  Run 28/30: PASS CCW   laps 3/3  park=full    touch=0  t=166.0s  revs=0
+Official randomization: 7 signs (1 red, 6 green), X2 single in section 2
+  Run 29/30: PASS CW    laps 3/3  park=full    touch=0  t=169.7s  revs=0
+Official randomization: 5 signs (2 red, 3 green), X2 single in section 2
+  Run 30/30: PASS CCW   laps 3/3  park=full    touch=0  t=179.7s  revs=0
+
+=====================================================
+  RESULT: 29 / 30 missions complete (3 laps + parked)  (97%)
+  Full parallel parks (15 pts): 29 / 30   Barrier touches: 0 total
+  Avg completion time (passes): 175.9 s
+  Avg emergency reverses      : 1.0 per run
+  Worst block clearance       : 0.14 m
+  (evaluation took 75 s wall time)
+=====================================================

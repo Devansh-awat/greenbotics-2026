@@ -33,6 +33,9 @@ Every number in this report, and what kind of evidence it is:
 | Result | Value | Evidence type | Details |
 |---|---|---|---|
 | Missions on 12 randomized layouts (`'field'` mode, seed 42) | 12/12 complete, 12/12 full parks, 0 barrier touches, min sign clearance 0.14 m | Simulated | [Validation Results](#validation-results) |
+| Missions in `'gyro'` mode (robot's real architecture), 12 layouts, seed 42 | 12/12 complete, 12/12 full parks, 0 barrier touches | Simulated (development set) | [Validation Results](#gyro-mode-the-robots-own-architecture) |
+| `'gyro'` mode, 30 layouts, seed 7 | 30/30 complete, 30/30 full parks, 0 barrier touches | Simulated (development set) | [Validation Results](#gyro-mode-the-robots-own-architecture) |
+| `'gyro'` mode, 30 held-out layouts, seed 2026 (never used while tuning) | 29/30 complete, 29/30 full parks, 0 barrier touches | Simulated (held-out test) | [Validation Results](#gyro-mode-the-robots-own-architecture) |
 | Stateflow chart vs scripted scenario | 14/14 expected transitions pass | Simulated (Stateflow) | [Stateflow Model](#stateflow-model-of-the-state-machine) |
 | Average simulated mission time | 148.2 s | Simulated (not real-world time) | [Sim-to-Real](#sim-to-real-what-the-timing-does-and-doesnt-validate) |
 | Steering-gain sweep (`KP_BLOCK`, `'field'` mode) | Flat optimum 0.05–0.09; ≥ 0.12 costs up to +20% time | Simulated, not deployed | [Closing the Loop](#closing-the-loop-simulation-tuned-parameters) |
@@ -172,10 +175,15 @@ no equivalent need in a simulated camera with fixed, distinguishable colours.
 - `'gyro'` mode models the robot's actual current navigation *architecture* —
   gyro-PD heading lock between corners (same gains as `control.py`'s
   `steer_with_gyro()`), discrete corner turns, and pillars passed red-right /
-  green-left — without claiming to reproduce the robot's full rule engine
-  (`rules.py`'s `rule_red`/`rule_green`/`pick_target_block`), which steers off
-  live camera-handoff geometry tuned to one physical camera mount and has no
-  meaningful equivalent in a top-down point-mass model. See
+  green-left. Which pillar to deal with and how follows the intent of the
+  robot's rule engine: only pillars on the current straight count
+  (`_is_next_straight_pillar`), the nearest unpassed one is the target and
+  hands over to the next once passed (`pick_target_block`), and the robot
+  steers for the middle of the gap between the pillar and the wall on its
+  side (`rule_red`/`rule_green`, `_gap_to_wall`). The rules themselves are not
+  copied line for line: they work on camera-image geometry (handoff lines,
+  wall areas) tuned to one physical camera mount, which has no direct
+  equivalent in a top-down point-mass model. See
   `control_step_gyro.m`'s header for the complete, itemised list of what is
   and isn't a literal port.
 
@@ -204,7 +212,9 @@ mode's architecture; `'gyro'` mode's corner trigger is a geometric proxy
 (front-wall proximity while positioned in a corner square) for the real
 robot's orange-line crossing trigger (`rules.py`'s `count_turns`) — floor
 lines are not rendered in this simplified camera model, so line detection
-itself is not simulated.
+itself is not simulated. How deep into the corner the robot drives before
+turning depends on the first pillar of the next straight: deeper when it must
+be passed on the outside, earlier when on the inside.
 
 ## Stateflow Model of the State Machine
 
@@ -274,6 +284,12 @@ Every design change was driven by an observed failure:
 | 7 | Simulation lag | Full-frame temporaries, 30 Hz HSV, console spam | Cached buffers, 10 Hz half-res vision — 23× real time |
 | 8 | 55 barrier touches while parking | Diagonal reverse entry grazed the barriers | Align-then-enter maneuver: zero touches by construction |
 | 9 | Second interactive run crashed (`Index exceeds the number of array elements`) | The run log kept scalar summary fields from run 1, and trimming the log indexed them | Fresh log struct at the start of every run |
+| 10 | `'gyro'` mode: only 4/12 missions, and some "passes" had fewer than 3 real laps | Laps were counted from corner turns, and an extra turn counted as progress | Laps counted from the robot's real position (as in `'field'` mode); a pass now needs 3 real laps **and** a park. The honest score dropped before it rose |
+| 11 | `'gyro'` mode never parked | The mission ended after 12 turns | After 12 turns it hands over to the same `parking_control.m` as `'field'` mode |
+| 12 | Swerving at pillars seen over the corner | Every visible pillar was a target, including ones on the next straight | Only pillars on the current straight are targets; nearest unpassed first, then hand over (`rules.py` intent) |
+| 13 | Reverse loops at pillars just after a corner | The robot aimed straight at a point beside the pillar and cut across it | Pure pursuit along a pass line, aiming 0.30 m ahead: 12/12 on seed 42 |
+| 14 | Squeezed between an outer-row pillar and the wall (29/30 on seed 7) | A fixed 0.30 m pass offset left too little room on the wall side | Steer for the middle of the gap between pillar and wall (`_gap_to_wall`) |
+| 15 | Last seed-7 failure: pillar right at a corner exit | The turn always started at the same depth, so the robot came out of it on the wrong side of the gap | Turn depth set from the next straight's first pillar: 30/30 on seed 7 |
 
 ## Validation Results
 
@@ -292,6 +308,35 @@ Worst clearance to any sign: 0.14 m — no sign moved, ever
 Per-run reports (trajectory coloured by state, speed profile, clearance-vs-time,
 summary statistics) and a control-loop analysis are saved automatically after
 every run.
+
+### Gyro mode: the robot's own architecture
+
+`'field'` mode is the clean baseline; `'gyro'` mode is the one that drives like
+the real robot (gyro-PD heading hold with the robot's own gains, discrete
+corner turns, pillar rules as above). We tuned it on two development sets and
+then tested it once on a set it had never seen:
+
+| Set | Layouts | Complete (3 laps + parked) | Full parks | Barrier touches | Avg reverses / run |
+|---|---|---|---|---|---|
+| Development, seed 42 | 12 | 12/12 | 12/12 | 0 | 0.0 |
+| Development, seed 7 | 30 | 30/30 | 30/30 | 0 | 0.1 |
+| **Held-out, seed 2026** | 30 | **29/30** | 29/30 | 0 | 1.0 |
+
+The held-out number is the one to trust. Seed 2026 was not run until all
+changes were finished, and nothing was changed after seeing it. The one
+failure (run 24, CW) was a reverse loop at a pillar just after the second
+corner. The robot backed off and retried for about 30 s before getting
+through, then finished all 3 laps, but ran out of time halfway into the
+parking space. It is the same kind of corner-exit case as iterations 13–15,
+so that is where the next fix goes. `'field'` mode was re-run after these
+changes and is unchanged (12/12, seed 42).
+
+![Gyro mode held-out evaluation](https://github.com/Devansh-awat/greenbotics-2026/blob/main/matlab/obstacle_challenge/results/gyro_holdout_30runs_seed2026.png?raw=true)
+
+Full logs: [`results/gyro_eval_seed42_12runs.txt`](obstacle_challenge/results/gyro_eval_seed42_12runs.txt),
+[`results/gyro_eval_seed7_30runs.txt`](obstacle_challenge/results/gyro_eval_seed7_30runs.txt),
+[`results/gyro_holdout_seed2026_30runs.txt`](obstacle_challenge/results/gyro_holdout_seed2026_30runs.txt),
+[`results/field_eval_seed42_12runs.txt`](obstacle_challenge/results/field_eval_seed42_12runs.txt).
 
 ## Power Budget: Prediction → Measurement → Verification
 
@@ -516,6 +561,9 @@ cd matlab/obstacle_challenge
 run              % interactive simulator: full mission + live control graphs
 run_video        % demo mode: CCW, no parking, 3 laps + stop at start
 evaluate(12, 42) % batch: 12 official layouts, reproducible
+evaluate(30, 2026, 'gyro')   % same, in the robot's gyro architecture (held-out set)
+run_eval('mytest', 'gyro', 12, 42)  % evaluate + one path panel per run (mytest_diag.png)
+replay_run(2026, 24, 'gyro', 'r24.txt')  % replay one run step by step to see where it went wrong
 sweep_kp         % steering-gain sweep (~2 min)
 power_budget     % electrical checks
 test_headless    % 5-second smoke test
@@ -528,9 +576,12 @@ build_state_machine  % builds the Stateflow model and runs its 14 checks (needs 
 
 Stated openly, because knowing a model's limits is part of using it:
 
-- **Circular lane approximation** in the default navigation mode; an
-  experimental port of the robot's gyro/corner logic exists
-  (`P.nav_mode='gyro'`) but is not yet tournament-grade.
+- **Circular lane approximation** in the default `'field'` mode. `'gyro'`
+  mode follows the robot's real architecture and passes 29/30 held-out
+  layouts. Its remaining weak spot is a pillar right at a corner exit, which
+  can cause a long reverse-and-retry.
+- **`'gyro'` pillar rules follow the intent of `rules.py`, not its exact
+  code**, because the real rules work in camera-image coordinates.
 - **Parking entry uses a pivot turn-in** — the unicycle model rotates in
   place; the physical Ackermann car needs a reversing S-curve. Geometry and
   scoring transfer; the entry trajectory does not.
@@ -543,7 +594,8 @@ Stated openly, because knowing a model's limits is part of using it:
 This module turns testing from "it seems to work" into engineering evidence:
 our vision method and navigation architecture running in closed loop on
 officially randomized layouts, scoring **12/12 complete missions with 12/12
-full parallel parks and zero contact**. It caught control bugs we would never have staged physically,
+full parallel parks and zero contact** in the baseline mode, and **29/30 on
+held-out layouts** in the mode that drives like the real robot. It caught control bugs we would never have staged physically,
 verified our power system against multimeter measurements, and showed how to
 bound a steering gain on paired layouts before a physical tuning session. With the control
 analysis, every run now also shows *how* the controller reached that result:

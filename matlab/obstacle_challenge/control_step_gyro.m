@@ -15,11 +15,30 @@ function S = control_step_gyro(S, obstacles, step, P, CFG)
 %   isn't meaningfully reproducible in this top-down physics model):
 %     - corner trigger: front-wall proximity + corner-square position, a
 %       geometric PROXY for the real orange-line crossing trigger
-%       (rules.count_turns) — floor lines are not rendered here
-%     - block avoidance: a world-frame pass-point steer, standing in for the
-%       real rule engine (rules.rule_red/rule_green + pick_target_block),
-%       which depends on live camera-handoff geometry and a white-balance
-%       colour split (tuning.py COLOUR_SPLIT) with no top-down equivalent
+%       (rules.count_turns) — floor lines are not rendered here. How deep
+%       into the corner to go before turning depends on the first pillar of
+%       the next straight: deeper if it must be passed on the outside,
+%       earlier if on the inside (turn_depth)
+%     - block avoidance: the camera decides WHEN to avoid; WHICH pillar and
+%       HOW use the intent of rules.py, in top-down geometry:
+%         * only pillars on the CURRENT straight are targets; a pillar seen
+%           over the corner belongs to the next straight and is ignored
+%           (rules._is_next_straight_pillar)
+%         * the nearest unpassed pillar is the target, and the target hands
+%           over to the next one once passed (rules.pick_target_block)
+%         * red passed on its right, green on its left (rule_red/rule_green),
+%           by steering for the middle of the gap between the pillar and
+%           the wall on that side (rules._gap_to_wall), kept clear of the
+%           walls and the parking barriers (gap_lateral, pass_aim)
+%       The real rules work in camera-image coordinates (handoff lines,
+%       wall areas, magenta) that have no top-down equivalent here.
+%     - a pillar within 0.6 m ahead on the current straight is acted on
+%       even if the main camera ROI misses it (the real robot's close-block
+%       ROI, rules.rule_close_block, covers that range)
+%     - laps for scoring are counted from the robot's real position, as in
+%       'field' mode; the 12-turn count only decides when to park
+%     - parking after 12 turns uses the same parking_control.m as 'field'
+%       mode (the real robot's parking is a scripted routine in maneuvers.py)
 %     - corner-turn snap uses its own CFG.CORNER_SNAP_KP (the real robot
 %       executes the turn as a separate blocking routine in maneuvers.py,
 %       not this PD loop, so there is no real constant to mirror there)
@@ -71,7 +90,7 @@ for k = 1:numel(obstacles)
 end
 
 % ── 4a0. Stuck watchdog (SafetyMonitor twin) ───────────────────────────────
-if mod(step,90)==0
+if mod(step,90)==0 && ~S.parking_started
     if sqrt((S.x-S.stuck_x)^2 + (S.y-S.stuck_y)^2)*P.scale < 0.06 && ...
        ~strcmp(S.state,'EMERGENCY_REVERSE')
         if k_near > 0 && d_min_front*P.scale < 0.5 && strcmp(obstacles(k_near).color,'red')
@@ -90,7 +109,7 @@ end
 % ── 4a. Close-block emergency (simulation safety net, see rules.rule_close_block
 %        for the real robot's equivalent reverse-then-swerve rule) ─────────
 S.emerg_cooldown = max(0, S.emerg_cooldown - 1);
-if ~strcmp(S.state,'EMERGENCY_REVERSE') && S.emerg_cooldown <= 0 && ...
+if ~strcmp(S.state,'EMERGENCY_REVERSE') && S.emerg_cooldown <= 0 && ~S.parking_started && ...
    k_near > 0 && d_min_front < 0.17/P.scale
     if strcmp(obstacles(k_near).color,'red')
         S.emerg_omega =  P.max_omega * 0.7;
@@ -124,10 +143,44 @@ centering = max(-12, min(12, 20*(dL - dR)));
 S.corner_cooldown = max(0, S.corner_cooldown - 1);
 yaw_err_goal  = abs(mod(S.goal_yaw - S.current_yaw + 180, 360) - 180);
 in_corner_sq  = abs(dxc)*P.scale > 0.42 && abs(dyc)*P.scale > 0.42;
-corner_now    = S.d_front < P.corner_dist && S.corner_cooldown == 0 && ...
-                yaw_err_goal < 45 && in_corner_sq;
+[s_lane, ~]   = lane_pos(S, P);
+[k_tgt, ds_tgt] = section_target(S, obstacles, P);   % see below
+% turn only at the end of THIS straight, and only once every pillar on it
+% has been passed (a pillar right before the corner is passed first)
+% Turn depth: how far into the corner to drive before turning. The depth
+% reached on this straight becomes the lateral position on the next one,
+% so the robot turns deeper when the next straight's first pillar must be
+% passed on the outside, and earlier when it must be passed on the inside.
+s_turn        = turn_depth(S, obstacles, P);
+corner_now    = S.corner_cooldown == 0 && yaw_err_goal < 45 && in_corner_sq && ...
+                k_tgt == 0 && (s_lane >= s_turn || S.d_front < 0.25);
 
-switch S.state
+% Target pillar on the CURRENT straight (rules._is_next_straight_pillar +
+% pick_target_block): nearest unpassed pillar between the robot and the
+% corner ahead; pillars on the next straight are ignored.
+cam_sees = ~isempty(S.block) && S.block.area > CFG.MIN_BLOCK_AREA_FOR_ACTION;
+% a pillar within 0.6 m ahead on this straight is always acted on, as the
+% real robot's close-block ROI sees it even when the main ROI does not
+avoid_go = k_tgt > 0 && ((cam_sees && ds_tgt < 1.2) || ds_tgt < 0.6);
+
+% After 12 turns (3 laps): park, same routine as 'field' mode
+if S.turns_done >= 12 && ~S.parking_started && strcmp(S.state,'DRIVING_STRAIGHT') ...
+        && ~(isfield(P,'parking_enabled') && ~P.parking_enabled)
+    S.parking_started = true;
+    S.state = 'PARK_APPROACH';
+    if P.verbose, fprintf('\n[PARK] 12 turns done (t = %.1f s) -> parking\n', step*P.dt); end
+end
+
+if S.parking_started
+    state_sw = 'PARKING';
+else
+    state_sw = S.state;
+end
+
+switch state_sw
+
+    case 'PARKING'
+        S = parking_control(S, P);
 
     case 'DRIVING_STRAIGHT'
         % Corner: front wall inside threshold → new heading goal (-90 yaw)
@@ -140,11 +193,11 @@ switch S.state
                 fprintf('\n[TURN %d] front %.2f m -> goal yaw %.0f\n', ...
                         S.turns_done, S.d_front, S.goal_yaw);
             end
-        elseif ~isempty(S.block) && S.block.area > CFG.MIN_BLOCK_AREA_FOR_ACTION
+        elseif avoid_go
             S.state = 'AVOIDING_BLOCK';
             if P.verbose
-                fprintf('\n[STATE] ==> AVOIDING_BLOCK [%s area=%.0f cx=%.0f]\n', ...
-                        S.block.color, S.block.area, S.block.cx);
+                fprintf('\n[STATE] ==> AVOIDING_BLOCK [%s pillar %.2f m ahead]\n', ...
+                        obstacles(k_tgt).color, ds_tgt);
             end
         else
             % Gyro PD heading hold, same gains and formula as the real
@@ -163,59 +216,26 @@ switch S.state
             S.corner_cooldown = 75;
             S.state           = 'CORNER_TURN';
             if P.verbose, fprintf('\n[TURN %d] during avoidance\n', S.turns_done); end
-        elseif ~isempty(S.block)
-            % Avoidance planner: steer toward the PASS POINT 0.30 m beside
-            % the pillar ahead (right of red, left of green, relative to
-            % the lane direction). This world-frame geometry is the same
-            % planner validated in field mode (10/10 layouts) and stands
-            % in for the real robot's close-ROI maneuvers, which are not
-            % fully modelled here. The camera still decides WHEN to avoid
-            % and WHICH colour rule applies (tuning.py HSV thresholds;
-            % see config.m's sync note for how the sim's own thresholds differ).
-            if strcmp(S.block.color,'red')
+        elseif k_tgt > 0
+            % Pass the target pillar: red on its right, green on its left
+            ob = obstacles(k_tgt);
+            if strcmp(ob.color,'red')
                 S.last_avoid_dir = 'RIGHT past red';
             else
                 S.last_avoid_dir = 'LEFT past green';
             end
-            % nearest pillar of the detected colour in the front half
-            k_pass = 0; d_pass = inf;
-            for k = 1:numel(obstacles)
-                if ~strcmp(obstacles(k).color, S.block.color), continue; end
-                dxo = obstacles(k).x - S.x;
-                dyo = obstacles(k).y - S.y;
-                dob = sqrt(dxo^2 + dyo^2);
-                br  = atan2(sin(atan2(dyo,dxo)-S.th), cos(atan2(dyo,dxo)-S.th));
-                if abs(br) < deg2rad(75) && dob < d_pass
-                    d_pass = dob; k_pass = k;
-                end
-            end
-            if k_pass > 0
-                ob    = obstacles(k_pass);
-                phi_b = atan2(P.cy-ob.y, P.cx-ob.x) - P.dir_sign*pi/2;   % lane flow at pillar
-                if strcmp(ob.color,'red'), side = +1; else, side = -1; end
-                off_ang = phi_b + side*pi/2;
-                px_t = ob.x + (0.30/P.scale)*cos(off_ang);
-                py_t = ob.y + (0.30/P.scale)*sin(off_ang);
-                des_ang = atan2(py_t - S.y, px_t - S.x);
-                err_des = atan2(sin(des_ang - S.th), cos(des_ang - S.th));
-                omega_des   = max(-P.max_omega, min(P.max_omega, 3.0*err_des));
-                S.servo_deg = -omega_des / P.max_omega * 45;
-            else
-                S.servo_deg = 0.4*centering;   % pillar already behind
-            end
+            [aim_x, aim_y] = pass_aim(S, ob, P);
+            des_ang = atan2(aim_y - S.y, aim_x - S.x);
+            err_des = atan2(sin(des_ang - S.th), cos(des_ang - S.th));
+            omega_des   = max(-P.max_omega, min(P.max_omega, 3.0*err_des));
+            S.servo_deg = -omega_des / P.max_omega * 45;
             S.frames_since_block_lost = 0;
         else
-            % small hysteresis so one missed detection doesn't flap states
-            S.frames_since_block_lost = S.frames_since_block_lost + 1;
+            % every pillar on this straight is passed -> hold heading briefly
+            S.state = 'CLEARING';
+            S.frames_since_block_lost = 0;
             S.servo_deg = 0.4*centering;
-            if S.frames_since_block_lost > 5
-                % CLEARING (real robot: CLEARANCE_FRAMES): hold the current
-                % heading past the block before the gyro re-engages —
-                % re-engaging immediately steers back into the block.
-                S.state = 'CLEARING';
-                S.frames_since_block_lost = 0;
-                if P.verbose, fprintf('\n[STATE] ==> CLEARING\n'); end
-            end
+            if P.verbose, fprintf('\n[STATE] ==> CLEARING\n'); end
         end
 
     case 'CLEARING'
@@ -227,10 +247,10 @@ switch S.state
             S.corner_cooldown = 75;
             S.state           = 'CORNER_TURN';
             if P.verbose, fprintf('\n[TURN %d] during clearing\n', S.turns_done); end
-        elseif ~isempty(S.block) && S.block.area > CFG.MIN_BLOCK_AREA_FOR_ACTION
+        elseif avoid_go
             S.state = 'AVOIDING_BLOCK';
-            if P.verbose, fprintf('\n[STATE] ==> AVOIDING_BLOCK (block back)\n'); end
-        elseif S.frames_since_block_lost > 45     % ~1.5 s glide past
+            if P.verbose, fprintf('\n[STATE] ==> AVOIDING_BLOCK (next pillar)\n'); end
+        elseif S.frames_since_block_lost > 20     % ~1.5 s glide past
             S.state         = 'DRIVING_STRAIGHT';
             S.gyro_prev_err = 0;   % fresh PD start, no stale derivative kick
             if P.verbose, fprintf('\n[STATE] ==> DRIVING_STRAIGHT (cleared)\n'); end
@@ -241,16 +261,16 @@ switch S.state
         % line gyro PD: see header note on why there's no real constant here.
         err = mod(S.goal_yaw - S.current_yaw + 180, 360) - 180;
         S.servo_deg = max(-45, min(45, CFG.CORNER_SNAP_KP * err));
-        if abs(err) < 7
-            S.state         = 'DRIVING_STRAIGHT';
-            S.gyro_prev_err = 0;
-            % 4 corners = 1 lap (exactly how the real robot counts laps)
-            if mod(S.turns_done,4)==0
-                S.laps_done          = S.turns_done/4;
-                S.lap_times(end+1)   = step * P.dt; %#ok<AGROW>
-                if P.verbose, fprintf('\n[LAP] %d complete (t=%.1f s)\n', S.laps_done, step*P.dt); end
+        if abs(err) < 7 || (k_tgt > 0 && ds_tgt < 0.7 && abs(err) < 35)
+            % turn done (or a pillar sits just after the corner: start
+            % passing it now instead of finishing the turn into it)
+            if avoid_go
+                S.state = 'AVOIDING_BLOCK';
+            else
+                S.state = 'DRIVING_STRAIGHT';
             end
-            if P.verbose, fprintf('\n[STATE] ==> DRIVING_STRAIGHT (turn done)\n'); end
+            S.gyro_prev_err = 0;
+            if P.verbose, fprintf('\n[STATE] ==> %s (turn done)\n', S.state); end
         end
 
     case 'EMERGENCY_REVERSE'
@@ -266,7 +286,9 @@ switch S.state
 end
 
 % ── 4c. Servo angle → turn rate; speed policy ──────────────────────────────
-if strcmp(S.state,'EMERGENCY_REVERSE')
+if S.parking_started
+    % parking_control.m already set S.v and S.omega
+elseif strcmp(S.state,'EMERGENCY_REVERSE')
     S.omega = S.emerg_omega;
     S.v     = -0.14;
 else
@@ -291,7 +313,7 @@ S.x  = S.x + (S.v/P.scale)*cos(S.th)*P.dt;
 S.y  = S.y + (S.v/P.scale)*sin(S.th)*P.dt;
 
 % ── 5b. Solid walls ─────────────────────────────────────────────────────────
-wall_margin = 0.16;
+if S.parking_started, wall_margin = 0.09; else, wall_margin = 0.16; end
 half_out_c = (1.5 - wall_margin)/P.scale;
 half_in_c  = (0.5 + wall_margin)/P.scale;
 S.x = min(max(S.x, P.cx - half_out_c), P.cx + half_out_c);
@@ -323,13 +345,112 @@ end
 [S.x, S.y, touched] = barrier_pushout(S.x, S.y, P, 0.078);
 if touched, S.barrier_touches = S.barrier_touches + 1; end
 
+% ── 5d0. Laps from the robot's real position (same as 'field' mode) ────────
+ang_now    = atan2(S.y-P.cy, S.x-P.cx);
+d_ang      = atan2(sin(ang_now-S.prev_ang), cos(ang_now-S.prev_ang));
+S.cum_ang  = S.cum_ang + d_ang;
+S.prev_ang = ang_now;
+new_laps   = floor(abs(S.cum_ang)/(2*pi));
+if new_laps > S.laps_done
+    S.lap_times(end+1) = step * P.dt; %#ok<AGROW>
+    if P.verbose, fprintf('\n[LAP] %d complete (t=%.1f s)\n', new_laps, step*P.dt); end
+end
+S.laps_done = new_laps;
+
 % ── 5d. Mission complete: 12 turns (3 laps) + back in the start section ────
 in_start_sec = abs(S.x-P.cx)*P.scale < 0.5 && ...
                (S.y-P.cy)*P.scale > 0.5 && (S.y-P.cy)*P.scale < 1.5;
-if S.turns_done >= 12 && in_start_sec
+if S.turns_done >= 12 && in_start_sec && isfield(P,'parking_enabled') && ~P.parking_enabled
     S.mission_complete = true;
     if P.verbose
         fprintf('\n=== MISSION COMPLETE (gyro mode): 12 turns + start section (t=%.1f s) ===\n', step*P.dt);
     end
+end
+end
+
+% ── Local helpers ──────────────────────────────────────────────────────────
+function [k_t, ds_t] = section_target(S, obstacles, P)
+% Nearest unpassed pillar on the current straight, in lane coordinates:
+% s = along the current lane heading, l = across it (metres from centre).
+th_g = deg2rad(90 - S.goal_yaw);               % lane heading (yaw convention)
+h = [cos(th_g), sin(th_g)];  n = [-h(2), h(1)];
+r = [S.x - P.cx, S.y - P.cy] * P.scale;
+s_r = r*h';  l_r = r*n';
+k_t = 0;  ds_t = inf;
+for k = 1:numel(obstacles)
+    p = [obstacles(k).x - P.cx, obstacles(k).y - P.cy] * P.scale;
+    s_p = p*h';  l_p = p*n';
+    if abs(l_p) < 0.5 || sign(l_p) ~= sign(l_r), continue; end  % other straight
+    if s_p > 0.55, continue; end                % beyond the corner ahead
+    ds = s_p - s_r;
+    if ds < -0.12, continue; end                % already passed
+    if ds < ds_t, ds_t = ds; k_t = k; end
+end
+end
+
+function [ax, ay] = pass_aim(S, ob, P)
+% Aim point on the pass line beside pillar ob: red passed on its right,
+% green on its left, through the MIDDLE of the gap between the pillar and
+% the wall on that side (rules._gap_to_wall). The aim point is always 0.30 m
+% ahead of the robot ON the pass line (pure pursuit), so the robot joins
+% the pass line before it reaches the pillar instead of cutting through it.
+th_g = deg2rad(90 - S.goal_yaw);
+h = [cos(th_g), sin(th_g)];  n = [-h(2), h(1)];   % n = right of travel
+r = [S.x - P.cx, S.y - P.cy] * P.scale;
+p = [ob.x - P.cx, ob.y - P.cy] * P.scale;
+s_r = r*h';  l_p = p*n';
+l_t = sign(l_p) * gap_lateral(ob, l_p, p);
+s_t = s_r + 0.30;
+a = (s_t*h + l_t*n) / P.scale;
+ax = P.cx + a(1);  ay = P.cy + a(2);
+end
+
+function [s_r, l_r] = lane_pos(S, P)
+% Robot position in lane coordinates of the current straight (metres):
+% s along the lane heading, l across it.
+th_g = deg2rad(90 - S.goal_yaw);
+h = [cos(th_g), sin(th_g)];  n = [-h(2), h(1)];
+r = [S.x - P.cx, S.y - P.cy] * P.scale;
+s_r = r*h';  l_r = r*n';
+end
+
+function a_t = gap_lateral(ob, l_p, p)
+% Distance from the centre (|l|, metres) of the middle of the gap the robot
+% must use to pass pillar ob: red on its right, green on its left, between
+% the pillar and the wall on that side (rules._gap_to_wall).
+if strcmp(ob.color,'red'), side = +1; else, side = -1; end   % +1 = right
+if side == sign(l_p)
+    a_t = (abs(l_p) + 1.5) / 2;      % gap between pillar and outer wall
+else
+    a_t = (abs(l_p) + 0.5) / 2;      % gap between pillar and inner wall
+end
+% keep the robot's body clear of the walls; in the start section also
+% clear of the parking barriers (0.20 m deep against the outer wall)
+in_lot_sec = abs(p(1)) < 0.5 && p(2) > 0.5;
+if in_lot_sec, cap = 1.22; else, cap = 1.32; end
+a_t = min(max(a_t, 0.70), cap);
+end
+
+function s_turn = turn_depth(S, obstacles, P)
+% How far along the current straight (s, metres from centre) to go before
+% turning: lines the robot up with the gap for the first pillar of the NEXT
+% straight when that pillar sits close to the corner exit.
+s_turn = 0.78;                                  % default: middle of the lane
+g2 = mod(S.goal_yaw - P.dir_sign*90, 360);      % heading after this corner
+th2 = deg2rad(90 - g2);
+h2 = [cos(th2), sin(th2)];  n2 = [-h2(2), h2(1)];
+r = [S.x - P.cx, S.y - P.cy] * P.scale;
+s2_r = r*h2';  l2_r = r*n2';
+best = inf;  k_b = 0;
+for k = 1:numel(obstacles)
+    p = [obstacles(k).x - P.cx, obstacles(k).y - P.cy] * P.scale;
+    s2 = p*h2';  l2 = p*n2';
+    if abs(l2) < 0.5 || sign(l2) ~= sign(l2_r), continue; end
+    ds = s2 - s2_r;
+    if ds > 0 && ds < best, best = ds; k_b = k; end
+end
+if k_b > 0 && best < 0.9                        % pillar close to the corner exit
+    p = [obstacles(k_b).x - P.cx, obstacles(k_b).y - P.cy] * P.scale;
+    s_turn = gap_lateral(obstacles(k_b), p*n2', p) - 0.05;
 end
 end

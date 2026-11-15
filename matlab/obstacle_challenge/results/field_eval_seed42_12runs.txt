@@ -1,0 +1,35 @@
+Navigation mode: field
+Evaluating 12 randomized layouts (official WRO procedure, random direction)...
+Official randomization: 6 signs (4 red, 2 green), X2 single in section 4
+  Run  1/12: PASS CCW   laps 3/3  park=full    touch=0  t=137.0s  revs=3
+Official randomization: 6 signs (2 red, 4 green), X2 single in section 4
+  Run  2/12: PASS CW    laps 3/3  park=full    touch=0  t=140.5s  revs=3
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 1
+  Run  3/12: PASS CCW   laps 3/3  park=full    touch=0  t=152.1s  revs=6
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 2
+  Run  4/12: PASS CW    laps 3/3  park=full    touch=0  t=139.6s  revs=6
+Official randomization: 6 signs (5 red, 1 green), X2 single in section 1
+  Run  5/12: PASS CCW   laps 3/3  park=full    touch=0  t=173.1s  revs=7
+Official randomization: 5 signs (4 red, 1 green), X2 single in section 1
+  Run  6/12: PASS CCW   laps 3/3  park=full    touch=0  t=166.6s  revs=6
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 2
+  Run  7/12: PASS CW    laps 3/3  park=full    touch=0  t=139.2s  revs=3
+Official randomization: 6 signs (2 red, 4 green), X2 single in section 1
+  Run  8/12: PASS CCW   laps 3/3  park=full    touch=0  t=144.3s  revs=6
+Official randomization: 6 signs (2 red, 4 green), X2 single in section 4
+  Run  9/12: PASS CW    laps 3/3  park=full    touch=0  t=153.1s  revs=6
+Official randomization: 6 signs (2 red, 4 green), X2 single in section 4
+  Run 10/12: PASS CCW   laps 3/3  park=full    touch=0  t=146.8s  revs=3
+Official randomization: 6 signs (3 red, 3 green), X2 single in section 2
+  Run 11/12: PASS CW    laps 3/3  park=full    touch=0  t=139.6s  revs=3
+Official randomization: 6 signs (2 red, 4 green), X2 single in section 1
+  Run 12/12: PASS CCW   laps 3/3  park=full    touch=0  t=146.8s  revs=6
+
+=====================================================
+  RESULT: 12 / 12 missions complete (3 laps + parked)  (100%)
+  Full parallel parks (15 pts): 12 / 12   Barrier touches: 0 total
+  Avg completion time (passes): 148.2 s
+  Avg emergency reverses      : 4.8 per run
+  Worst block clearance       : 0.14 m
+  (evaluation took 44 s wall time)
+=====================================================

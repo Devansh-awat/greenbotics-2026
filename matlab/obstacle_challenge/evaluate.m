@@ -1,9 +1,10 @@
-function results = evaluate(n_runs, seed)
+function results = evaluate(n_runs, seed, nav_mode)
 % evaluate  Batch evaluation: run the robot on N official randomized
 %   layouts (headless) and report success rate + statistics.
 %
 %   results = evaluate(20)       → 20 random layouts
 %   results = evaluate(20, 42)   → reproducible with RNG seed 42
+%   results = evaluate(12, 42, 'gyro') → same, in 'gyro' navigation mode
 %
 %   Saves a summary figure + results table into wro/results/.
 
@@ -15,6 +16,8 @@ here = fileparts(mfilename('fullpath'));
 addpath(here);
 [P, CFG, track_img] = sim_setup();
 P.verbose = false;
+if nargin >= 3 && ~isempty(nav_mode), P.nav_mode = nav_mode; end
+fprintf('Navigation mode: %s\n', P.nav_mode);
 
 results = struct('success',{},'full_park',{},'laps',{},'time',{}, ...
                  'min_block',{},'min_wall',{},'reverses',{},'n_obs',{}, ...
@@ -28,7 +31,7 @@ for i = 1:n_runs
     obstacles = place_obstacles_random(P.cx, P.cy, 0, 0, P.scale, 0, 0);
     log = simulate_run(obstacles, P, CFG);
     logs{i} = log;
-    results(i).success   = log.mission_complete;
+    results(i).success   = log.mission_complete && log.laps_done >= 3;   % parked after 3 real laps
     results(i).full_park = strcmp(log.park_result,'full');
     results(i).laps      = log.laps_done;
     results(i).time      = log.total_time;
@@ -39,7 +42,7 @@ for i = 1:n_runs
     results(i).touches   = log.barrier_touches;
     results(i).dir       = log.direction;
     fprintf('  Run %2d/%d: %-4s %-5s laps %d/3  park=%-7s touch=%d  t=%5.1fs  revs=%d\n', ...
-            i, n_runs, ternary(log.mission_complete,'PASS','FAIL'), ...
+            i, n_runs, ternary(results(i).success,'PASS','FAIL'), ...
             upper(log.direction), log.laps_done, log.park_result, ...
             log.barrier_touches, log.total_time, log.n_reverses);
 end
