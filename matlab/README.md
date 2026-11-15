@@ -5,7 +5,52 @@
 *The simulator on two officially randomized layouts, with the control analysis
 saved after each run. Click the preview for the full video (29 s).*
 
+## Rubric Guide
+
+Where each part of the MathWorks Modeling Award 2026 rubric is answered in this
+report:
+
+| Rubric section (points) | Where to find it |
+|---|---|
+| Problem context and strategy (5) | [Problem Statement](#problem-statement), [Project Objectives](#project-objectives), [Why MATLAB, and Which Products](#why-matlab-and-which-products) |
+| Innovation and modeling (5) | [Simulation Architecture](#simulation-architecture), [Perception](#perception-vision-pipeline-kept-in-sync), [Navigation and State Machine](#navigation-and-state-machine), [Official WRO Randomization](#official-wro-randomization), [Full Mission](#full-mission-parking-and-both-directions), [Power Budget](#power-budget-prediction--measurement--verification) |
+| Test and verification (5) | [Validation Results](#validation-results), [Engineering Iterations](#engineering-iterations), [Closing the Loop](#closing-the-loop-simulation-tuned-parameters), [Control Analysis](#control-analysis-inside-the-steering-loops), [Sim-to-Real](#sim-to-real-what-the-timing-does-and-doesnt-validate), [Deployment](#deployment-what-actually-reached-the-robot) |
+| Code quality and readability (3) | [Simulation Architecture](#simulation-architecture) (module table), [How to Run](#how-to-run), code in [`obstacle_challenge/`](obstacle_challenge/) |
+| Report quality and product feedback (2) | [Lessons Learned and Product Feedback](#lessons-learned-and-product-feedback), [Known Limitations](#known-limitations), [Conclusion](#conclusion) |
+
+| Required README content (2026) | Where to find it |
+|---|---|
+| 1. Brief introduction to the problem | [Problem Statement](#problem-statement) |
+| 2. The solution and how MATLAB was used | [Simulation Architecture](#simulation-architecture), [Why MATLAB, and Which Products](#why-matlab-and-which-products) |
+| 3. Link to the model and relevant files | All MATLAB code: [`obstacle_challenge/`](obstacle_challenge/); entry point [`run.m`](obstacle_challenge/run.m); batch test [`evaluate.m`](obstacle_challenge/evaluate.m). No Simulink model yet ([Known Limitations](#known-limitations)) |
+| 4. Testing, deployment and how results were evaluated | [Validation Results](#validation-results), [Sim-to-Real](#sim-to-real-what-the-timing-does-and-doesnt-validate), [Deployment](#deployment-what-actually-reached-the-robot) |
+| 5. Achievements, lessons learned, reflections on MathWorks tools | [Conclusion](#conclusion), [Lessons Learned and Product Feedback](#lessons-learned-and-product-feedback) |
+
+## Evidence at a Glance
+
+Every number in this report, and what kind of evidence it is:
+
+| Result | Value | Evidence type | Details |
+|---|---|---|---|
+| Missions on 12 randomized layouts (`'field'` mode, seed 42) | 12/12 complete, 12/12 full parks, 0 barrier touches, min sign clearance 0.14 m | Simulated | [Validation Results](#validation-results) |
+| Average simulated mission time | 148.2 s | Simulated (not real-world time) | [Sim-to-Real](#sim-to-real-what-the-timing-does-and-doesnt-validate) |
+| Steering-gain sweep (`KP_BLOCK`, `'field'` mode) | Flat optimum 0.05–0.09; ≥ 0.12 costs up to +20% time | Simulated, not deployed | [Closing the Loop](#closing-the-loop-simulation-tuned-parameters) |
+| Pi power under full vision load | 5.7 W | Measured (PMIC) | [Power Budget](#power-budget-prediction--measurement--verification) |
+| Steering servo stall current | ~0.8 A | Measured | [Power Budget](#power-budget-prediction--measurement--verification) |
+| Whole-robot battery current | 0.40 A idle / 0.80 A driving | Measured | [Power Budget](#power-budget-prediction--measurement--verification) |
+| Power model vs multimeter at cruise | Within 10% | Model checked against measurement | [Power Budget](#power-budget-prediction--measurement--verification) |
+| Peak 5 V demand | 2.3 A against a 5 A regulator (2.2× headroom) | Model, validated at cruise | [Power Budget](#power-budget-prediction--measurement--verification) |
+| Runtime on 1500 mAh 3S pack | ~102 min | Model | [Power Budget](#power-budget-prediction--measurement--verification) |
+| Worst-case servo stall | 44 W, 2.6 C | Model only (not safe to measure) | [Power Budget](#power-budget-prediction--measurement--verification) |
+| Real robot obstacle run | 45 s at deployed cruise speed | Measured on the robot | [Sim-to-Real](#sim-to-real-what-the-timing-does-and-doesnt-validate) |
+| Gyro PD gains in `'gyro'` mode | KP 0.85, KD 0.1 | Copied from robot code (`tuning.py`) | [Deployment](#deployment-what-actually-reached-the-robot) |
+| Simulated camera | No noise, blur or lighting variation | Assumption | [Known Limitations](#known-limitations) |
+| Simulated HSV thresholds | Adapted to the renderer, not the robot's values | Assumption | [Perception](#perception-vision-pipeline-kept-in-sync) |
+| Simulated cruise speed | 0.18 m/s nominal | Assumption, chosen for controller stability | [Sim-to-Real](#sim-to-real-what-the-timing-does-and-doesnt-validate) |
+
 ## Table of Contents
+- [Rubric Guide](#rubric-guide)
+- [Evidence at a Glance](#evidence-at-a-glance)
 - [Problem Statement](#problem-statement)
 - [Project Objectives](#project-objectives)
 - [Simulation Architecture](#simulation-architecture)
@@ -201,7 +246,8 @@ Every design change was driven by an observed failure:
 
 ## Validation Results
 
-**12 officially randomized layouts, random directions, reproducible (seed 42):**
+**12 officially randomized layouts, random directions, reproducible (seed 42),
+`'field'` navigation mode (the default):**
 
 ```
 RESULT: 12 / 12 missions complete (3 laps + parked)   (100%)
@@ -243,11 +289,11 @@ layouts):
 |---|---|---|
 | 0.05 | 6/6 | 131.4 s |
 | 0.07 | 6/6 | **129.7 s** |
-| **0.09 (deployed)** | 6/6 | 132.6 s |
+| **0.09 (baseline)** | 6/6 | 132.6 s |
 | 0.12 | 6/6 | 140.3 s |
 | 0.15 | 6/6 | 159.5 s |
 
-Our deployed 0.09 sits in the flat optimum; gains ≥ 0.12 cost up to +20%
+Our baseline 0.09 sits in the flat optimum; gains ≥ 0.12 cost up to +20%
 mission time through oversteer. The physical tuning session can skip the
 high-gain region entirely.
 
@@ -273,7 +319,7 @@ it as `results/runN_control_<timestamp>.png`:
 | Panel | What it shows | Why it matters |
 |---|---|---|
 | A. Servo command vs time | Steering output over the whole run, pillar-avoidance windows shaded | Where the controller works hard |
-| B. Control-law check | Logged servo command against camera error, red/green pillars, over the design line | Proves the simulated controller is exactly the deployed law, including saturation |
+| B. Control-law check | Logged servo command against camera error, red/green pillars, over the design line | Proves the simulated controller follows its design law exactly, including saturation |
 | C. Pillar avoidance responses | Every pass overlaid from the moment the pillar is detected, like a family of step responses | Consistency of the response across random layouts |
 | D. Heading loop | Heading error and turn rate ω | Tracking quality of the inner loop |
 | E. Lane keeping | Offset from lane centre (cm), with RMS and max | How well the robot holds its lane between pillars |
@@ -287,7 +333,7 @@ average 8.7 s per pass):
 
 ![Control analysis](https://github.com/Devansh-awat/greenbotics-2026/blob/main/matlab/control_analysis.png?raw=true)
 
-- **Panel B** confirms the controller is the deployed law: every logged
+- **Panel B** confirms the controller follows its design law: every logged
   command sits on the design line, including the ±45° limit. The few points
   at 0° are the first frame of each avoidance, where the state switches before
   the law is applied.
@@ -463,8 +509,8 @@ This module turns testing from "it seems to work" into engineering evidence:
 our vision method and navigation architecture running in closed loop on
 officially randomized layouts, scoring **12/12 complete missions with 12/12
 full parallel parks and zero contact**. It caught control bugs we would never have staged physically,
-verified our power system against multimeter measurements, and bounded our
-steering gain before a single physical tuning session. With the control
+verified our power system against multimeter measurements, and showed how to
+bound a steering gain on paired layouts before a physical tuning session. With the control
 analysis, every run now also shows *how* the controller reached that result:
 the steering law checked against its design, every pillar pass compared, and
 heading and lane errors measured. Every result in this
