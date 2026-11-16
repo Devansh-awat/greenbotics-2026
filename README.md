@@ -2,7 +2,7 @@
 
 <img src="docs/diagrams/WatchFirstBanner_pastel.png" alt="Quick 5 min video. We recommend you watch it to get a quick understanding of our robot and documentation." width="100%"/>
 
-[<img src="docs/diagrams/SummaryVideoThumbnail.png" alt="Thumbnail of the 5 minute Greenbotics summary video; click to open the YouTube playlist" width="700"/>](https://m.youtube.com/playlist?list=PLMdippUF4xxo)
+[<img src="docs/diagrams/SummaryVideoThumbnail.png" alt="Thumbnail of the 5 minute Greenbotics summary video; click to open the YouTube playlist" width="700"/>](https://www.youtube.com/watch?v=1HkggaUbG9Q&list=PLMdippUF4xxo&index=1)
 
 Quick Highlights of our documentation are available in [Presentation PDF](docs/Engineering_Journal/Greenbotics_Presentation.pdf) which was also used in this video.
 <!-- WEB-ONLY:END -->
@@ -82,9 +82,9 @@ We are team Greenbotics and are competing in WRO 2026 Future Engineers category.
 ## 1.1 Summary and Performance Video
 
 **We recommend you to watch the summary video to get a quick understanding of our robot and documentation.**
-- [Summary Video](https://youtu.be/YS-oyNQQUGs)
-- [Open Challenge Performance Video](https://youtu.be/OW5V_LRIKNU)
-- [Obstacle Challenge Performance Video](https://youtu.be/RbtGV2t9GcI)
+- [Summary Video](https://www.youtube.com/watch?v=1HkggaUbG9Q&list=PLMdippUF4xxo&index=1)
+- [Open Challenge Performance Video](https://www.youtube.com/watch?v=OW5V_LRIKNU&list=PLMdippUF4xxo&index=2)
+- [Obstacle Challenge Performance Video](https://www.youtube.com/watch?v=RbtGV2t9GcI&list=PLMdippUF4xxo&index=3)
 
 ---
 
