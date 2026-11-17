@@ -1,6 +1,6 @@
 # MATLAB Simulation Report — Obstacle Challenge
 
-[![Simulation demo](simulation_preview.gif)](simulation_demo.mp4)
+[![Simulation demo](simulation_preview.webp)](simulation_demo.mp4)
 
 *The simulator on two officially randomized layouts, with the control analysis
 saved after each run. Click the preview for the full video (29 s).*

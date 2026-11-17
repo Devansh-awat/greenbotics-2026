@@ -266,7 +266,7 @@ After assembling servo motor and Ackermann steering, the max steering angle was 
 
 We verified that **Actual Turning Radius and Parking Offset of the actual Robot match closely with the calculated values.** And below is the video recording of our verification experiment.
 
-<img src="docs/diagrams/mobility/RobotParking1.gif" width="500" alt="Robot Parking with calculated Turning Radius">
+<img src="docs/diagrams/mobility/RobotParking1.webp" width="500" alt="Robot Parking with calculated Turning Radius">
 
 ---
 
@@ -1507,7 +1507,7 @@ Every run writes a self-contained folder with:
 
 | Regular Obstacle Run Annotated Video | Failure Scenario in Annotated Video |
 | :---: | :---: |
-| <img src="docs/diagrams/software/regular_run.gif" width="400" alt="Regular Obstacle Run Annotated Video"> | <img src="docs/diagrams/software/obstacle_last5s_crash.gif" width="400" alt="Failure Scenario in Annotated Video"> |
+| <img src="docs/diagrams/software/regular_run.webp" width="400" alt="Regular Obstacle Run Annotated Video"> | <img src="docs/diagrams/software/obstacle_last5s_crash.webp" width="400" alt="Failure Scenario in Annotated Video"> |
 
 These detailed logs and annotated videos help us to do the post-run analysis to fix the issue observed in the prior run.
 
@@ -1727,7 +1727,7 @@ A comparison of the videos before and after the fix shows some improvement in wo
 
 |Before|After|
 | :---: | :---:
-|<img src="docs/diagrams/systemsThinking/MoreeWobble.gif" alt="Before the fix: camera view with more wheel wobble" width="400">|<img src="docs/diagrams/systemsThinking/LessWobble.gif" alt="After the fix: camera view with less wheel wobble" width="400">|
+|<img src="docs/diagrams/systemsThinking/MoreeWobble.webp" alt="Before the fix: camera view with more wheel wobble" width="400">|<img src="docs/diagrams/systemsThinking/LessWobble.webp" alt="After the fix: camera view with less wheel wobble" width="400">|
 
 **Unresolved but known risk and limitation**
 The camera image is still wobbly. However this slight wobble causes 1-2 frame misses sporadically. In case a few frames are missed when the robot is close to a block, it may hit the block. However we haven’t ever encountered this problem so we are leaving this as a known issue.
@@ -2053,7 +2053,7 @@ Summary of our documentation is available in [Presentation PDF](docs/Engineering
 
 The Matlab code and journal is in the [matlab folder](matlab/) of this repository. Below is a sneak peek of our Matlab simulation, which models our robot's vision **method** (HSV block detection) and current navigation **architecture** (gyro-PD heading lock + rule-based pillar passing) against a simulated camera — see the [matlab README's Perception section](matlab/README.md#perception-vision-pipeline-kept-in-sync) for exactly what is and isn't a literal port of `src/obstacle_challenge/`.
 
-[![Simulation demo](/matlab/simulation_preview.gif)](/matlab/simulation_demo.mp4)
+[![Simulation demo](/matlab/simulation_preview.webp)](/matlab/simulation_demo.mp4)
 
 *The simulator on two officially randomized layouts, with the control analysis
 saved after each run. Click the preview for the full video (29 s).*
