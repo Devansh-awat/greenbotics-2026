@@ -16,6 +16,14 @@ pairs, e.g.:
   - <number> is 1-21, matching the physical pillar position per the
     field annotation photo.
   - <color> is "G" (Green) or "R" (Red) - case-insensitive.
+  - SURPRISE RULE (half-height blocks): add "h" after the colour,
+    Rh = shaded red (half-height) block, Gh = shaded green (half-height)
+    block, e.g. "5Rh 6G 10Gh 3R". R` / G` and R' / G' are accepted too
+    (in PowerShell wrap the string in SINGLE quotes if you use those).
+
+Half-height blocks have the same footprint as full blocks, so from the
+top view they are drawn the same size but with a pale hatched fill,
+a coloured ring, a dark "1/2" badge, and a legend in the title bar.
 
 Numbering convention (confirmed with user):
   - Bottom section = PARKING side. Only 3 positions: 3, 4, 5
@@ -66,6 +74,58 @@ COLORS = {
 }
 
 COLOR_NAMES = {"R": "Red", "G": "Green"}
+
+# --- HALF-HEIGHT (SHADED) BLOCK CONVENTION -------------------------------
+# Colour codes used throughout the test scripts:
+#   "R", "G"   = full-height solid block
+#   "Rh", "Gh" = half-height (shaded) block  (surprise rule; h = half)
+# Also accepted as input (normalised to Rh / Gh): R` G` R' G'
+# The codes stay plain strings, so optimize_sequence.py and
+# generate_sequence_pdf.py (which compare / print colours) need no change.
+HALF_MARK = "h"
+VALID_COLORS = ("R", "G", "R" + HALF_MARK, "G" + HALF_MARK)
+# Other characters a user may type after the colour letter for "half"
+HALF_MARK_ALIASES = ("`", "'", "\u2019", "\u00b4")
+
+# Style of a half-height block (same footprint as a full block)
+HALF_STYLE = {
+    "R": {"pale": "#F9CDD3", "strong": "#d90429"},
+    "G": {"pale": "#C9E6C9", "strong": "#008000"},
+}
+HALF_HATCH_SPACING = 11     # px between hatch lines
+HALF_HATCH_WIDTH = 3        # px
+HALF_RING_WIDTH = 1         # px extra coloured ring inside the black outline
+BADGE_FILL = "#222222"
+BADGE_TEXT = "\u00bd"       # the "1/2" character
+
+
+def is_half(color_code):
+    """True if the colour code is a half-height (shaded) block."""
+    return color_code.endswith(HALF_MARK)
+
+
+def base_color(color_code):
+    """'R`' -> 'R', 'G' -> 'G'."""
+    return color_code[0]
+
+
+def normalize_color(color_token):
+    """Normalises a colour token to one of R, G, Rh, Gh (case-insensitive;
+    R` R' r h-suffix variants all map to Rh). Returns the normalised token
+    (not yet validated against VALID_COLORS)."""
+    token = str(color_token).strip()
+    if not token:
+        return token
+    letter, suffix = token[0].upper(), token[1:]
+    if suffix and (suffix.lower() == HALF_MARK or all(ch in HALF_MARK_ALIASES for ch in suffix)):
+        if len(suffix) == 1:
+            return letter + HALF_MARK
+    return letter + suffix.upper() if suffix else letter
+
+
+def color_file_tag(color_code):
+    """Colour code for use inside a file name (already file-safe)."""
+    return color_code
 
 # --- COORDINATES (identical to generate_tough_configs.py / markup_pillar_numbers.py) ---
 
@@ -165,11 +225,14 @@ def parse_pillar_input(pillar_string):
             pairs = []
             for number, color in items:
                 number = int(number)
-                color = str(color).upper()
+                color = normalize_color(color)
                 if number not in PILLAR_NUMBER_MAP:
                     raise ValueError(f"Pillar number {number} is out of range (must be 1-21).")
-                if color not in ("R", "G"):
-                    raise ValueError(f"Invalid color '{color}' for pillar {number}. Use 'R' or 'G'.")
+                if color not in VALID_COLORS:
+                    raise ValueError(
+                        f"Invalid color '{color}' for pillar {number}. "
+                        f"Use R, G, Rh (half red) or Gh (half green)."
+                    )
                 pairs.append((number, color))
             _check_duplicates(pairs)
             return pairs
@@ -182,8 +245,9 @@ def parse_pillar_input(pillar_string):
     # (e.g. "5G") into separate "5" and "G" tokens, so downstream logic
     # only ever deals with alternating number/color tokens.
     normalized = []
+    half_chars = re.escape(HALF_MARK + "".join(HALF_MARK_ALIASES))
     for token in tokens:
-        match = re.fullmatch(r"(\d+)([A-Za-z]+)", token)
+        match = re.fullmatch(rf"(\d+)([A-Za-z]+[{half_chars}]?)", token)
         if match:
             normalized.append(match.group(1))
             normalized.append(match.group(2))
@@ -200,7 +264,7 @@ def parse_pillar_input(pillar_string):
     pairs = []
     for i in range(0, len(tokens), 2):
         num_token = tokens[i]
-        color_token = tokens[i + 1].upper()
+        color_token = normalize_color(tokens[i + 1])
 
         try:
             number = int(num_token)
@@ -210,8 +274,11 @@ def parse_pillar_input(pillar_string):
         if number not in PILLAR_NUMBER_MAP:
             raise ValueError(f"Pillar number {number} is out of range (must be 1-21).")
 
-        if color_token not in ("R", "G"):
-            raise ValueError(f"Invalid color '{color_token}' for pillar {number}. Use 'R' or 'G'.")
+        if color_token not in VALID_COLORS:
+            raise ValueError(
+                f"Invalid color '{color_token}' for pillar {number}. "
+                f"Use R, G, Rh (half red) or Gh (half green)."
+            )
 
         pairs.append((number, color_token))
 
@@ -234,17 +301,100 @@ EMPTY_SEAT_NUMBER_COLOR = "#555555"
 FILLED_SEAT_NUMBER_COLOR = "#FFFFFF"
 
 
-def draw_pillar(draw, center_xy, color_code, number, font):
-    """Draws a colored circle (pillar) with its seat NUMBER shown on
-    top (not the R/G letter - color alone indicates Red/Green)."""
-    x, y = center_xy
-    bbox = [x - PILLAR_RADIUS, y - PILLAR_RADIUS, x + PILLAR_RADIUS, y + PILLAR_RADIUS]
-    draw.ellipse(bbox, fill=COLORS[color_code], outline="black", width=3)
+def _load_font(size, bold=False):
+    """Best-effort TrueType font (Arial), falling back to PIL default."""
+    names = ["arialbd.ttf", "arial.ttf"] if bold else ["arial.ttf"]
+    for name in names:
+        try:
+            return ImageFont.truetype(name, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
 
+
+def draw_pillar(draw, center_xy, color_code, number, font, image=None, radius=None):
+    """Draws a pillar with its seat NUMBER on top.
+
+    Full block (R / G): solid colour disc, white number.
+    Half-height block (R` / G`): visibly different at a glance -
+      * pale tint of the colour (not the solid colour),
+      * diagonal hatching clipped to the disc,
+      * thick ring in the full colour inside the black outline,
+      * dark number with a white halo,
+      * small dark "1/2" badge at the top-right.
+    `image` (the PIL image `draw` belongs to) is needed for the clipped
+    hatching; without it the half block is drawn without hatch lines.
+    """
+    x, y = center_xy
+    r = PILLAR_RADIUS if radius is None else radius
+
+    if not is_half(color_code):
+        bbox = [x - r, y - r, x + r, y + r]
+        draw.ellipse(bbox, fill=COLORS[color_code], outline="black", width=3)
+        text = str(number)
+        tb = draw.textbbox((0, 0), text, font=font)
+        tw, th = tb[2] - tb[0], tb[3] - tb[1]
+        draw.text((x - tw / 2, y - th / 2 - 2), text, fill=FILLED_SEAT_NUMBER_COLOR, font=font)
+        return
+
+    style = HALF_STYLE[base_color(color_code)]
+
+    # 1) pale base disc
+    bbox = [x - r, y - r, x + r, y + r]
+    draw.ellipse(bbox, fill=style["pale"])
+
+    # 2) diagonal hatching clipped to the disc
+    if image is not None:
+        size = 2 * r + 1
+        hatch = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        hd = ImageDraw.Draw(hatch)
+        for k in range(-size, 2 * size, HALF_HATCH_SPACING):
+            hd.line([(k, size), (k + size, 0)], fill=style["strong"], width=HALF_HATCH_WIDTH)
+        mask = Image.new("L", (size, size), 0)
+        ImageDraw.Draw(mask).ellipse([0, 0, size - 1, size - 1], fill=255)
+        hatch.putalpha(Image.composite(hatch.getchannel("A"), Image.new("L", (size, size), 0), mask))
+        image.paste(hatch, (int(x - r), int(y - r)), hatch)
+
+    # 3) coloured ring + black outline
+    draw.ellipse(bbox, outline=style["strong"], width=HALF_RING_WIDTH + 3)
+    draw.ellipse(bbox, outline="black", width=3)
+
+    # 4) seat number: dark text with white halo so hatching never hides it
     text = str(number)
-    tb = draw.textbbox((0, 0), text, font=font)
+    num_font = _load_font(24, bold=True)
+    tb = draw.textbbox((0, 0), text, font=num_font)
     tw, th = tb[2] - tb[0], tb[3] - tb[1]
-    draw.text((x - tw / 2, y - th / 2 - 2), text, fill=FILLED_SEAT_NUMBER_COLOR, font=font)
+    draw.text((x - tw / 2, y - th / 2 - 2), text, fill="black", font=num_font,
+              stroke_width=4, stroke_fill="white")
+
+    # 5) "1/2" badge, top-right of the disc
+    bx, by, br = x + r - 2, y - r + 2, 17
+    draw.ellipse([bx - br, by - br, bx + br, by + br], fill=BADGE_FILL, outline="white", width=2)
+    badge_font = _load_font(15, bold=True)
+    btxt = "1/2"
+    bb = draw.textbbox((0, 0), btxt, font=badge_font)
+    draw.text((bx - (bb[2] - bb[0]) / 2, by - (bb[3] - bb[1]) / 2 - 2), btxt,
+              fill="white", font=badge_font)
+
+
+def draw_half_block_legend(image, draw, right_margin=30, top=14):
+    """Legend in the title bar: solid = full block, shaded = half block."""
+    font = _load_font(26)
+    r = 22
+    items = [("Full block", "G"), ("Half-height block (shaded, 1/2)", "G" + HALF_MARK)]
+    # measure total width so the legend is right-aligned
+    widths = []
+    for label, _ in items:
+        tb = draw.textbbox((0, 0), label, font=font)
+        widths.append(2 * r + 12 + (tb[2] - tb[0]))
+    gap = 40
+    total = sum(widths) + gap * (len(items) - 1)
+    x = image.width - right_margin - total
+    cy = top + r + 4
+    for (label, code), w in zip(items, widths):
+        draw_pillar(draw, (x + r, cy), code, "", font, image=image, radius=r)
+        draw.text((x + 2 * r + 12, cy - 15), label, fill="#FFFFFF", font=font)
+        x += w + gap
 
 
 def draw_empty_seat(draw, center_xy, number, font):
@@ -342,7 +492,7 @@ def generate_field_from_pillar_list(pillar_input, output_filename=None,
 
     for number, color_code in pairs:
         xy = get_pixel_coords(number)
-        draw_pillar(draw, xy, color_code, number, font)
+        draw_pillar(draw, xy, color_code, number, font, image=img)
 
     # Title / subtitle / info
     if subtitle is None:
@@ -350,12 +500,16 @@ def generate_field_from_pillar_list(pillar_input, output_filename=None,
         subtitle = f"Pillars: {desc}  |  Total: {len(pairs)}"
     draw_title(img, draw, title, subtitle)
 
+    # Legend only when the surprise-rule half blocks are present
+    if any(is_half(c) for _, c in pairs):
+        draw_half_block_legend(img, draw)
+
     if not save:
         return img
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     if output_filename is None:
-        stamp = "_".join(f"{n}{c}" for n, c in pairs)
+        stamp = "_".join(f"{n}{color_file_tag(c)}" for n, c in pairs)
         output_filename = f"config_{stamp}.png"
     output_path = os.path.join(OUTPUT_DIR, output_filename)
     img.save(output_path)

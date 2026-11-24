@@ -44,6 +44,7 @@ Quick Highlights of our documentation are available in [Presentation PDF](docs/E
    - 4.2 [System Architecture](#42-system-architecture)
    - 4.3 [Open Challenge Flow Chart and Algorithm](#43-open-challenge-flow-chart-and-algorithm)
    - 4.4 [Obstacle Challenge: State Machine and Algorithms](#44-obstacle-challenge-state-machine-and-algorithms)
+   - 4.4.9 [Surprise Rule Algorithm](#449-surprise-rule-algorithm)
    - 4.5 [Edge Cases](#45-edge-cases)
    - 4.6 [Interference Due to Surroundings](#46-interference-due-to-surroundings)
    - 4.7 [Parameter Tuning](#47-parameter-tuning)
@@ -84,7 +85,7 @@ We are team Greenbotics and are competing in WRO 2026 Future Engineers category.
 **We recommend you to watch the summary video to get a quick understanding of our robot and documentation.**
 - [Summary Video](https://www.youtube.com/watch?v=1HkggaUbG9Q&list=PLMdippUF4xxo&index=1)
 - [Open Challenge Performance Video](https://www.youtube.com/watch?v=OW5V_LRIKNU&list=PLMdippUF4xxo&index=2)
-- [Obstacle Challenge Performance Video](https://www.youtube.com/watch?v=RbtGV2t9GcI&list=PLMdippUF4xxo&index=3)
+- [Obstacle Challenge With Surprise Rule Performance Video](https://www.youtube.com/watch?v=mot9fPSUmmQ&list=PLMdippUF4xxo&index=3)
 
 ---
 
@@ -712,8 +713,8 @@ The complete Circuit diagram below shows all power and signal connections betwee
 | Camera Module 3 Wide | Rear-center, on pillar | 26 cm | 40 ° down | 3D-printed bracket on rear post | Forward view over chassis; avoids front blind spots; short CSI cable to RPi |
 | VL53L4CD #1 | Front | 5.5 cm | 0° (horizontal, forward) | Recessed inside chassis body | Detects front parking wall at short range |
 | VL53L4CD #2 | Rear | 6.7 cm | 180° (horizontal, backward) | Recessed inside chassis body | Detects rear parking wall at short range |
-| VL53L4CD #3 | Left side | 5.5 cm | 90° left | Recessed inside chassis body | Unused, kept for surprise rule |
-| VL53L4CD #4 | Right side | 5.5 cm | 90° right | Recessed inside chassis body | Unused, kept for surprise rule |
+| VL53L4CD #3 | Left side | 5.5 cm | 90° left | Recessed inside chassis body | Unused, kept if surprise rule announced at the competition |
+| VL53L4CD #4 | Right side | 5.5 cm | 90° right | Recessed inside chassis body | Unused, kept if surprise rule announced at the competition |
 | BNO086 IMU | Center chassis | 11.6 cm | Flat  | PCB-mounted, close to center of gravity | Minimum vibration; accurate heading readings |
 
  <img src="docs/diagrams/powerNsense/sensor_fov_coverage.png" alt="Sensor placement Top View" width="500">
@@ -1223,6 +1224,24 @@ Used for:
 - 90° turns at corners
 - All parking phases (precise angle targets)
 
+
+### 4.4.9 Surprise Rule Algorithm
+**Surprise Rule:**
+Under the surprise rule, a 50 mm or 150 mm pillar must be treated as the opposite colour (a short red is a green, a tall green is a red), so the vision pipeline measures every pillar's height.
+
+**Detection Logic:**
+We noted that the height of a pillar changed based on how far it was. We cannot read mm height from the image, but a pillar's bottom row tells us how far away it is. So we divide each pillar's pixel height by the height a normal 100 mm pillar would have at that bottom row, which gives a height ratio. Normal pillars read about 1.0, short ones about 0.4 to 0.7 and tall ones about 1.35 to 1.7. Because the colour masks cut off the top of far or tall pillars at the edge of the ROI, we also search a strip of the frame above the ROI to find the real top. One frame is never trusted on its own. Each pillar is tracked across frames and its verdict changes only after 3 agreeing readings.
+
+**Rejected Logic:**
+Our initial attempt relied on plain width/height aspect ratio, but it had high false detections and hence was rejected.
+
+**Changes to Driving Logic:**
+The flip happens inside the vision step, before any state sees the blocks. A flipped pillar arrives at PASS TRAFFIC SIGN with its colour already swapped, so the priority state machine and the target-line geometry are unchanged. To keep the geometry tuned on normal pillars valid, a flipped pillar's outline and centroid are replaced by the normal-height substitute. The substituted pillar keeps the real ground contact point and left and right edges and stretches or squashes the outline to where a normal pillar's top would be. Handoff lines, gains and speed scaling then behave as they would for a normal pillar at that distance. A short pillar that drops below the ROI is followed in the camera rows under it, so the robot does not think it has been passed and begin the corner early.
+
+<img src="docs/diagrams/software/SurpriseRule.png" alt="Surprise Rule Algorithm" width="700">
+
+
+
 ---
 
 ## 4.5 Edge Cases
@@ -1478,6 +1497,28 @@ Five scripts in [`test/scripts/`](test/scripts/) support this process end to end
 - **We logged incidents, not counts, from Phase 2 onward.** The Phase 1 metric of pillar touches was not meaningful for us. In Phase 2 even a single touch meant the test case failed and needed correction. So we recorded where the miss happened and did not keep count of pillars hit per round.  
 - **We stopped recording run times after Phase 2\.** Once the speed was fixed it was no longer the variable under test, and accuracy became the target.
 
+#### 4.9.2.6 Surprise Rule Testing
+
+We enhanced our testing scripts to include a new notation for different height pillars and automated the layouts to have setting for some of the pillars to be tall or short, so that we could test as many scenarios as possible. We chose to represent these new surprise pillars as shaded red or shaded green. A shaded red means it's a red pillar with short or tall height, we also called it an odd-height pillar in our test data. The robot needs to navigate the short or tall pillar as it would if the pillar color were flipped.
+
+<img src="test/pillar_configs/I1.jpeg" alt="I1 as first field layout" width="500">
+
+Following is our **Test data log** and details are in [Surprise Rule Run Logs](test/field_logs/surprise_rule_run_logs.csv)
+
+| Day | Odd runs completed |
+| --- | --- |
+| 14 Nov | 9/30 |
+| 16 Nov | 66/96 (68.8%) |
+| 17 Nov | 116/142 (81.7%) |
+| 18 Nov | 18/18 |
+| 19 Nov | 33/36 |
+| 21 Nov | 111/115 (96.5%) |
+| 22 Nov | 75/78 (96.2%) |
+| 23 Nov | 33/33 |
+
+We achieved **100%** success rate in our testing for surprise rule on 23 Nov.
+
+
 ---
 
 ## 4.10 Performance Optimizations
@@ -1603,7 +1644,7 @@ Mobility: The servo motor needs fast reaction time so that it can quickly act on
 
 - We cleaned up and organised our main control loop of over 800 lines into a modular functional structure so that we could easily and quickly attempt a surprise rule at the WRO 2026 Internationals. [Link to GitHub](https://github.com/Devansh-awat/greenbotics-2026/commit/58e9a06d53069c2477347f23d81708d0ec8e82ec)
 - We also made speed a global config so that we can easily adjust our robot speed with a single config. [Link to GitHub](https://github.com/Devansh-awat/greenbotics-2026/blob/db2b09ddc2027b6339b1da074000733b988c35a6/src/open_challenge/config.py#L6)
-- Added left and right ToF sensors which could be used in case the need arises in the surprise rule. 
+- Added left and right ToF sensors which could be used in case the need arises in the surprise rule announced during the competition event. 
 
 ---
 
