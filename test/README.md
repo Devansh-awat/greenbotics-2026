@@ -12,6 +12,7 @@ This folder holds everything behind our obstacle field testing: the layouts we r
 | [`master_test_layouts/phase3/`](master_test_layouts/phase3/) | The competition run-book [`pillar_sequence_transitions.pdf`](master_test_layouts/phase3/pillar_sequence_transitions.pdf) and a preview of its first page. |
 | [`pillar_configs/`](pillar_configs/) | Field diagrams for the seven Phase 3 layouts, `M1.jpeg` to `M7.jpeg`. |
 | [`field_logs/`](field_logs/) | Phase 2 and Phase 3 run records: scanned handwritten sheets and a typed copy, [`coverage_matrix.md`](field_logs/coverage_matrix.md). |
+| [`run_logs/`](run_logs/) | Run logs of Surprise Rule testing on 23rd Nov. |
 
 ### `input_config/`
 

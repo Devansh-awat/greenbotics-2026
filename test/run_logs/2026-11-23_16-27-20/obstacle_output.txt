@@ -1,0 +1,275 @@
+16:27:20.550 INFO  robot.control === Obstacle Challenge v5 | run 2026-11-23_16-27-20 ===
+16:27:20.550 INFO  robot.control Logging to obstacle/2026-11-23_16-27-20/obstacle_output.txt
+16:27:20.550 INFO  robot.control Raw video recording (-v): storing untouched frames -> obstacle/2026-11-23_16-27-20/raw.mp4. Rebuild the annotated video with `python3 -m src.tools.annotate_run obstacle/2026-11-23_16-27-20`
+16:27:20.551 INFO  robot.control CPU governor OK for run: ondemand
+16:27:20.563 INFO  robot.vision  VisionPool started (pids 19425, 19426)
+16:27:20.575 INFO  robot.video   Encoder process started (pid 19428, avc1 -> obstacle/2026-11-23_16-27-20/raw.mp4, 8 slots, every 2nd frame, 10.0 fps metadata)
+16:27:20.575 INFO  robot.control Recording raw to obstacle/2026-11-23_16-27-20/raw.mp4 (avc1)
+16:27:20.582 INFO  robot.video   Encoder process started (pid 19437, avc1 -> obstacle/2026-11-23_16-27-20/parking.mp4, 8 slots, every 2nd frame, 10.0 fps metadata)
+16:27:20.583 INFO  robot.control Recording parking footage to obstacle/2026-11-23_16-27-20/parking.mp4 (avc1)
+16:27:20.626 INFO  robot.motor   Encoder initialized.
+16:27:20.626 INFO  robot.motor   Motor initialized.
+16:27:20.631 INFO  robot.camera  Camera thread running.
+16:27:20.631 INFO  robot.sensors Initializing distance sensors (attempt 1/3)...
+16:27:20.632 INFO  robot.control Waiting for distance sensors and IMU to initialize...
+16:27:21.015 INFO  robot.sensors Front VL53L4CD (GPIO17): up at 0x2A (attempt 1)
+16:27:21.344 INFO  robot.sensors Back VL53L4CD (GPIO16): up at 0x2B (attempt 1)
+16:27:21.344 INFO  robot.sensors Sensor initialization complete. Status: True. Live channels: [16, 17]
+16:27:21.344 INFO  robot.sensors Distance sensors initialized.
+16:27:21.344 DEBUG robot.sensors Initialization complete flag set.
+16:27:21.344 INFO  robot.control Sensors are ready.
+16:27:21.899 INFO  robot.imu     IMU initialized.
+16:27:21.899 INFO  robot.control IMU is ready. Locking dynamic calibration for run...
+16:27:21.928 INFO  robot.control Proceeding with main logic.
+16:27:21.928 INFO  robot.control Waiting for button press...
+16:37:46.017 INFO  robot.control Button pressed! Starting run.
+16:37:46.319 INFO  robot.control Detecting start driving direction from camera frames...
+16:37:46.338 INFO  robot.control Direction detect frame - left: 0, right: 5342 -> candidate: counter-clockwise (1/3)
+16:37:46.354 INFO  robot.control Direction detect frame - left: 0, right: 5281 -> candidate: counter-clockwise (2/3)
+16:37:46.370 INFO  robot.control Direction detect frame - left: 0, right: 5230 -> candidate: counter-clockwise (3/3)
+16:37:46.370 INFO  robot.control Decided driving direction: counter-clockwise
+16:37:46.370 INFO  robot.control Initial heading locked: 177.4°
+16:37:46.371 INFO  robot.control === Phase: start ===
+16:37:46.371 INFO  robot.control --- Executing Full Initial Maneuver ---
+16:37:46.371 INFO  robot.control Direction: COUNTER-CLOCKWISE | initial heading 177.4° | scan at 152.4° | full turn target 92.4°
+16:37:46.572 DEBUG robot.motor   rpm target=80.0 (forward) measured=0.0 duty=0.0% applied=none yet broke_free=False
+16:37:46.572 INFO  robot.control Starting initial turn...
+16:37:46.572 DEBUG robot.control initial turn: heading=177.2 diff=24.8
+16:37:46.773 DEBUG robot.control initial turn: heading=175.3 diff=22.9
+16:37:46.975 DEBUG robot.control initial turn: heading=162.4 diff=10.0
+16:37:46.995 INFO  robot.control Scan angle reached. Pausing to scan for objects...
+16:37:47.012 INFO  robot.control Block found during scan: RED (area 3005, x=117)
+16:37:47.512 INFO  robot.control Driving forward with gyro stabilization for 0.30s (target 137.4°, speed 50)
+16:37:47.818 DEBUG robot.control Gyro-stabilized drive complete.
+16:37:47.818 INFO  robot.control Initial maneuver: red block, short forward.
+16:37:47.819 INFO  robot.control Initial maneuver done; entering main control loop.
+16:37:47.819 INFO  robot.control === Phase: drive ===
+16:37:47.819 DEBUG robot.motor   rpm target=50.0 (forward) measured=0.0 duty=0.0% applied=none yet broke_free=False
+16:37:47.831 DEBUG robot.control f=35123 rule=red angle=  +9.8 rpm=  60 turns=0 lat=30.06ms vis=11.11ms blocks=2[red:2829@y=169,green:429@y=91] walls=1 skip=35122
+16:37:47.841 INFO  robot.vision.height red pillar at x=167 bottom=214: hratio 1.03 -> normal height
+16:37:47.855 INFO  robot.vision.height green pillar at x=240 bottom=105: hratio 1.00 -> normal height
+16:37:48.379 INFO  robot.perf     16.4 fps | capture->servo p50  8.00 p95 19.24 max 30.06 ms | vision p50 7.65 ms | skipped 35122
+16:37:48.699 INFO  robot.control turn_counter ----------------> 1
+16:37:48.842 DEBUG robot.control f=35181 rule=green angle=  -8.4 rpm= 308 turns=1 lat= 7.44ms vis=6.98ms blocks=1[green:1920@y=141] walls=3 skip=0
+16:37:49.328 DEBUG robot.motor   rpm target=192.4 (forward) measured=230.9 duty=37.0% applied=FWD 31.2% broke_free=True
+16:37:49.601 INFO  robot.vision.height green pillar at x=258 bottom=100: hratio 0.59 -> ODD HEIGHT, treated as red
+16:37:49.618 INFO  robot.vision.height green pillar at x=42 bottom=101: hratio 0.99 -> normal height
+16:37:49.843 DEBUG robot.control f=35237 rule=red angle=  +8.9 rpm= 308 turns=1 lat= 8.63ms vis=8.21ms blocks=2[red*:652@y=97,green:631@y=96] walls=2 skip=0
+16:37:50.397 INFO  robot.perf     56.0 fps | capture->servo p50  8.02 p95 13.31 max 21.64 ms | vision p50 7.51 ms | skipped 0
+16:37:50.833 DEBUG robot.motor   rpm target=211.7 (forward) measured=244.9 duty=39.3% applied=FWD 34.3% broke_free=True
+16:37:50.861 DEBUG robot.control f=35294 rule=wall angle= -27.4 rpm= 203 turns=1 lat= 8.37ms vis=7.93ms blocks=0[-] walls=2 skip=0
+16:37:51.520 INFO  robot.control turn_counter ----------------> 2
+16:37:51.863 DEBUG robot.control f=35350 rule=green angle= +15.0 rpm= 308 turns=2 lat= 9.90ms vis=9.36ms blocks=1[green:4570@y=193] walls=2 skip=0
+16:37:52.306 INFO  robot.vision.height green pillar at x=282 bottom=101: hratio 1.54 -> TALL (one frame), treated as red
+16:37:52.348 DEBUG robot.motor   rpm target=239.4 (forward) measured=225.5 duty=35.1% applied=FWD 37.1% broke_free=True
+16:37:52.398 INFO  robot.perf     56.0 fps | capture->servo p50  8.39 p95 11.17 max 25.15 ms | vision p50 7.93 ms | skipped 0
+16:37:52.488 INFO  robot.vision.height red pillar at x=87 bottom=96: hratio 1.45 -> TALL (one frame), treated as green
+16:37:52.877 DEBUG robot.control f=35407 rule=red angle=  +0.3 rpm= 308 turns=2 lat= 8.18ms vis=7.71ms blocks=1[red*:1822@y=140] walls=1 skip=0
+16:37:53.860 DEBUG robot.motor   rpm target=307.9 (forward) measured=248.6 duty=39.9% applied=FWD 48.8% broke_free=True
+16:37:53.888 DEBUG robot.control f=35463 rule=green angle= -33.9 rpm= 308 turns=2 lat=16.57ms vis=16.19ms blocks=1[green*:1386@y=110] walls=1 skip=0
+16:37:54.145 INFO  robot.control turn_counter ----------------> 3
+16:37:54.412 INFO  robot.perf     56.1 fps | capture->servo p50  8.99 p95 14.73 max 21.57 ms | vision p50 8.61 ms | skipped 0
+16:37:54.896 DEBUG robot.control f=35520 rule=red angle=  +7.6 rpm= 232 turns=3 lat= 9.06ms vis=8.66ms blocks=1[red:348@y=91] walls=2 skip=0
+16:37:54.913 INFO  robot.vision.height red pillar at x=243 bottom=104: hratio 0.98 -> normal height
+16:37:55.040 INFO  robot.vision.height green pillar at x=57 bottom=103: hratio 1.02 -> normal height
+16:37:55.363 DEBUG robot.motor   rpm target=307.9 (forward) measured=271.5 duty=44.4% applied=FWD 49.9% broke_free=True
+16:37:55.898 DEBUG robot.control f=35576 rule=wall angle= -25.0 rpm= 212 turns=3 lat= 8.05ms vis=7.83ms blocks=0[-] walls=2 skip=0
+16:37:56.425 INFO  robot.perf     55.7 fps | capture->servo p50  8.51 p95 13.43 max 19.62 ms | vision p50 8.11 ms | skipped 0
+16:37:56.660 INFO  robot.control turn_counter ----------------> 4
+16:37:56.880 DEBUG robot.motor   rpm target=307.9 (forward) measured=286.0 duty=45.6% applied=FWD 48.9% broke_free=True
+16:37:56.911 DEBUG robot.control f=35633 rule=green angle=  -6.0 rpm= 308 turns=4 lat= 8.01ms vis=7.46ms blocks=1[green:3577@y=177] walls=3 skip=0
+16:37:57.450 INFO  robot.vision.height red pillar at x=247 bottom=106: hratio 0.99 -> normal height
+16:37:57.646 INFO  robot.vision.height green pillar at x=77 bottom=102: hratio 1.01 -> normal height
+16:37:57.920 DEBUG robot.control f=35689 rule=red angle=  -4.1 rpm= 308 turns=4 lat=15.52ms vis=14.50ms blocks=2[red:1362@y=124,green:915@y=102] walls=1 skip=0
+16:37:58.392 DEBUG robot.motor   rpm target=307.9 (forward) measured=300.7 duty=47.7% applied=FWD 48.8% broke_free=True
+16:37:58.430 INFO  robot.perf     56.4 fps | capture->servo p50  9.13 p95 14.16 max 16.84 ms | vision p50 8.63 ms | skipped 0
+16:37:58.929 DEBUG robot.control f=35746 rule=green angle= -31.7 rpm= 308 turns=4 lat= 8.00ms vis=7.61ms blocks=1[green:1650@y=127] walls=1 skip=0
+16:37:58.948 INFO  robot.control turn_counter ----------------> 5
+16:37:59.802 INFO  robot.vision.height green pillar at x=283 bottom=103: hratio 0.54 -> ODD HEIGHT, treated as red
+16:37:59.892 INFO  robot.vision.height green pillar at x=48 bottom=105: hratio 0.97 -> normal height
+16:37:59.902 DEBUG robot.motor   rpm target=307.9 (forward) measured=223.8 duty=37.0% applied=FWD 49.6% broke_free=True
+16:37:59.946 DEBUG robot.control f=35803 rule=red angle=  +7.4 rpm= 308 turns=5 lat= 8.50ms vis=8.09ms blocks=2[red*:567@y=95,green:558@y=95] walls=1 skip=0
+16:38:00.445 INFO  robot.perf     56.1 fps | capture->servo p50  8.39 p95 11.28 max 14.81 ms | vision p50 7.94 ms | skipped 0
+16:38:00.946 DEBUG robot.control f=35859 rule=wall angle= -25.0 rpm= 212 turns=5 lat= 9.13ms vis=8.93ms blocks=0[-] walls=2 skip=0
+16:38:01.410 DEBUG robot.motor   rpm target=307.9 (forward) measured=282.6 duty=41.7% applied=FWD 45.5% broke_free=True
+16:38:01.462 INFO  robot.vision.height green pillar at x=37 bottom=153: hratio 0.97 -> normal height
+16:38:01.750 INFO  robot.control turn_counter ----------------> 6
+16:38:01.963 DEBUG robot.control f=35916 rule=green angle= -14.1 rpm= 308 turns=6 lat= 7.60ms vis=7.11ms blocks=1[green:2073@y=144] walls=2 skip=0
+16:38:02.464 INFO  robot.perf     56.0 fps | capture->servo p50  8.52 p95 11.80 max 15.95 ms | vision p50 8.05 ms | skipped 0
+16:38:02.588 INFO  robot.vision.height green pillar at x=268 bottom=101: hratio 1.63 -> TALL (one frame), treated as red
+16:38:02.822 INFO  robot.vision.height red pillar at x=102 bottom=96: hratio 1.51 -> TALL (one frame), treated as green
+16:38:02.917 DEBUG robot.motor   rpm target=307.9 (forward) measured=259.2 duty=42.3% applied=FWD 49.6% broke_free=True
+16:38:02.964 DEBUG robot.control f=35972 rule=red angle=  +5.1 rpm= 308 turns=6 lat= 9.95ms vis=9.43ms blocks=2[red*:967@y=108,green*:653@y=95] walls=2 skip=0
+16:38:03.980 DEBUG robot.control f=36029 rule=green angle= -35.0 rpm= 295 turns=6 lat= 8.43ms vis=8.19ms blocks=1[green*:1745@y=127] walls=1 skip=0
+16:38:04.359 INFO  robot.control turn_counter ----------------> 7
+16:38:04.430 DEBUG robot.motor   rpm target=307.9 (forward) measured=260.5 duty=44.1% applied=FWD 51.3% broke_free=True
+16:38:04.481 INFO  robot.perf     56.0 fps | capture->servo p50  9.17 p95 13.33 max 22.40 ms | vision p50 8.68 ms | skipped 0
+16:38:04.997 DEBUG robot.control f=36086 rule=wall angle= +30.0 rpm= 192 turns=7 lat= 7.11ms vis=6.91ms blocks=0[-] walls=2 skip=0
+16:38:05.158 INFO  robot.vision.height red pillar at x=246 bottom=106: hratio 1.13 -> normal height
+16:38:05.301 INFO  robot.vision.height green pillar at x=55 bottom=101: hratio 0.96 -> normal height
+16:38:05.935 DEBUG robot.motor   rpm target=307.9 (forward) measured=299.6 duty=46.7% applied=FWD 48.0% broke_free=True
+16:38:05.997 DEBUG robot.control f=36142 rule=red angle=  +1.0 rpm= 308 turns=7 lat= 8.66ms vis=8.12ms blocks=1[red:4333@y=215] walls=3 skip=0
+16:38:06.496 INFO  robot.perf     56.1 fps | capture->servo p50  8.50 p95 11.17 max 17.06 ms | vision p50 7.98 ms | skipped 0
+16:38:06.871 INFO  robot.control turn_counter ----------------> 8
+16:38:07.014 DEBUG robot.control f=36199 rule=green angle= -13.0 rpm= 308 turns=8 lat= 8.90ms vis=8.41ms blocks=1[green:2255@y=142] walls=3 skip=0
+16:38:07.442 DEBUG robot.motor   rpm target=192.4 (forward) measured=233.8 duty=40.0% applied=FWD 33.8% broke_free=True
+16:38:07.640 INFO  robot.vision.height red pillar at x=248 bottom=100: hratio 1.00 -> normal height
+16:38:07.872 INFO  robot.vision.height green pillar at x=83 bottom=101: hratio 1.13 -> normal height
+16:38:08.018 DEBUG robot.control f=36255 rule=red angle=  -2.7 rpm= 308 turns=8 lat=11.37ms vis=10.90ms blocks=2[red:903@y=111,green:684@y=94] walls=2 skip=0
+16:38:08.498 INFO  robot.perf     56.0 fps | capture->servo p50  8.58 p95 12.33 max 16.24 ms | vision p50 8.13 ms | skipped 0
+16:38:08.942 DEBUG robot.motor   rpm target=291.7 (forward) measured=265.2 duty=40.1% applied=FWD 44.1% broke_free=True
+16:38:09.030 DEBUG robot.control f=36312 rule=green angle= -35.0 rpm= 308 turns=8 lat= 7.38ms vis=7.13ms blocks=1[green:1976@y=130] walls=0 skip=0
+16:38:09.173 INFO  robot.control turn_counter ----------------> 9
+16:38:10.033 DEBUG robot.control f=36368 rule=red angle= +12.7 rpm= 269 turns=9 lat= 9.07ms vis=8.66ms blocks=1[red*:302@y=89] walls=2 skip=0
+16:38:10.083 INFO  robot.vision.height green pillar at x=285 bottom=106: hratio 0.52 -> ODD HEIGHT, treated as red
+16:38:10.176 INFO  robot.vision.height green pillar at x=46 bottom=108: hratio 0.94 -> normal height
+16:38:10.444 DEBUG robot.motor   rpm target=307.9 (forward) measured=267.5 duty=43.8% applied=FWD 49.9% broke_free=True
+16:38:10.512 INFO  robot.perf     56.1 fps | capture->servo p50  8.26 p95 11.98 max 30.01 ms | vision p50 7.80 ms | skipped 0
+16:38:11.048 DEBUG robot.control f=36425 rule=red angle= -15.0 rpm= 308 turns=9 lat= 8.67ms vis=8.33ms blocks=1[red*:1596@y=239] walls=2 skip=0
+16:38:11.636 INFO  robot.vision.height green pillar at x=16 bottom=161: hratio 0.92 -> normal height
+16:38:11.921 INFO  robot.control turn_counter ----------------> 10
+16:38:11.948 DEBUG robot.motor   rpm target=307.9 (forward) measured=265.1 duty=45.2% applied=FWD 51.6% broke_free=True
+16:38:12.049 DEBUG robot.control f=36481 rule=green angle= -29.2 rpm= 308 turns=10 lat= 9.93ms vis=9.44ms blocks=1[green:1177@y=128] walls=2 skip=0
+16:38:12.481 INFO  robot.vision.height green pillar at x=506 bottom=101: hratio 1.54 -> TALL (one frame), treated as red
+16:38:12.521 INFO  robot.perf     55.8 fps | capture->servo p50  8.38 p95 12.53 max 13.97 ms | vision p50 7.98 ms | skipped 0
+16:38:12.996 INFO  robot.vision.height red pillar at x=92 bottom=97: hratio 1.46 -> TALL (one frame), treated as green
+16:38:13.050 DEBUG robot.control f=36537 rule=red angle= +10.0 rpm= 308 turns=10 lat=10.90ms vis=10.46ms blocks=2[red*:807@y=100,green*:428@y=91] walls=2 skip=0
+16:38:13.460 DEBUG robot.motor   rpm target=307.9 (forward) measured=302.2 duty=48.9% applied=FWD 49.8% broke_free=True
+16:38:14.067 DEBUG robot.control f=36594 rule=red angle= -31.6 rpm= 308 turns=10 lat= 9.30ms vis=8.94ms blocks=2[red*:536@y=243,green*:1317@y=110] walls=0 skip=0
+16:38:14.246 INFO  robot.control turn_counter ----------------> 11
+16:38:14.533 INFO  robot.perf     56.2 fps | capture->servo p50  9.98 p95 13.75 max 18.55 ms | vision p50 9.51 ms | skipped 0
+16:38:14.921 INFO  robot.vision.height red pillar at x=237 bottom=108: hratio 0.94 -> normal height
+16:38:14.961 DEBUG robot.motor   rpm target=242.4 (forward) measured=242.1 duty=37.3% applied=FWD 37.3% broke_free=True
+16:38:14.995 INFO  robot.vision.height green pillar at x=38 bottom=104: hratio 0.96 -> normal height
+16:38:15.069 DEBUG robot.control f=36650 rule=red angle=  -4.9 rpm= 302 turns=11 lat=11.61ms vis=11.21ms blocks=2[red:735@y=98,green:519@y=92] walls=2 skip=0
+16:38:16.089 DEBUG robot.control f=36707 rule=wall angle= -27.7 rpm= 221 turns=11 lat=15.25ms vis=14.76ms blocks=0[-] walls=2 skip=0
+16:38:16.466 DEBUG robot.motor   rpm target=307.9 (forward) measured=260.2 duty=43.8% applied=FWD 51.0% broke_free=True
+16:38:16.551 INFO  robot.perf     56.0 fps | capture->servo p50 11.46 p95 17.40 max 19.73 ms | vision p50 11.10 ms | skipped 0
+16:38:16.651 INFO  robot.control turn_counter ----------------> 12
+16:38:16.708 INFO  robot.control First block after turn 12: green (hits (pid, colour): [(28, 'green'), (28, 'green'), (28, 'green'), (28, 'green')]; ignored: leaving [], beyond the lot [], brief [])
+16:38:17.105 DEBUG robot.control f=36764 rule=wall angle= +30.0 rpm= 192 turns=12 lat=12.38ms vis=12.00ms blocks=0[-] walls=2 skip=0
+16:38:17.107 INFO  robot.control Green pillar passed (left the view): parking6.
+16:38:17.108 INFO  robot.control === Phase: finish ===
+16:38:17.108 INFO  robot.control --- Time before finish (12 turns complete, turns): 30.74s ---
+16:38:17.109 INFO  robot.control Re-annotation started in the background during parking.
+16:38:17.109 INFO  robot.park    --- Parking6 (counter-clockwise, first block green) started ---
+16:38:17.110 INFO  robot.park    [Parking6] driving at heading 262.4 (INITIAL+85)
+16:38:17.111 DEBUG robot.motor   rpm target=307.0 (forward) measured=0.0 duty=0.0% applied=none yet broke_free=False
+16:38:17.111 INFO  robot.park    [Parking6] green: only the front wall (camera, base row >= 130, 2 frames) stops the drive; heading is not checked.
+16:38:17.113 DEBUG robot.park    parking6(green): wall_y=54.0 reached=False front=178.5 heading=179.0
+16:38:17.219 DEBUG robot.park    parking6(green): wall_y=60.0 reached=False front=351.5 heading=183.2
+16:38:17.328 DEBUG robot.park    parking6(green): wall_y=57.0 reached=False front=735.0 heading=197.5
+16:38:17.436 DEBUG robot.park    parking6(green): wall_y=103.0 reached=False front=695.0 heading=213.3
+16:38:17.547 DEBUG robot.park    parking6(green): wall_y=114.0 reached=False front=767.0 heading=226.5
+16:38:17.654 INFO  robot.video   Encoder stopped. 1646 frames offered, 823 skipped by decimation, 823 submitted, 0 dropped by backpressure (0.0%)
+16:38:17.667 DEBUG robot.park    parking6(green): wall_y=128.5 reached=False front=608.5 heading=238.9
+16:38:17.701 INFO  robot.video   Overlay log written: obstacle/2026-11-23_16-27-20/raw.mp4.overlay.jsonl (823 frames)
+16:38:17.702 INFO  robot.park    [Parking6] wall reached (base row 132.5) at heading 244.9: stop.
+16:38:18.198 INFO  robot.park    Tracking line to magenta stop (307 RPM until the first magenta line)...
+16:38:18.200 DEBUG robot.park    wall_base: x=625.0 target=625 n=19 steer=0.0 heading=203.0
+16:38:18.216 DEBUG robot.park    wall_base: x=626.0 target=625 n=20 steer=0.5 heading=203.0
+16:38:18.235 DEBUG robot.park    wall_base: x=635.0 target=625 n=14 steer=4.5 heading=203.0
+16:38:18.252 DEBUG robot.park    wall_base: x=627.0 target=625 n=13 steer=0.9 heading=195.7
+16:38:18.271 DEBUG robot.park    wall_base: x=625.0 target=625 n=18 steer=0.0 heading=195.7
+16:38:18.288 DEBUG robot.park    wall_base: x=637.0 target=625 n=13 steer=5.4 heading=190.5
+16:38:18.306 DEBUG robot.park    wall_base: x=627.0 target=625 n=16 steer=0.9 heading=190.5
+16:38:18.323 DEBUG robot.park    wall_base: x=629.0 target=625 n=16 steer=1.8 heading=190.5
+16:38:18.342 DEBUG robot.park    wall_base: x=624.0 target=625 n=18 steer=-0.5 heading=190.5
+16:38:18.359 DEBUG robot.park    wall_base: x=623.0 target=625 n=18 steer=-0.9 heading=190.5
+16:38:18.378 DEBUG robot.park    wall_base: x=624.0 target=625 n=18 steer=-0.5 heading=190.3
+16:38:18.395 DEBUG robot.park    wall_base: x=620.0 target=625 n=21 steer=-2.2 heading=190.3
+16:38:18.413 DEBUG robot.park    wall_base: x=618.0 target=625 n=22 steer=-3.1 heading=190.8
+16:38:18.431 DEBUG robot.park    wall_base: x=618.0 target=625 n=22 steer=-3.1 heading=190.8
+16:38:18.449 DEBUG robot.park    wall_base: x=613.0 target=625 n=18 steer=-5.4 heading=191.1
+16:38:18.466 DEBUG robot.park    wall_base: x=614.0 target=625 n=19 steer=-5.0 heading=191.1
+16:38:18.486 DEBUG robot.park    wall_base: x=610.0 target=625 n=12 steer=-6.8 heading=191.1
+16:38:18.502 DEBUG robot.park    wall_base: x=611.0 target=625 n=7 steer=-6.3 heading=191.4
+16:38:18.521 DEBUG robot.park    wall_base: not seen n=2, gyro steer=-15.4 heading=191.4
+16:38:18.538 DEBUG robot.park    wall_base: not seen n=0, gyro steer=-15.4 heading=191.4
+16:38:18.556 DEBUG robot.park    wall_base: not seen n=0, gyro steer=-14.9 heading=191.0
+16:38:18.556 INFO  robot.park    Detected what seems to be the first magenta line (1848 px).
+16:38:18.573 DEBUG robot.park    wall_base: not seen n=0, gyro steer=-14.9 heading=191.0
+16:38:18.591 DEBUG robot.park    wall_base: not seen n=0, gyro steer=-13.9 heading=190.0
+16:38:18.609 DEBUG robot.park    wall_base: not seen n=0, gyro steer=-13.9 heading=190.0
+16:38:18.615 DEBUG robot.motor   rpm target=150.0 (forward) measured=228.8 duty=38.1% applied=FWD 26.3% broke_free=True
+16:38:18.628 DEBUG robot.park    wall_base: x=605.0 target=625 n=18 steer=-9.0 heading=190.0
+16:38:18.645 DEBUG robot.park    wall_base: x=607.0 target=625 n=21 steer=-8.1 heading=187.0
+16:38:18.646 INFO  robot.park    First magenta line fully crossed. Armed to stop on the next one.
+16:38:19.108 INFO  robot.park    Second magenta line detected (525 px). Stopping.
+16:38:19.680 DEBUG robot.motor   rpm target=70.0 (reverse) measured=0.0 duty=0.0% applied=none yet broke_free=False
+16:38:20.702 DEBUG robot.park    first reverse turn done: {'distance_left': None, 'distance_center': 193.5, 'distance_right': None, 'distance_back': 277.0} heading=105.7
+16:38:21.403 INFO  robot.park    [Parking6] back samples (6): 248, 209, 192, 192, 193, 194
+16:38:21.403 INFO  robot.park    [Parking6] back=193 mm, delta=-10 mm -> forward 1.0 cm
+16:38:21.403 INFO  robot.control Driving forward 1.0 cm @ 100 rpm with gyro lock on 92.4° (timeout 2.1s)
+16:38:21.403 DEBUG robot.motor   rpm target=100.0 (forward) measured=0.0 duty=0.0% applied=none yet broke_free=False
+16:38:21.496 INFO  robot.control Distance drive done (distance reached): asked 1.0 cm, travelled 1.0 cm in 0.09s
+16:38:21.799 INFO  robot.park    [Parking6] back AFTER the correction: 202, 216 -> mean 209 mm (before 193, asked for +10 mm, actually moved +16 mm)
+16:38:22.100 INFO  robot.park    [Parking6 5/7] Reverse 2 to back distance <= 90 (40 RPM)...
+16:38:22.100 DEBUG robot.motor   rpm target=40.0 (reverse) measured=0.0 duty=0.0% applied=none yet broke_free=False
+16:38:22.101 DEBUG robot.park    reverse 2 for parking: back=219.0 heading=94.0
+16:38:22.205 DEBUG robot.park    reverse 2 for parking: back=218.0 heading=93.8
+16:38:22.310 DEBUG robot.park    reverse 2 for parking: back=217.5 heading=95.1
+16:38:22.420 DEBUG robot.park    reverse 2 for parking: back=212.5 heading=98.2
+16:38:22.521 DEBUG robot.park    reverse 2 for parking: back=208.5 heading=102.9
+16:38:22.627 DEBUG robot.park    reverse 2 for parking: back=193.5 heading=108.3
+16:38:22.733 DEBUG robot.park    reverse 2 for parking: back=197.0 heading=113.6
+16:38:22.840 DEBUG robot.park    reverse 2 for parking: back=194.0 heading=118.7
+16:38:22.943 DEBUG robot.park    reverse 2 for parking: back=197.5 heading=126.0
+16:38:23.044 DEBUG robot.park    reverse 2 for parking: back=211.5 heading=128.6
+16:38:23.146 DEBUG robot.park    reverse 2 for parking: back=208.0 heading=136.4
+16:38:23.251 DEBUG robot.park    reverse 2 for parking: back=188.0 heading=141.3
+16:38:23.353 DEBUG robot.park    reverse 2 for parking: back=163.5 heading=146.2
+16:38:23.462 DEBUG robot.park    reverse 2 for parking: back=145.0 heading=151.0
+16:38:23.568 DEBUG robot.park    reverse 2 for parking: back=128.0 heading=156.1
+16:38:23.602 DEBUG robot.motor   rpm target=40.0 (reverse) measured=41.8 duty=13.4% applied=REV 13.1% broke_free=True
+16:38:23.672 DEBUG robot.park    reverse 2 for parking: back=103.5 heading=161.2
+16:38:23.778 DEBUG robot.park    reverse 2 for parking: back=93.0 heading=165.7
+16:38:23.790 INFO  robot.park    [Parking6 5/7] STRAIGHT after reverse 2 (stop: back<=90): heading=165.7 target=182.4 err=-16.7 deg | back=87.5 center=104.5 left=None
+16:38:23.791 INFO  robot.park    [Parking6 5/7] Completed in 1.69s
+16:38:24.095 INFO  robot.park    [Parking6 6/7] Forward center alignment < 105 (40 RPM)...
+16:38:24.095 DEBUG robot.motor   rpm target=40.0 (forward) measured=0.0 duty=0.0% applied=none yet broke_free=False
+16:38:24.096 DEBUG robot.park    forward alignment: center=121.5 heading=175.9
+16:38:24.157 DEBUG robot.park    forward alignment: center=121.0 heading=175.9
+16:38:24.213 DEBUG robot.park    forward alignment: center=121.0 heading=175.6
+16:38:24.266 DEBUG robot.park    forward alignment: center=119.5 heading=175.7
+16:38:24.320 DEBUG robot.park    forward alignment: center=117.5 heading=176.3
+16:38:24.375 DEBUG robot.park    forward alignment: center=109.5 heading=177.0
+16:38:24.430 DEBUG robot.park    forward alignment: center=102.0 heading=177.7
+16:38:24.431 INFO  robot.park    [Parking6 6/7] STRAIGHT after forward align: heading=177.7 target=182.4 err=-4.7 deg | back=81.0 center=102.0 left=None
+16:38:24.431 INFO  robot.park    [Parking6 6/7] heading at exit: 177.7
+16:38:24.431 INFO  robot.park    [Parking6 6/7] Completed in 0.34s
+16:38:24.731 INFO  robot.park    [Parking6 7/7] Final reverse docking (40 RPM, back <= 100)...
+16:38:24.732 DEBUG robot.motor   rpm target=40.0 (reverse) measured=0.0 duty=0.0% applied=none yet broke_free=False
+16:38:24.733 DEBUG robot.park    final reverse: back=113.0 heading=178.3
+16:38:24.786 DEBUG robot.park    final reverse: back=114.0 heading=178.3
+16:38:24.843 DEBUG robot.park    final reverse: back=113.5 heading=178.3
+16:38:24.898 DEBUG robot.park    final reverse: back=110.0 heading=178.3
+16:38:24.952 DEBUG robot.park    final reverse: back=108.0 heading=178.4
+16:38:25.005 DEBUG robot.park    final reverse: back=103.0 heading=178.5
+16:38:25.059 DEBUG robot.park    final reverse: back=98.0 heading=178.6
+16:38:25.067 INFO  robot.park    [Parking6 7/7] STRAIGHT FINAL (vs steer target): heading=178.6 target=182.4 err=-3.8 deg | back=98.0 center=84.0 left=None
+16:38:25.067 INFO  robot.park    [Parking6] PARK RESULT: heading=178.6, +1.2 deg off the nearest of INITIAL / INITIAL+180 (INITIAL)
+16:38:25.067 INFO  robot.park    [Parking6 7/7] heading at exit: 178.6
+16:38:25.067 INFO  robot.park    [Parking6 7/7] Completed in 0.34s
+16:38:25.067 INFO  robot.park    --- parking6 sequence (turn, wall follow, park) completed in 7.36s ---
+16:38:25.067 INFO  robot.control --- Time spent in finish: 7.96s ---
+16:38:25.067 INFO  robot.control --- Total run time: 38.70s ---
+16:38:25.067 INFO  robot.control --- Time from turn 12 (TURNS_TO_FINISH-1) to the end: 8.42s ---
+16:38:25.068 INFO  robot.control Stopping motor RPM control and cleaning up motor...
+16:38:25.068 INFO  robot.motor   Cleaning up motor...
+16:38:25.688 INFO  robot.control Signaling threads to stop...
+16:38:25.688 INFO  robot.control Waiting for threads to complete...
+16:38:25.690 INFO  robot.imu     IMU cleanup complete.
+16:38:25.718 INFO  robot.sensors Cleaning up distance sensors...
+16:38:25.718 INFO  robot.sensors Cleaning up sensors
+16:38:25.745 INFO  robot.sensors Sensor cleanup complete.
+16:38:25.745 INFO  robot.sensors Distance sensor cleanup complete.
+16:38:27.440 INFO  robot.camera  Camera metadata: 37236 rows -> obstacle/2026-11-23_16-27-20/raw.mp4.camera.jsonl
+16:38:27.440 INFO  robot.camera  Camera thread stopped.
+16:38:27.491 INFO  robot.control All threads have completed.
+16:38:27.493 INFO  robot.video   Encoder stopped. 1646 frames offered, 823 skipped by decimation, 823 submitted, 0 dropped by backpressure (0.0%)
+16:38:28.381 INFO  robot.video   Encoder stopped. 112 frames offered, 56 skipped by decimation, 56 submitted, 0 dropped by backpressure (0.0%)
+16:38:28.397 INFO  robot.vision  VisionPool stopped.
+16:38:30.828 INFO  robot.control Background annotation finished.
+16:38:30.828 INFO  robot.control Background annotation joined (2.39s wait); obstacle/2026-11-23_16-27-20/obstacle.mp4 ready.
+16:38:30.828 INFO  robot.control Run complete. Log saved to obstacle/2026-11-23_16-27-20/obstacle_output.txt

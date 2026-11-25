@@ -1503,7 +1503,7 @@ We enhanced our testing scripts to include a new notation for different height p
 
 <img src="test/pillar_configs/I1.jpeg" alt="I1 as first field layout" width="500">
 
-Following is our **Test data log** and details are in [Surprise Rule Run Logs](test/field_logs/surprise_rule_run_logs.csv)
+Following is our **Test data log** summary and individual run stats are in [Surprise Rule Run Logs](test/field_logs/surprise_rule_run_logs.csv)
 
 | Day | Odd runs completed |
 | --- | --- |
@@ -1518,6 +1518,7 @@ Following is our **Test data log** and details are in [Surprise Rule Run Logs](t
 
 We achieved **100%** success rate in our testing for surprise rule on 23 Nov.
 
+Detailed run logs with annotated videos and logs are available in [test/run_logs](test/run_logs/) folder. To reduce the folder size, only the first 3 runs have annotated videos, rest have output log files only.
 
 ---
 
@@ -1545,6 +1546,7 @@ Every run writes a self-contained folder with:
 │   ├── raw.mp4                   Raw video as captured by camera
 │   └── raw.mp4.overlay.jsonl     Annotation Data used in annotating raw video
 ```
+Some sample run logs from 23rd Nov test run are at [test/run_logs](test/run_logs/) folder. To reduce the folder size, only the first 3 runs have annotated videos, rest have output log files only.
 
 | Regular Obstacle Run Annotated Video | Failure Scenario in Annotated Video |
 | :---: | :---: |
