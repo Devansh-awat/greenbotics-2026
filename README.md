@@ -67,6 +67,7 @@ Quick Highlights of our documentation are available in [Presentation PDF](docs/E
    - 6.5 [Parts List (Bill of Materials)](#65-parts-list-bill-of-materials)
    - 6.6 [Engineering Journal](#66-engineering-journal)
    - 6.7 [MATLAB Simulation (MathWorks Modeling Award)](#67-matlab-simulation-mathworks-modeling-award)
+7. [Further Improvements](#7-further-improvements)   
 
 <!-- TOC:END -->
 
@@ -2107,3 +2108,15 @@ saved after each run. Click the preview for the full video (29 s).*
 - All MATLAB code: [matlab/obstacle_challenge/](matlab/obstacle_challenge/); start with [`run.m`](matlab/obstacle_challenge/run.m) (interactive simulator) and [`evaluate.m`](matlab/obstacle_challenge/evaluate.m) (batch test on official randomized layouts)
 - Stateflow model of the navigation state machine: [matlab/stateflow/](matlab/stateflow/) (14/14 transition checks pass; [details](matlab/README.md#stateflow-model-of-the-state-machine))
 - Products used: MATLAB, Image Processing Toolbox, Simulink and Stateflow ([why](matlab/README.md#why-matlab-and-which-products))
+
+---
+# 7 Further Improvements
+
+In the days leading upto the competition, we are still working on few things listed below:
+
+- **Parking Manuever Optimization:** Our current parking logic takes a longer time and we want to optimize it. Currently our robot goes to the next section and reverses there. After that it turns around and then wall follows for accuracy to reach parking and then parks. We are trying different strategies to avoid this and park directly after the 12 laps end.This is tricky as the last pillar needs to be crossed on the correct side before starting parking manuever so this needs to be handled carefully. Aslo, lot of testing needs to be done to acheive stability and ensure all scenarios are tested.
+
+- **Obstacle Round Time:** We are also working on reducing the overall lap times. We are trying algorithms which will allow us to use variable speed so that if there are fewer objects in a track section we can speed up the robot in that area. This is tough as speed increase makes the corner turns risky. 
+
+Future Improvements:
+- We could have used LIDAR in our robot as that gives us the power to create a map. The map feature would have been really helpful in minimzing the time in second and third laps as the obstacle course is already known to the robot. We can consider this in our future work on autonomous cars.
