@@ -85,8 +85,8 @@ We are team Greenbotics and are competing in WRO 2026 Future Engineers category.
 
 **We recommend you to watch the summary video to get a quick understanding of our robot and documentation.**
 - [Summary Video](https://www.youtube.com/watch?v=1HkggaUbG9Q&list=PLMdippUF4xxo&index=1)
-- [Open Challenge Performance Video](https://www.youtube.com/watch?v=OW5V_LRIKNU&list=PLMdippUF4xxo&index=2)
-- [Obstacle Challenge With Surprise Rule Performance Video](https://www.youtube.com/watch?v=mot9fPSUmmQ&list=PLMdippUF4xxo&index=3)
+- [Open Challenge Performance Video](https://www.youtube.com/watch?v=OW5V_LRIKNU&list=PLMdippUF4xxo&index=2) (16 seconds)
+- [Obstacle Challenge With Surprise Rule Performance Video](https://www.youtube.com/watch?v=mot9fPSUmmQ&list=PLMdippUF4xxo&index=3) (40 seconds)
 
 ---
 
